@@ -1,3 +1,9 @@
+# Additional files to ignore
+.DS_Store
+data/tasks.txt
+data/workers.txst
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
