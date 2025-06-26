@@ -1,0 +1,22 @@
+sc_sim/
+├── main.py                       # 🔁 Entry point to run simulation
+├── config.py                     # ⚙️ Configurable parameters
+├── simulator/
+│   ├── __init__.py
+│   ├── simulation.py             # 🧠 Core timestep-based simulation loop
+│   ├── task_assignment.py        # 🎯 Assignment logic (composite score, ANN, PPO)
+│   ├── state.py                  # 🗺️ Tracks system state: active tasks/workers
+│   ├── events.py (optional)      # ⏰ If you ever simulate arrivals/departures
+├── models/
+│   ├── worker.py                 # 🧍 Worker model and behavior
+│   ├── task.py                   # 📦 Task model and behavior
+├── data/
+│   ├── loader.py                 # 📂 Loads tasks/workers from .txt files
+│   ├── workers.txt               # Generated worker data
+│   ├── tasks.txt                 # Generated task data
+├── metrics/
+│   ├── tracker.py                # 📊 Tracks fairness, utility, starvation, etc.
+│   ├── plotter.py (optional)     # 📈 Visualizations
+├── rl/
+│   ├── ppo_agent.py (later)      # 🧠 PPO RL integration
+│   ├── reward_signal.py (later)  # 🎯 Multi-objective reward function
