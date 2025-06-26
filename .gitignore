@@ -1,7 +1,7 @@
 # Additional files to ignore
 .DS_Store
 data/tasks.txt
-data/workers.txst
+data/workers.txt
 
 
 # Byte-compiled / optimized / DLL files
