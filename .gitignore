@@ -2,7 +2,12 @@
 .DS_Store
 data/tasks.txt
 data/workers.txt
-
+data/didi/gps.txt
+data/didi/order.txt
+data/checkins/tasks.txt
+data/checkins/workers.txt
+data/synthetic/tasks.txt
+data/synthetic/workers.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
