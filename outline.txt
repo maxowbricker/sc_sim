@@ -11,9 +11,19 @@ sc_sim/
 │   ├── worker.py                 # 🧍 Worker model and behavior
 │   ├── task.py                   # 📦 Task model and behavior
 ├── data/
-│   ├── loader.py                 # 📂 Loads tasks/workers from .txt files
-│   ├── workers.txt               # Generated worker data
-│   ├── tasks.txt                 # Generated task data
+│   ├── checkins/
+│   │   ├── checkins.py           # Gowalla & Weeplaces loader
+│   │   ├── workers.txt
+│   │   └── tasks.txt
+│   ├── didi/
+│   │   ├── didi.py               # Didi Gaia loader
+│   │   ├── gps.txt
+│   │   └── order.txt
+│   ├── synthetic/
+│   │   ├── synthetic.py          # Synthetic SC data loader
+│   │   ├── workers.txt
+│   │   └── tasks.txt
+│   ├── loader.py                 # Common loader utilities
 ├── metrics/
 │   ├── tracker.py                # 📊 Tracks fairness, utility, starvation, etc.
 │   ├── plotter.py (optional)     # 📈 Visualizations

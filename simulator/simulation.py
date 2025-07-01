@@ -1,34 +1,37 @@
-from data.loader import load_workers, load_tasks
 from simulator.state import StateManager
+from data.adapters.checkin import Event
 
-def run_simulation(config):
+
+def run_simulation(adapter, config=None):
     """
-    Runs the timestep-based spatial crowdsourcing simulation.
+    Run the timestep-based SC simulation using a streaming event adapter.
+
+    Parameters
+    ----------
+    adapter : Adapter
+        Must implement .stream(timestep) and yield List[Event].
+    config : dict (optional)
+        Reserved for future config extensions.
     """
-    # Load initial data
-    workers = load_workers(config["worker_file"])
-    tasks = load_tasks(config["task_file"])
-    state = StateManager(workers, tasks)
+    print("Starting simulation...\n")
+    state = StateManager()
 
-    current_time = config["start_time"]
-    end_time = config["end_time"]
-    step = config["time_step"]
+    for i, bucket in enumerate(adapter.stream()):
+        print(f"\n--- Timestep {i} ---")
+        for event in bucket:
+            print(f"{event.ts} | {event.type:12} | {event.payload}")
 
-    print("Starting simulation...")
-    
-    while current_time <= end_time:
-        print(f"\n--- Timestep: {current_time} ---")
+            if event.type == "worker_join":
+                state.register_worker(event.payload)
 
-        # 1. Update state for this timestep (release tasks and workers)
-        state.step(current_time)
+            elif event.type == "task_release":
+                state.register_task(event.payload)
 
-        # 2. Perform task assignment
-        # assign_tasks(current_time)
+            elif event.type == "gps":
+                state.update_worker_position(event.payload)
 
-        # 3. Update state and track metrics
-        # update_system_state(current_time)
-        # log_metrics(current_time)
+        # Placeholder for task assignment and metrics
+        # assign_tasks(state)
+        # update_metrics(state)
 
-        current_time += step
-
-    print("Simulation complete.")
+    print("\nSimulation complete.")
