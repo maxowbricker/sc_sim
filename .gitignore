@@ -8,6 +8,9 @@ data/checkins/tasks.txt
 data/checkins/workers.txt
 data/synthetic/tasks.txt
 data/synthetic/workers.txt
+data/didi/otherdata
+data/didi/sample_didi.py
+metrics_snapshot.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

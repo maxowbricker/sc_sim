@@ -12,6 +12,10 @@ class Task:
         self.assigned_worker = None
         self.assigned = False
 
+        # Service-time bookkeeping
+        self.finish_time = None  # pd.Timestamp when task completes
+        self.start_time = None   # when service starts
+
     def is_available(self, current_time):
         return (not self.assigned) and self.release_time <= current_time <= self.expire_time
 

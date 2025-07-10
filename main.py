@@ -1,23 +1,48 @@
-import sys
-from data.loader import get_adapter
-from simulator.simulation import run_simulation  # Ensure this exists and is implemented
+"""Convenience entry-point.
+
+Run the simulator using the settings defined in ``config.py``.
+
+Usage (from project root):
+    $ python main.py
+
+Optional CLI flags:
+    --dataset didi|checkin|synthetic  (overrides SIM_CONFIG["dataset"])
+    --root    PATH                    (overrides SIM_CONFIG["root_path"])
+"""
+
+import argparse
+from pathlib import Path
+
+from config import SIM_CONFIG
+from data.loader import load_workers_tasks
+from simulator.simulation import run_simulation
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Spatial-crowdsourcing simulator runner")
+    p.add_argument("--dataset", help="Override dataset key in config.py")
+    p.add_argument("--root", help="Override root_path in config.py")
+    return p.parse_args()
+
 
 def main():
-    if len(sys.argv) < 3:
-        print("Usage: python main.py simulation [1|2|...]")
-        return
+    args = parse_args()
 
-    sim_id = sys.argv[2]
+    cfg = dict(SIM_CONFIG)  # shallow copy
 
-    if sim_id == "1":
-        adapter = get_adapter("didi", "./data/raw/didi")
-    elif sim_id == "2":
-        adapter = get_adapter("checkin", "./data/raw/weeplaces")
-    else:
-        print(f"Unknown simulation ID: {sim_id}")
-        return
+    if args.dataset:
+        cfg["dataset"] = args.dataset
+    if args.root:
+        cfg["root_path"] = args.root
 
-    run_simulation(adapter)
+    workers, tasks = load_workers_tasks(cfg["dataset"], cfg.get("root_path"))
+
+    run_simulation(
+        workers,
+        tasks,
+        time_step=cfg.get("time_step", "5min"),
+        sim_config=cfg,
+    )
 
 
 if __name__ == "__main__":
