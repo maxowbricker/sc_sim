@@ -35,7 +35,9 @@ def load_tasks(file_path):
 # --------------------------------------------------------------------------- #
 
 
-def load_workers_tasks(dataset: str, root_path: str, **adapter_kwargs):
+# root_path becomes optional; if None, default to ./data/<dataset>
+
+def load_workers_tasks(dataset: str, root_path: str | None = None, **adapter_kwargs):
     """Return ``(workers, tasks)`` lists prepared for the simulator.
 
     Parameters
@@ -47,6 +49,10 @@ def load_workers_tasks(dataset: str, root_path: str, **adapter_kwargs):
     adapter_kwargs : Any
         Extra parameters forwarded to the adapter constructor (if needed).
     """
+
+    # Derive default path if none supplied
+    if root_path is None:
+        root_path = f"./data/{dataset}"
 
     adapter = get_adapter(dataset, root_path, **adapter_kwargs)
 

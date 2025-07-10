@@ -57,7 +57,10 @@ class Adapter:
         # Heuristic: driver deadline = last known GPS ping + 2h
         last_gps = (
             self.gps_df.groupby("driver_id")["timestamp"].last().reset_index()
-            .rename(columns={"timestamp": "last_seen"})
+            .rename(columns={
+                "driver_id": "worker_id",  # align with first_gps
+                "timestamp": "last_seen",
+            })
         )
         first_gps = first_gps.merge(last_gps, on="worker_id")
         first_gps["deadline"] = first_gps["last_seen"] + pd.Timedelta("2h")
@@ -121,6 +124,10 @@ class Adapter:
     def _load_orders(self) -> pd.DataFrame:
         path = self.root / "order.txt"
         df = pd.read_csv(path, header=None)
+
+        if df.shape[1] == 8: # if the order.txt has 8 columns, we need to remove the last column
+            df = df.iloc[:, :7]
+
         df.columns = [
             "order_id", "start_billing", "end_billing",
             "pickup_lon", "pickup_lat",

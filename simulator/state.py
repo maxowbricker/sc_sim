@@ -93,3 +93,9 @@ class StateManager:
         # Update idle time counters for all currently available workers
         for w in self.available_workers:
             w.update_idle(current_time)
+
+        # Check assigned tasks for completion (distance-based service mode)
+        completed_now = [t for t in self.assigned_tasks if getattr(t, "finish_time", None) is not None and t.finish_time <= current_time]
+        for task in completed_now:
+            worker = task.assigned_worker  # set during assignment
+            self.complete_task(task, worker, task.finish_time)
