@@ -1,5 +1,3 @@
-
-
 from geopy.distance import geodesic
 
 def assign_tasks(state, current_time):

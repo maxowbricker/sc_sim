@@ -26,6 +26,73 @@ class Adapter:
         self.gps_df = self._load_gps()
         self.orders_df = self._load_orders()
 
+    # ------------------------------------------------------------------ #
+    # Canonical DataFrame export (for timestep simulator)
+    # ------------------------------------------------------------------ #
+
+    def to_dataframes(self):
+        """Return (workers_df, tasks_df) in canonical format.
+
+        workers_df columns:
+            worker_id, start_lat, start_lon, release_time, deadline
+
+        tasks_df columns:
+            task_id, pickup_lat, pickup_lon, dropoff_lat, dropoff_lon,
+            release_time, expire_time
+        """
+
+        # Workers – first GPS ping per driver
+        first_gps = (
+            self.gps_df.groupby("driver_id")
+            .first()
+            .reset_index()[["driver_id", "timestamp", "lon", "lat"]]
+            .rename(columns={
+                "driver_id": "worker_id",
+                "lon": "start_lon",
+                "lat": "start_lat",
+                "timestamp": "release_time",
+            })
+        )
+
+        # Heuristic: driver deadline = last known GPS ping + 2h
+        last_gps = (
+            self.gps_df.groupby("driver_id")["timestamp"].last().reset_index()
+            .rename(columns={"timestamp": "last_seen"})
+        )
+        first_gps = first_gps.merge(last_gps, on="worker_id")
+        first_gps["deadline"] = first_gps["last_seen"] + pd.Timedelta("2h")
+
+        workers_df = first_gps[[
+            "worker_id",
+            "start_lat",
+            "start_lon",
+            "release_time",
+            "deadline",
+        ]]
+
+        # Tasks – directly from orders table
+        tasks_df = self.orders_df.rename(columns={
+            "order_id": "task_id",
+            "pickup_lat": "pickup_lat",
+            "pickup_lon": "pickup_lon",
+            "dropoff_lat": "dropoff_lat",
+            "dropoff_lon": "dropoff_lon",
+            "start_billing": "release_time",
+            "end_billing": "expire_time",
+        })[
+            [
+                "task_id",
+                "pickup_lat",
+                "pickup_lon",
+                "dropoff_lat",
+                "dropoff_lon",
+                "release_time",
+                "expire_time",
+            ]
+        ]
+
+        return workers_df, tasks_df
+
     def stream(self, timestep: str = "3s") -> Iterator[List[Event]]:
         events = self._build_events()
         events.sort(key=lambda e: e.ts)

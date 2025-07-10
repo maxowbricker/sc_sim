@@ -1,5 +1,3 @@
-
-
 """
 Adapter for Gowalla / Weeplaces check‑in logs.
 
@@ -41,6 +39,73 @@ class Adapter:
     def __init__(self, root_path: str):
         self.root = Path(root_path).expanduser()
         self.df   = self._load_checkins()
+
+    # ------------------------------------------------------------------ #
+    # Canonical DataFrame export (for timestep simulator)
+    # ------------------------------------------------------------------ #
+
+    def to_dataframes(self):
+        """Return (workers_df, tasks_df) in canonical column format.
+
+        workers_df columns:
+            worker_id, start_lat, start_lon, release_time, deadline
+
+        tasks_df columns:
+            task_id, pickup_lat, pickup_lon, dropoff_lat, dropoff_lon,
+            release_time, expire_time
+        """
+
+        # Workers – first appearance of each user
+        first_seen = (
+            self.df.groupby("user_id")
+            .first()
+            .reset_index()[["user_id", "datetime", "lon", "lat"]]
+            .rename(columns={
+                "user_id": "worker_id",
+                "lon": "start_lon",
+                "lat": "start_lat",
+                "datetime": "release_time",
+            })
+        )
+
+        # Simple heuristic: worker stays active for 24h after first sighting
+        first_seen["deadline"] = first_seen["release_time"] + pd.Timedelta("1D")
+
+        workers_df = first_seen[[
+            "worker_id",
+            "start_lat",
+            "start_lon",
+            "release_time",
+            "deadline",
+        ]]
+
+        # Tasks – every check-in row becomes a task at that exact location
+        tasks_df = (
+            self.df.reset_index()
+            .rename(columns={
+                "index": "idx",
+                "lat": "pickup_lat",
+                "lon": "pickup_lon",
+                "datetime": "release_time",
+            })
+        )
+
+        tasks_df["task_id"] = "ci_" + tasks_df["idx"].astype(str)
+        tasks_df["dropoff_lat"] = tasks_df["pickup_lat"]
+        tasks_df["dropoff_lon"] = tasks_df["pickup_lon"]
+        tasks_df["expire_time"] = tasks_df["release_time"] + pd.Timedelta("1D")
+
+        tasks_df = tasks_df[[
+            "task_id",
+            "pickup_lat",
+            "pickup_lon",
+            "dropoff_lat",
+            "dropoff_lon",
+            "release_time",
+            "expire_time",
+        ]]
+
+        return workers_df, tasks_df
 
     # ------------------------------------------------------------------ #
     # Public API
