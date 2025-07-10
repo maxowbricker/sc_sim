@@ -8,8 +8,8 @@ A timestep-based simulator for my honours research: https://drive.google.com/fil
 
 # (1) drop your dataset in ./data/<dataset>/
 #     ├── didi/      → gps.txt  order.txt
-#     ├── checkin/   → *.csv    (Gowalla / Weeplaces)
-#     └── synthetic/ → workers.txt tasks.txt (optional)
+#     ├── checkin/   → tasks.txt workers.txt - Look at /scripts/CheckinSynthesiser.py to syntehsise data from Gowalla and Weeplace Check-in Data
+#     └── synthetic/ → workers.txt tasks.txt (unfinished)
 
 # (2) configure simulator behaviour
 vim config.py     # or use CLI flags later
