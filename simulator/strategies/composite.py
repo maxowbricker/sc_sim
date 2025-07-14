@@ -24,7 +24,18 @@ def assign(state, now, λ1=1.0, λ2=1.0, λ3=1.0, **_):
     assignments = []
     for task in list(state.active_tasks):
         best_w = None; best_s = float("-inf")
+
+        drop_distance_const = manhattan_km(task.pickup_lat, task.pickup_lon,
+                                           task.dropoff_lat, task.dropoff_lon)
         for w in state.available_workers:
+            d_pick = manhattan_km(w.start_lat, w.start_lon,
+                                  task.pickup_lat, task.pickup_lon)
+            total_km_tmp = d_pick + drop_distance_const
+            finish_eta = pd.Timestamp(now) + pd.to_timedelta(total_km_tmp / AVG_SPEED_KMH, unit="h")
+
+            if finish_eta > w.deadline:
+                continue
+
             s = score(task, w, λ1, λ2, λ3, now)
             if s > best_s:
                 best_s, best_w = s, w
@@ -35,6 +46,8 @@ def assign(state, now, λ1=1.0, λ2=1.0, λ3=1.0, **_):
             drop_distance = manhattan_km(task.pickup_lat, task.pickup_lon,
                                          task.dropoff_lat, task.dropoff_lon)
             total_km = pickup_distance + drop_distance
+            task.pickup_km = pickup_distance
+            task.drop_km = drop_distance
             hours = total_km / AVG_SPEED_KMH
             task.finish_time = pd.Timestamp(now) + pd.to_timedelta(hours, unit="h")
             task.start_time = pd.Timestamp(now)

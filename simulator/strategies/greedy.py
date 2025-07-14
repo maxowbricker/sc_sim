@@ -17,17 +17,34 @@ def assign(state, now, **_):
     assignments = []
     for task in list(state.active_tasks):
         best_w = None; best_d = float("inf")
+
+        # Pre-compute drop-off distance (independent of candidate worker)
+        drop_distance_const = manhattan_km(
+            task.pickup_lat, task.pickup_lon,
+            task.dropoff_lat, task.dropoff_lon,
+        )
+
         for w in state.available_workers:
-            d = manhattan_km(w.start_lat, w.start_lon,
-                             task.pickup_lat, task.pickup_lon)
-            if d < best_d:
-                best_d, best_w = d, w
+            d_pick = manhattan_km(w.start_lat, w.start_lon,
+                                  task.pickup_lat, task.pickup_lon)
+
+            total_km_tmp = d_pick + drop_distance_const
+            finish_eta = pd.Timestamp(now) + pd.to_timedelta(total_km_tmp / AVG_SPEED_KMH, unit="h")
+
+            # skip worker whose shift ends before completion
+            if finish_eta > w.deadline:
+                continue
+
+            if d_pick < best_d:
+                best_d, best_w = d_pick, w
         if best_w:
             # Compute service duration: worker→pickup plus pickup→dropoff
             pickup_distance = best_d  # already computed (km)
             drop_distance = manhattan_km(task.pickup_lat, task.pickup_lon,
                                          task.dropoff_lat, task.dropoff_lon)
             total_km = pickup_distance + drop_distance
+            task.pickup_km = pickup_distance
+            task.drop_km = drop_distance
             hours = total_km / AVG_SPEED_KMH
             task.finish_time = pd.Timestamp(now) + pd.to_timedelta(hours, unit="h")
             task.start_time = pd.Timestamp(now)
