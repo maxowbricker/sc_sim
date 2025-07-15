@@ -101,12 +101,21 @@ def run_simulation(
         # 3. Assignment
         strategy = get_strategy(cfg["assignment_strategy"])
         assignments = strategy(state, current_time, **cfg.get("strategy_params", {}))
-        for task_id, worker_id, metric in assignments:
-            print(f"ASSIGN   | Task {task_id} -> Worker {worker_id} (metric={metric:.2f})")
+        for assign_tuple in assignments:
+            if len(assign_tuple) == 6:
+                task_id, worker_id, metric, util, fair, starv = assign_tuple
+                print(
+                    f"ASSIGN   | Task {task_id} -> Worker {worker_id} -metric={metric:.2f} "
+                    f"({util:.0f}, {fair:.0f}, {starv:.0f})"
+                )
+            else:
+                task_id, worker_id, metric = assign_tuple  # type: ignore[misc]
+                print(f"ASSIGN   | Task {task_id} -> Worker {worker_id} (metric={metric:.2f})")
 
         # 4. Complete instantly (service_time_mode == "instant")
         if cfg.get("service_time_mode", "instant") == "instant":
-            for _tid, _wid, _ in assignments:
+            for a in assignments:
+                _tid, _wid = a[0], a[1]
                 # Lookup objects from IDs
                 task_obj = next(t for t in state.assigned_tasks if t.id == _tid)
                 worker_obj = next(w for w in state.assigned_workers if w.id == _wid)

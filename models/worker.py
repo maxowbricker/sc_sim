@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import pandas as pd
+from config import SIM_CONFIG
 
 
 class Worker:
@@ -32,6 +33,10 @@ class Worker:
         # ------------------------------------------------------------------ #
         self.total_idle_time = pd.Timedelta(0)  # cumulative idle duration
         self.last_state_ts: pd.Timestamp | None = self.release_time  # last time idle counter updated
+
+        # EWMA fairness tracking
+        self.gamma: float = SIM_CONFIG.get("strategy_params", {}).get("gamma", 0.3)
+        self.fairness_ewma: float = 0.0  # starts at 0 (no under-service yet)
 
         self.completed_tasks: int = 0
         self.revenue: float = 0.0  # placeholder – will depend on task info
@@ -68,7 +73,15 @@ class Worker:
             self.last_state_ts = current_time
 
         if self.available and current_time >= self.last_state_ts:
-            self.total_idle_time += current_time - self.last_state_ts
+            delta_td = current_time - self.last_state_ts
+            # Update cumulative idle duration
+            self.total_idle_time += delta_td
+
+            # Current measurement: total idle seconds so far
+            current_idle_sec = self.total_idle_time.total_seconds()
+
+            # EWMA update: (1-γ)*current + γ*previous
+            self.fairness_ewma = (1 - self.gamma) * current_idle_sec + self.gamma * self.fairness_ewma
 
         # Whether idle or busy, advance the marker so next call measures from here.
         self.last_state_ts = current_time
