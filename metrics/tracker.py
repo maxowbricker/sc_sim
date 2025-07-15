@@ -48,6 +48,18 @@ class MetricTracker:
         jfi = _jains_fairness(completed_counts)
         ud = _utility_difference(completed_counts)
 
+        # Fairness distribution (EWMA idle-time proxy)
+        fairness_vals = [getattr(w, "fairness_ewma", 0.0) for w in (
+            state.available_workers + state.assigned_workers  # released workers
+        )]
+
+        if fairness_vals:
+            fairness_mean = float(pd.Series(fairness_vals).mean())
+            fairness_p90  = float(pd.Series(fairness_vals).quantile(0.9))
+            fairness_max  = float(max(fairness_vals))
+        else:
+            fairness_mean = fairness_p90 = fairness_max = 0.0
+
         # Task age metrics over active + assigned tasks
         task_pool = state.active_tasks + state.assigned_tasks
         ages = [(now - t.release_time).total_seconds() / 60.0 for t in task_pool]
@@ -61,6 +73,9 @@ class MetricTracker:
             "jfi": jfi,
             "ud": ud,
             "avg_task_age_min": avg_age,
+            "fairness_mean": fairness_mean,
+            "fairness_p90": fairness_p90,
+            "fairness_max": fairness_max,
         }
 
         self._records.append(record)
