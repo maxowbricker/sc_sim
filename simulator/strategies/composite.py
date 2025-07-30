@@ -1,6 +1,7 @@
 from simulator.strategies import register
 from math import log, fabs, cos, radians
 import random
+from models.worker import Worker
 import pandas as pd
 
 AVG_SPEED_KMH = 30
@@ -33,7 +34,10 @@ def score(task, worker, λ1, λ2, λ3, now):
 @register("composite")
 def assign(state, now, λ1=1.0, λ2=1.0, λ3=1.0, k: int = 15, score_filter: float = 0.8, soft_threshold: float = 4.0, **_):
     assignments = []
-    for task in list(state.active_tasks):
+    # Only consider tasks that are newly active
+    unassigned_tasks = [t for t in state.active_tasks if t.worker_id is None and t.start_time is None]
+
+    for task in unassigned_tasks:
         # ------------------------------------------------------------------ #
         # Phase 1 – candidate filtering by proximity + feasibility
         # ------------------------------------------------------------------ #
@@ -41,7 +45,7 @@ def assign(state, now, λ1=1.0, λ2=1.0, λ3=1.0, k: int = 15, score_filter: flo
         drop_distance_const = manhattan_km(task.pickup_lat, task.pickup_lon,
                                            task.dropoff_lat, task.dropoff_lon)
 
-        candidates: list[tuple[float, "Worker", float]] = []  # (distance, worker, score placeholder)
+        candidates: list[tuple[float, Worker, float]] = []  # (distance, worker, score placeholder)
 
         for w in state.available_workers:
             d_pick = manhattan_km(w.start_lat, w.start_lon,
@@ -68,7 +72,7 @@ def assign(state, now, λ1=1.0, λ2=1.0, λ3=1.0, k: int = 15, score_filter: flo
         # Phase 2 – composite scoring & fairness filtering
         # ------------------------------------------------------------------ #
 
-        scored: list[tuple[float, "Worker"]] = []
+        scored: list[tuple[float, Worker]] = []
         best_score = float("-inf")
         for dist, w, _ in candidates:
             s = score(task, w, λ1, λ2, λ3, now)
