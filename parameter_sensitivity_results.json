@@ -1,0 +1,12 @@
+{
+  "lambda_sweep": [
+    {
+      "\u03bb1": 0.5,
+      "\u03bb2": 0.5,
+      "\u03bb3": 0.3,
+      "soft_threshold": 1.0,
+      "gamma": 0.3,
+      "completed_tasks": 1846,
+      "task_assignment_ratio": 0.99140708915145,
+      "jains_fairness_index": 0.8613234549228435,
+      "utility_difference": 
