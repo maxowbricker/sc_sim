@@ -1,145 +1,110 @@
 """
-Timestep‑based Spatial Crowdsourcing simulator.
-
-This version iterates from START_TIME to END_TIME in fixed TIME_STEP
-increments.  At each tick it:
-    1. releases workers and tasks whose release_time has arrived
-    2. runs greedy assignment (or any pluggable strategy)
-    3. instantly completes tasks (service_time_mode == "instant")
-    4. (placeholder) updates metrics / logging
+Event-driven Spatial Crowdsourcing simulator.
 """
 
 import pandas as pd
-# Global SIM_CONFIG still holds generic flags (service_time_mode, teleport, etc.)
-# but data ingestion & time-range parameters are now supplied by the caller.
-from config import SIM_CONFIG
-# NOTE: Data reading is no longer done inside this file.  Provide pre-constructed
-# lists of `Worker` and `Task` objects when calling `run_simulation()`.
-from simulator.state import StateManager
-from metrics.tracker import MetricTracker
-from simulator.strategies import get_strategy
+import numpy as np
+from heapq import heappush, heappop
 
+from config import SIM_CONFIG
+from simulator.state import StateManager
+from simulator.strategies import get_strategy
+from metrics.fairness import FairnessMetricsTracker
 
 def run_simulation(
     workers,
     tasks,
     start_time=None,
     end_time=None,
-    time_step="5min",
     sim_config: dict | None = None,
 ):
-    """Run a discrete-time spatial-crowdsourcing simulation.
-
-    Parameters
-    ----------
-    workers : list[Worker]
-        Pre-initialised Worker objects.
-    tasks   : list[Task]
-        Pre-initialised Task objects.
-    start_time, end_time : str | pd.Timestamp | None
-        If *None*, the simulator will infer the earliest release time across
-        all workers/tasks as the start, and will run until the system clears
-        (no more tasks pending or to be released).
-    time_step : str | pd.Timedelta
-        Simulation tick size, e.g. "5min" or "3s".
-    sim_config : dict, optional
-        Extra flags ("service_time_mode", "teleport_on_complete", …).  If
-        omitted the global ``SIM_CONFIG`` is used.
-    """
+    """Run an event-driven spatial-crowdsourcing simulation."""
 
     cfg = SIM_CONFIG if sim_config is None else {**SIM_CONFIG, **sim_config}
+    strategy_params = cfg.get("strategy_params", {})
+    
+    # Get the strategy handlers from the config
+    strategy_name = cfg["assignment_strategy"]
+    strategy_handler_factory = get_strategy(strategy_name)
+    strategy_handlers = strategy_handler_factory()
+    new_task_handler = strategy_handlers["NEW_TASK"]
+    free_worker_handler = strategy_handlers["FREE_WORKER"]
 
-    # 1.  Initialise state
     state = StateManager(workers, tasks)
     total_tasks_count = len(tasks)
+    event_queue = []
+    fairness_tracker = FairnessMetricsTracker()
 
-    # Metrics collector
-    metrics_tracker = MetricTracker()
-
-    # ------------------------------------------------------------------
-    # Determine clock parameters
-    # ------------------------------------------------------------------
-
-    # Handle None → infer from data
     if start_time is None:
         releases = [w.release_time for w in workers] + [t.release_time for t in tasks]
-        if not releases:
-            raise ValueError("Cannot infer start_time: empty workers and tasks list")
+        if not releases: raise ValueError("Cannot infer start_time")
         start_time = min(releases)
 
-    current_time = pd.to_datetime(start_time)
+    for w in workers:
+        heappush(event_queue, (w.release_time, "WORKER_RELEASE", w.id))
+    for t in tasks:
+        heappush(event_queue, (t.release_time, "TASK_RELEASE", t.id))
 
-    # Optional user-provided end_time; otherwise we'll stop when system empty
+    current_time = pd.to_datetime(start_time)
     end_time = pd.to_datetime(end_time) if end_time is not None else None
 
-    step = pd.to_timedelta(time_step)
+    print(f"Starting event-driven simulation with '{strategy_name}' strategy...")
 
-    print("Starting timestep simulation …")
-    tick = 0
-    while True:
-        print(f"\n--- Tick {tick} | {current_time} ---")
+    summary = {
+        'completed_tasks': 0, 'total_travel_km': 0.0, 'empty_km': 0.0,
+        'passenger_km': 0.0, 'total_wait_min': 0.0, 'wait_times': [],
+        'service_times': [], 'backlog_peak': 0,
+    }
 
-        # 2. Release / update state, capture completions
-        prev_completed = len(state.completed_tasks)
-        state.step(current_time)
-        completed_now = state.completed_tasks[prev_completed:]
+    while event_queue:
+        event_time, event_type, event_id = heappop(event_queue)
+        
+        if end_time and event_time > end_time:
+            break
 
-        # accumulate for summary
-        if 'summary' not in locals():
-            summary = {
-                'completed_tasks': 0,
-                'total_travel_km': 0.0,
-                'empty_km': 0.0,
-                'passenger_km': 0.0,
-                'total_wait_min': 0.0,
-                'wait_times': [],
-                'service_times': [],
-                'backlog_peak': 0,
-                'backlog_total': 0,
-            }
+        time_delta_seconds = (event_time - current_time).total_seconds()
+        if time_delta_seconds > 0:
+            for w in state.available_workers:
+                w.update_idle_time(time_delta_seconds)
+        
+        current_time = event_time
 
-        # 3. Assignment
-        strategy = get_strategy(cfg["assignment_strategy"])
-        assignments = strategy(state, current_time, **cfg.get("strategy_params", {}))
-        for assign_tuple in assignments:
-            if len(assign_tuple) == 6:
-                task_id, worker_id, metric, util, fair, starv = assign_tuple
-                print(
-                    f"ASSIGN   | Task {task_id} -> Worker {worker_id} -metric={metric:.2f} "
-                    f"({util:.0f}, {fair:.0f}, {starv:.0f})"
-                )
+        if event_type == "WORKER_RELEASE":
+            worker = state.get_worker(event_id)
+            state.release_worker(worker)
+            assignment = free_worker_handler(state, current_time, worker, **strategy_params)
+            if assignment:
+                assigned_task, _, _ = assignment
+                heappush(event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
+
+        elif event_type == "TASK_RELEASE":
+            task = state.get_task(event_id)
+            state.release_task(task)
+            if state.available_workers:
+                assignments = new_task_handler(state, current_time, [task], **strategy_params)
+                if assignments:
+                    assigned_task, _, _ = assignments[0]
+                    heappush(event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
             else:
-                task_id, worker_id, metric = assign_tuple  # type: ignore[misc]
-                print(f"ASSIGN   | Task {task_id} -> Worker {worker_id} (metric={metric:.2f})")
+                # No workers available, so task must wait.
+                # The greedy strategy will find it when a worker is freed.
+                # The composite strategy will explicitly add it to the deferred pool.
+                if strategy_name == "composite":
+                    state.defer_task(task)
 
-        # 4. Complete instantly (service_time_mode == "instant")
-        if cfg.get("service_time_mode", "instant") == "instant":
-            for a in assignments:
-                _tid, _wid = a[0], a[1]
-                # Lookup objects from IDs
-                task_obj = next(t for t in state.assigned_tasks if t.id == _tid)
-                worker_obj = next(w for w in state.assigned_workers if w.id == _wid)
-                state.complete_task(task_obj, worker_obj, current_time)
 
-        # Track backlog stats
-        current_backlog = len(state.active_tasks)
-        summary['backlog_peak'] = max(summary['backlog_peak'], current_backlog)
-        summary['backlog_total'] += current_backlog
-
-        # Print completions
-        for task in completed_now:
+        elif event_type == "TASK_COMPLETE":
+            task = state.get_task(event_id)
+            if task.is_completed: continue
+            
             worker = task.assigned_worker
-            trip_time = (task.finish_time - task.start_time).total_seconds() / 60 if task.start_time else 0
-            pickup_min = (task.pickup_km / 30) * 60 if task.pickup_km is not None else 0
-            service_min = (task.drop_km / 30) * 60 if task.drop_km is not None else 0
-            print(
-                f"COMPLETE | Task {task.id} by Worker {worker.id} "
-                f"pickup {pickup_min:.1f} min + service {service_min:.1f} min → "
-                f"drop ({task.dropoff_lat:.5f}, {task.dropoff_lon:.5f})"
-            )
+            state.complete_task(task, worker, current_time)
+            
+            assignment = free_worker_handler(state, current_time, worker, **strategy_params)
+            if assignment:
+                assigned_task, _, _ = assignment
+                heappush(event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
 
-        # update summary stats
-        for task in completed_now:
             summary['completed_tasks'] += 1
             summary['total_travel_km'] += (task.pickup_km or 0) + (task.drop_km or 0)
             summary['empty_km'] += task.pickup_km or 0
@@ -147,85 +112,56 @@ def run_simulation(
             wait_min = (task.start_time - task.release_time).total_seconds()/60 if task.start_time else 0
             summary['total_wait_min'] += wait_min
             summary['wait_times'].append(wait_min)
-            service_min = (task.drop_km or 0)/30*60
+            service_min = (task.drop_km / 30 * 60) if task.drop_km is not None else 0
             summary['service_times'].append(service_min)
-
-        # Metrics snapshot (after assignments + completions of this tick)
-        metrics_tracker.snapshot(state, current_time)
-
-        current_time += step
-        tick += 1
-
-        # Termination condition if no explicit end_time: stop when nothing left
-        if end_time is None:
-            no_tasks_left = not (
-                state.all_tasks or state.active_tasks or state.assigned_tasks
-            )
-            if no_tasks_left:
-                break
-        else:
-            if current_time > end_time:
-                break
+        
+        current_backlog = len(state.active_tasks) + len(state.deferred_tasks)
+        summary['backlog_peak'] = max(summary['backlog_peak'], current_backlog)
+        
+        # Record fairness metrics every 100 events for performance
+        if len(event_queue) % 100 == 0:
+            fairness_tracker.update_worker_stats(state.all_workers_map.values())
+            fairness_tracker.record_snapshot(current_time)
 
     print("\nSimulation complete.")
-
-    # Export metrics for later analysis (optional)
-    try:
-        metrics_tracker.save_csv("metrics_snapshot.csv")
-        print("Metrics written to metrics_snapshot.csv")
-    except Exception as e:
-        print(f"Warning: failed to save metrics CSV – {e}")
-
-    # Print summary
-    sim_minutes = tick * (pd.to_timedelta(time_step).total_seconds()/60)
-    tar = summary['completed_tasks']/total_tasks_count if total_tasks_count else 0
-    avg_travel_km = summary['total_travel_km']/summary['completed_tasks'] if summary['completed_tasks'] else 0
-    avg_wait_min = summary['total_wait_min']/summary['completed_tasks'] if summary['completed_tasks'] else 0
-    import numpy as _np
-    wait_p90 = _np.percentile(summary['wait_times'],90) if summary['wait_times'] else 0
+    
+    tar = summary['completed_tasks'] / total_tasks_count if total_tasks_count else 0
+    avg_travel_km = summary['total_travel_km'] / summary['completed_tasks'] if summary['completed_tasks'] else 0
+    avg_wait_min = summary['total_wait_min'] / summary['completed_tasks'] if summary['completed_tasks'] else 0
+    wait_p90 = np.percentile(summary['wait_times'], 90) if summary['wait_times'] else 0
     wait_max = max(summary['wait_times']) if summary['wait_times'] else 0
-    svc_avg = _np.mean(summary['service_times']) if summary['service_times'] else 0
+    svc_avg = np.mean(summary['service_times']) if summary['service_times'] else 0
     svc_max = max(summary['service_times']) if summary['service_times'] else 0
-    empty_share = summary['empty_km']/summary['total_travel_km'] if summary['total_travel_km'] else 0
-    avg_backlog = summary['backlog_total']/tick if tick else 0
+    empty_share = summary['empty_km'] / summary['total_travel_km'] if summary['total_travel_km'] else 0
     expired_tasks = total_tasks_count - summary['completed_tasks']
 
+    # Final fairness metrics calculation
+    fairness_tracker.update_worker_stats(state.all_workers_map.values())
+    fairness_summary = fairness_tracker.get_fairness_summary()
+    
     print("\n---- Simulation Summary ----")
     print(f"Total tasks:           {total_tasks_count}")
     print(f"Completed tasks:       {summary['completed_tasks']}")
     print(f"Task Assignment Ratio: {tar:.2%}")
-    print(f"Simulated minutes:     {sim_minutes:.1f}")
     print(f"Avg wait time (min):   {avg_wait_min:.1f}")
     print(f"Avg travel distance km:{avg_travel_km:.2f}")
     print(f"P90 wait (min):        {wait_p90:.1f}   max {wait_max:.1f}")
     print(f"Avg service min:       {svc_avg:.1f}   max {svc_max:.1f}")
     print(f"Empty-km share:        {empty_share:.2%}")
     print(f"Peak backlog:          {summary['backlog_peak']}")
-    print(f"Avg backlog:           {avg_backlog:.1f}")
     print(f"Expired/unserved:      {expired_tasks}")
+    
+    if fairness_summary:
+        print("\n---- Fairness Metrics ----")
+        print(f"Jain's Fairness Index: {fairness_summary.get('final_jains_fairness_index', 0):.3f}")
+        print(f"Utility Difference:    {fairness_summary.get('final_utility_difference_tasks', 0):.1f}")
+        print(f"Fairness Loss:         {fairness_summary.get('final_fairness_loss', 0):.3f}")
+        print(f"EWMA CV:              {fairness_summary.get('final_ewma_cv', 0):.3f}")
+        print(f"Mean JFI over time:    {fairness_summary.get('mean_jfi_over_time', 0):.3f}")
 
+    # Combine all metrics for return
+    summary.update(fairness_summary)
+    return summary
 
 if __name__ == "__main__":
-    # Minimal standalone demo: falls back to legacy CSV paths defined in
-    # SIM_CONFIG.  For production runs prefer calling ``run_simulation`` from
-    # an external script after loading data via ``data.loader.load_workers_tasks``.
-
-    required_keys = {"worker_file", "task_file", "start_time", "end_time", "time_step"}
-    if required_keys.issubset(SIM_CONFIG):
-        from data.loader import load_workers, load_tasks
-
-        workers = load_workers(SIM_CONFIG["worker_file"])
-        tasks   = load_tasks(SIM_CONFIG["task_file"])
-
-        run_simulation(
-            workers,
-            tasks,
-            SIM_CONFIG["start_time"],
-            SIM_CONFIG["end_time"],
-            SIM_CONFIG["time_step"],
-        )
-    else:
-        raise RuntimeError(
-            "SIM_CONFIG missing required keys for standalone execution. "
-            "Call run_simulation() from your own script with pre-loaded data instead."
-        )
+    print("Standalone execution not yet implemented for event-driven simulator.")

@@ -22,6 +22,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Spatial-crowdsourcing simulator runner")
     p.add_argument("--dataset", help="Override dataset key in config.py")
     p.add_argument("--root", help="Override root_path in config.py")
+    p.add_argument("--strategy", help="Override assignment_strategy in config.py")
     return p.parse_args()
 
 
@@ -34,13 +35,14 @@ def main():
         cfg["dataset"] = args.dataset
     if args.root:
         cfg["root_path"] = args.root
+    if args.strategy:
+        cfg["assignment_strategy"] = args.strategy
 
     workers, tasks = load_workers_tasks(cfg["dataset"], cfg.get("root_path"))
 
     run_simulation(
         workers,
         tasks,
-        time_step=cfg.get("time_step", "5min"),
         sim_config=cfg,
     )
 

@@ -11,6 +11,7 @@ class Task:
         self.expire_time = pd.to_datetime(task_dict["expire_time"])
         self.assigned_worker = None
         self.assigned = False
+        self.is_completed = False
 
         # Service-time bookkeeping
         self.finish_time = None  # pd.Timestamp when task completes

@@ -54,7 +54,7 @@ class Adapter:
             })
         )
 
-        # Heuristic: driver deadline = last known GPS ping + 2h
+        # Heuristic: driver deadline = last known GPS ping + 4h (more realistic work shift)
         last_gps = (
             self.gps_df.groupby("driver_id")["timestamp"].last().reset_index()
             .rename(columns={
@@ -63,7 +63,7 @@ class Adapter:
             })
         )
         first_gps = first_gps.merge(last_gps, on="worker_id")
-        first_gps["deadline"] = first_gps["last_seen"] + pd.Timedelta("2h")
+        first_gps["deadline"] = first_gps["last_seen"] + pd.Timedelta("4h")
 
         workers_df = first_gps[[
             "worker_id",
@@ -74,14 +74,18 @@ class Adapter:
         ]]
 
         # Tasks – directly from orders table
-        tasks_df = self.orders_df.rename(columns={
+        # Use a more reasonable expiration time: start_billing + 2 hours
+        # The original end_billing represents actual trip completion, not task expiration
+        tasks_df = self.orders_df.copy()
+        tasks_df["expire_time"] = tasks_df["start_billing"] + pd.Timedelta("2h")
+        
+        tasks_df = tasks_df.rename(columns={
             "order_id": "task_id",
             "pickup_lat": "pickup_lat",
             "pickup_lon": "pickup_lon",
             "dropoff_lat": "dropoff_lat",
             "dropoff_lon": "dropoff_lon",
             "start_billing": "release_time",
-            "end_billing": "expire_time",
         })[
             [
                 "task_id",

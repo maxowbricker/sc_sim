@@ -1,11 +1,9 @@
 from simulator.strategies import register
 from math import log, fabs, cos, radians
 import random
-from models.worker import Worker
 import pandas as pd
 
 AVG_SPEED_KMH = 30
-
 
 def manhattan_km(lat1, lon1, lat2, lon2):
     km_per_deg = 111
@@ -15,113 +13,120 @@ def manhattan_km(lat1, lon1, lat2, lon2):
     return d_lat + d_lon
 
 def score(task, worker, λ1, λ2, λ3, now):
-    """Composite score = λ1·fairness + λ2·starvation + λ3·utility.
-
-    fairness   – EWMA idle-time seconds (higher → more deserving)
-    starvation – log age seconds (higher → more urgent)
-    utility    – inverse distance 1/(1+d) km (higher when closer)
-    """
-
-    distance = manhattan_km(worker.start_lat, worker.start_lon,
-                            task.pickup_lat, task.pickup_lon)
-
-    fairness   = worker.fairness_ewma
+    distance = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
+    fairness = worker.fairness_ewma
     starvation = log(1 + (now - task.release_time).total_seconds())
-    utility    = 1.0 / (1.0 + distance)
+    utility = 1.0 / (1.0 + distance)
+    score_val = λ1 * fairness + λ2 * starvation + λ3 * utility
+    
+    return score_val
 
-    return λ1 * fairness + λ2 * starvation + λ3 * utility
+def _find_best_assignment_for_task(task, workers, now, λ1, λ2, λ3, k):
+    if not workers:
+        return None, float("-inf")
 
-@register("composite")
-def assign(state, now, λ1=1.0, λ2=1.0, λ3=1.0, k: int = 15, score_filter: float = 0.8, soft_threshold: float = 4.0, **_):
+    drop_distance_const = manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
+    
+    candidates = []
+    for w in workers:
+        d_pick = manhattan_km(w.start_lat, w.start_lon, task.pickup_lat, task.pickup_lon)
+        total_km_tmp = d_pick + drop_distance_const
+        finish_eta = now + pd.to_timedelta(total_km_tmp / AVG_SPEED_KMH, unit="h")
+        if finish_eta > w.deadline or finish_eta > task.expire_time:
+            continue
+        candidates.append((d_pick, w))
+
+    candidates.sort(key=lambda tup: tup[0])
+    if k > 0:
+        candidates = candidates[:k]
+
+    if not candidates:
+        return None, float("-inf")
+
+    best_worker, best_score = None, float("-inf")
+    for dist, w in candidates:
+        s = score(task, w, λ1, λ2, λ3, now)
+        if s > best_score:
+            best_score, best_worker = s, w
+            
+    return best_worker, best_score
+
+def _commit_assignment(task, worker, now):
+    pickup_distance = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
+    drop_distance = manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
+    
+    task.pickup_km = pickup_distance
+    task.drop_km = drop_distance
+    hours = (pickup_distance + drop_distance) / AVG_SPEED_KMH
+    task.finish_time = now + pd.to_timedelta(hours, unit="h")
+    task.start_time = now
+    
+    task.assign_to_worker(worker)
+    worker.assign_task(task)
+    return task
+
+def assign_new_tasks_composite(state, now, tasks_to_assign, λ1=1.0, λ2=1.0, λ3=1.0, k=15, soft_threshold=4.0, **_):
     assignments = []
-    # Only consider tasks that are newly active
-    unassigned_tasks = [t for t in state.active_tasks if t.worker_id is None and t.start_time is None]
+    for task in tasks_to_assign:
+        best_worker, best_score = _find_best_assignment_for_task(task, state.available_workers, now, λ1, λ2, λ3, k)
+        
+        if best_worker and best_score >= soft_threshold:
+            assigned_task = _commit_assignment(task, best_worker, now)
+            state.assign_task(assigned_task, best_worker)
+            assignments.append((assigned_task, best_worker, best_score))
+            # Log assignment for analysis
+            if hasattr(state, 'assignment_log'):
+                state.assignment_log.append({
+                    'timestamp': now,
+                    'task_id': task.id,
+                    'worker_id': best_worker.id,
+                    'score': best_score,
+                    'fairness': best_worker.fairness_ewma,
+                    'starvation': log(1 + (now - task.release_time).total_seconds()),
+                    'utility': 1.0 / (1.0 + manhattan_km(best_worker.start_lat, best_worker.start_lon, task.pickup_lat, task.pickup_lon)),
+                    'decision': 'assigned'
+                })
+        else:
+            state.defer_task(task)
+            # Log deferral for analysis
+            if hasattr(state, 'assignment_log'):
+                state.assignment_log.append({
+                    'timestamp': now,
+                    'task_id': task.id,
+                    'worker_id': best_worker.id if best_worker else None,
+                    'score': best_score,
+                    'decision': 'deferred'
+                })
+            
+    return assignments
 
-    for task in unassigned_tasks:
-        # ------------------------------------------------------------------ #
-        # Phase 1 – candidate filtering by proximity + feasibility
-        # ------------------------------------------------------------------ #
+def match_worker_composite(state, now, worker, λ1=1.0, λ2=1.0, λ3=1.0, k=15, soft_threshold=4.0, **_):
+    if not state.deferred_tasks:
+        return None
 
-        drop_distance_const = manhattan_km(task.pickup_lat, task.pickup_lon,
-                                           task.dropoff_lat, task.dropoff_lon)
-
-        candidates: list[tuple[float, Worker, float]] = []  # (distance, worker, score placeholder)
-
-        for w in state.available_workers:
-            d_pick = manhattan_km(w.start_lat, w.start_lon,
-                                  task.pickup_lat, task.pickup_lon)
-
-            # Feasibility: worker must finish before own deadline AND before task expiry
-            total_km_tmp = d_pick + drop_distance_const
-            finish_eta = pd.Timestamp(now) + pd.to_timedelta(total_km_tmp / AVG_SPEED_KMH, unit="h")
-
-            if finish_eta > w.deadline or finish_eta > task.expire_time:
-                continue
-
-            candidates.append((d_pick, w, 0.0))
-
-        # Keep k-nearest candidates
-        candidates.sort(key=lambda tup: tup[0])
-        if k > 0:
-            candidates = candidates[:k]
-
-        if not candidates:
-            continue  # no feasible worker
-
-        # ------------------------------------------------------------------ #
-        # Phase 2 – composite scoring & fairness filtering
-        # ------------------------------------------------------------------ #
-
-        scored: list[tuple[float, Worker]] = []
-        best_score = float("-inf")
-        for dist, w, _ in candidates:
-            s = score(task, w, λ1, λ2, λ3, now)
-            scored.append((s, w))
-            if s > best_score:
-                best_score = s
-
-        # Soft-threshold delay – skip assignment if even best candidate < threshold
-        if best_score < soft_threshold:
-            continue  # task will wait until score grows (e.g., starvation)
-
-        # Discard candidates with score < score_filter * best_score
-        threshold = best_score * score_filter
-        scored = [(s, w) for s, w in scored if s >= threshold]
-
-        if not scored:
+    best_task, best_score = None, float("-inf")
+    for task in list(state.deferred_tasks):
+        drop_distance_const = manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
+        d_pick = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
+        total_km_tmp = d_pick + drop_distance_const
+        finish_eta = now + pd.to_timedelta(total_km_tmp / AVG_SPEED_KMH, unit="h")
+        if finish_eta > worker.deadline or finish_eta > task.expire_time:
             continue
 
-        # Choose worker with minimum completed_tasks for fairness; tie-break randomly
-        min_comp = min(w.completed_tasks for _, w in scored)
-        finalists = [w for _, w in scored if w.completed_tasks == min_comp]
-        best_w = random.choice(finalists)
+        s = score(task, worker, λ1, λ2, λ3, now)
+        if s > best_score:
+            best_score, best_task = s, task
+            
+    if best_task and best_score >= soft_threshold:
+        assigned_task = _commit_assignment(best_task, worker, now)
+        state.assign_task(assigned_task, worker)
+        return (assigned_task, worker, best_score)
+        
+    return None
 
-        # For logging/debug, recompute score for chosen worker
-        fairness_val = best_w.fairness_ewma
-        starvation_val = log(1 + (now - task.release_time).total_seconds())
-        distance_val = manhattan_km(best_w.start_lat, best_w.start_lon,
-                                   task.pickup_lat, task.pickup_lon)
-        utility_val = 1.0 / (1.0 + distance_val)
-        best_s = λ1 * fairness_val + λ2 * starvation_val + λ3 * utility_val
-
-        # ------------------------------------------------------------------ #
-        # Commit assignment (same as before)
-        # ------------------------------------------------------------------ #
-
-        # Service duration
-        pickup_distance = manhattan_km(best_w.start_lat, best_w.start_lon,
-                                       task.pickup_lat, task.pickup_lon)
-        drop_distance = manhattan_km(task.pickup_lat, task.pickup_lon,
-                                     task.dropoff_lat, task.dropoff_lon)
-        total_km = pickup_distance + drop_distance
-        task.pickup_km = pickup_distance
-        task.drop_km = drop_distance
-        hours = total_km / AVG_SPEED_KMH
-        task.finish_time = pd.Timestamp(now) + pd.to_timedelta(hours, unit="h")
-        task.start_time = pd.Timestamp(now)
-
-        task.assign_to_worker(best_w)
-        best_w.assign_task(task)
-        state.assign_task(task, best_w)
-        assignments.append((task.id, best_w.id, best_s, utility_val, fairness_val, starvation_val))
-    return assignments
+@register("composite")
+def get_composite_handlers():
+    return {
+        "NEW_TASK": assign_new_tasks_composite,
+        "FREE_WORKER": match_worker_composite
+    }

@@ -10,92 +10,64 @@ class StateManager:
         all_workers : list[Worker]
         all_tasks   : list[Task]
         """
-        self.all_workers = all_workers if all_workers is not None else []
-        self.all_tasks = all_tasks if all_tasks is not None else []
-
+        self.all_workers_map = {w.id: w for w in all_workers} if all_workers else {}
+        self.all_tasks_map = {t.id: t for t in all_tasks} if all_tasks else {}
+        
         # Dynamic pools
-        self.available_workers = []     # workers that can take a task now
-        self.active_tasks = []          # released but unassigned tasks
+        self.available_workers = []
+        self.active_tasks = []          # Released but unassigned
+        self.deferred_tasks = []        # Scored below threshold, waiting
+        
+        self.assigned_tasks = []
+        self.assigned_workers = []
+        self.completed_tasks = []
+        
+        # Logging for analysis
+        self.assignment_log = []
 
-        self.assigned_tasks = []        # currently assigned tasks
-        self.assigned_workers = []      # workers currently busy
-        self.completed_tasks = []       # tasks finished during simulation
+    def get_worker(self, worker_id):
+        return self.all_workers_map.get(worker_id)
 
-    # ------------------------------------------------------------------
-    # Release logic (called each timestep)
-    # ------------------------------------------------------------------
-    def release_workers(self, current_time):
-        """
-        Move workers whose release_time <= current_time into the available pool.
-        """
-        to_release = [w for w in self.all_workers if w.release_time <= current_time]
-        self.available_workers.extend(to_release)
-        self.all_workers = [w for w in self.all_workers if w not in to_release]
+    def get_task(self, task_id):
+        return self.all_tasks_map.get(task_id)
 
-    def release_tasks(self, current_time):
-        """
-        Move tasks whose release_time <= current_time into the active pool.
-        """
-        to_release = [t for t in self.all_tasks if t.release_time <= current_time]
-        self.active_tasks.extend(to_release)
-        self.all_tasks = [t for t in self.all_tasks if t not in to_release]
+    def release_worker(self, worker):
+        if worker not in self.available_workers:
+            self.available_workers.append(worker)
 
-    # ------------------------------------------------------------------
-    # Assignment helpers
-    # ------------------------------------------------------------------
+    def release_task(self, task):
+        if task not in self.active_tasks:
+            self.active_tasks.append(task)
+
     def assign_task(self, task, worker):
-        """
-        Mark a task as assigned to the given worker.
-        """
-        self.active_tasks.remove(task)
+        if task in self.active_tasks:
+            self.active_tasks.remove(task)
+        if task in self.deferred_tasks:
+            self.deferred_tasks.remove(task)
+        
         self.available_workers.remove(worker)
-
         self.assigned_tasks.append(task)
         self.assigned_workers.append(worker)
 
-    # ------------------------------------------------------------------
-    # Task completion
-    # ------------------------------------------------------------------
+    def defer_task(self, task):
+        if task in self.active_tasks:
+            self.active_tasks.remove(task)
+        if task not in self.deferred_tasks:
+            self.deferred_tasks.append(task)
+
     def complete_task(self, task, worker, current_time):
-        """
-        Mark a task as completed and free the worker so they can accept new tasks.
-        """
-        # Remove from assigned tracking if present
         if task in self.assigned_tasks:
             self.assigned_tasks.remove(task)
         if worker in self.assigned_workers:
             self.assigned_workers.remove(worker)
 
-        # Record completion
+        task.is_completed = True
         self.completed_tasks.append(task)
-
-        # Let worker update personal counters
         worker.record_completion(current_time)
 
-        # Optional teleport to drop-off location
-        if SIM_CONFIG.get("teleport_on_complete", False):
-            worker.start_lat = task.dropoff_lat
-            worker.start_lon = task.dropoff_lon
-
-        # Pools maintenance
+        # The worker is now at the drop-off location of the completed task.
+        # This state update is crucial for subsequent assignments.
+        worker.start_lat = task.dropoff_lat
+        worker.start_lon = task.dropoff_lon
+            
         self.available_workers.append(worker)
-
-    # ------------------------------------------------------------------
-    # Per-timestep update
-    # ------------------------------------------------------------------
-    def step(self, current_time):
-        """
-        Perform release updates for the current timestep.
-        """
-        self.release_workers(current_time)
-        self.release_tasks(current_time)
-
-        # Update idle time counters for all currently available workers
-        for w in self.available_workers:
-            w.update_idle(current_time)
-
-        # Check assigned tasks for completion (distance-based service mode)
-        completed_now = [t for t in self.assigned_tasks if getattr(t, "finish_time", None) is not None and t.finish_time <= current_time]
-        for task in completed_now:
-            worker = task.assigned_worker  # set during assignment
-            self.complete_task(task, worker, task.finish_time)

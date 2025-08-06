@@ -67,21 +67,14 @@ class Worker:
     def is_available(self, current_time):
         return self.available and self.release_time <= current_time <= self.deadline
 
-    def update_idle(self, current_time: pd.Timestamp):
-        """Accumulate idle time up to *current_time* if worker is available."""
-        if self.last_state_ts is None:
-            self.last_state_ts = current_time
+    def update_idle_time(self, time_delta_seconds: float):
+        """Update idle time by a fixed duration and recalculate EWMA fairness."""
+        if not self.available:
+            return
 
-        if self.available and current_time >= self.last_state_ts:
-            delta_td = current_time - self.last_state_ts
-            # Update cumulative idle duration
-            self.total_idle_time += delta_td
+        # Update cumulative idle duration
+        self.total_idle_time += pd.to_timedelta(time_delta_seconds, unit='s')
 
-            # Current measurement: total idle seconds so far
-            current_idle_sec = self.total_idle_time.total_seconds()
-
-            # EWMA update: (1-γ)*current + γ*previous
-            self.fairness_ewma = (1 - self.gamma) * current_idle_sec + self.gamma * self.fairness_ewma
-
-        # Whether idle or busy, advance the marker so next call measures from here.
-        self.last_state_ts = current_time
+        # EWMA update using the time delta (not cumulative)
+        # This follows the methodology: (1-γ)*T_idle(w_i) + γ*Previous_EWMA
+        self.fairness_ewma = (1 - self.gamma) * time_delta_seconds + self.gamma * self.fairness_ewma
