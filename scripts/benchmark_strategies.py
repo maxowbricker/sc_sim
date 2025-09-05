@@ -14,7 +14,7 @@ import pandas as pd
 import numpy as np
 from data.loader import load_workers_tasks
 from simulator.simulation import run_simulation
-from config import SIM_CONFIG
+from config import get_simulation_config, get_experiment_preset, create_composite_config
 
 
 def run_benchmark(dataset="didi", strategies=None, num_runs=1):
@@ -49,14 +49,15 @@ def run_benchmark(dataset="didi", strategies=None, num_runs=1):
         for run in range(num_runs):
             print(f"\nRun {run + 1}/{num_runs}")
             
-            # Configure simulation
-            config = dict(SIM_CONFIG)
-            config["assignment_strategy"] = strategy
-            
-            # Ensure reasonable soft threshold for composite strategy
+            # Configure simulation using centralized config
             if strategy == "composite":
-                config["strategy_params"] = dict(config.get("strategy_params", {}))
-                config["strategy_params"]["soft_threshold"] = 1.0
+                config = create_composite_config(
+                    assignment_strategy=strategy,
+                    soft_threshold=1.0  # Ensure reasonable threshold
+                )
+            else:
+                config = get_simulation_config()
+                config["assignment_strategy"] = strategy
             
             # Run simulation
             summary = run_simulation(workers, tasks, sim_config=config)

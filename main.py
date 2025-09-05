@@ -6,14 +6,14 @@ Usage (from project root):
     $ python main.py
 
 Optional CLI flags:
-    --dataset didi|checkin|synthetic  (overrides SIM_CONFIG["dataset"])
-    --root    PATH                    (overrides SIM_CONFIG["root_path"])
+    --dataset didi|checkin|synthetic  (overrides config dataset)
+    --root    PATH                    (overrides config root_path)
 """
 
 import argparse
 from pathlib import Path
 
-from config import SIM_CONFIG
+from config import get_simulation_config, create_composite_config
 from data.loader import load_workers_tasks
 from simulator.simulation import run_simulation
 
@@ -29,14 +29,21 @@ def parse_args() -> argparse.Namespace:
 def main():
     args = parse_args()
 
-    cfg = dict(SIM_CONFIG)  # shallow copy
-
+    # Build configuration with command line overrides
+    overrides = {}
     if args.dataset:
-        cfg["dataset"] = args.dataset
+        overrides["dataset"] = args.dataset
     if args.root:
-        cfg["root_path"] = args.root
+        overrides["root_path"] = args.root
     if args.strategy:
-        cfg["assignment_strategy"] = args.strategy
+        overrides["assignment_strategy"] = args.strategy
+    
+    # Create config using new system
+    if args.strategy == "composite" or not args.strategy:
+        cfg = create_composite_config(**overrides)
+    else:
+        cfg = get_simulation_config()
+        cfg.update(overrides)
 
     workers, tasks = load_workers_tasks(cfg["dataset"], cfg.get("root_path"))
 

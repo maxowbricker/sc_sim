@@ -6,7 +6,8 @@ import pandas as pd
 import numpy as np
 from heapq import heappush, heappop
 
-from config import SIM_CONFIG
+from typing import Dict, Optional
+from config import get_simulation_config
 from simulator.state import StateManager
 from simulator.strategies import get_strategy
 from metrics.fairness import FairnessMetricsTracker
@@ -16,11 +17,11 @@ def run_simulation(
     tasks,
     start_time=None,
     end_time=None,
-    sim_config: dict | None = None,
+    sim_config: Optional[Dict] = None,
 ):
     """Run an event-driven spatial-crowdsourcing simulation."""
 
-    cfg = SIM_CONFIG if sim_config is None else {**SIM_CONFIG, **sim_config}
+    cfg = get_simulation_config() if sim_config is None else {**get_simulation_config(), **sim_config}
     strategy_params = cfg.get("strategy_params", {})
     
     # Get the strategy handlers from the config
@@ -162,6 +163,73 @@ def run_simulation(
     # Combine all metrics for return
     summary.update(fairness_summary)
     return summary
+
+
+class Simulation:
+    """Wrapper class for the event-driven simulation to match notebook expectations."""
+    
+    def __init__(self, config, workers_df, tasks_df):
+        """Initialize simulation with config and data."""
+        self.config = config
+        self.workers_df = workers_df
+        self.tasks_df = tasks_df
+        
+    def run(self):
+        """Run the simulation and return standardized results."""
+        # Convert DataFrames to the expected format
+        from models.worker import Worker
+        from models.task import Task
+        
+        # Convert workers DataFrame to Worker objects
+        workers = []
+        for _, row in self.workers_df.iterrows():
+            worker_dict = {
+                'worker_id': row['worker_id'],
+                'start_lat': row['start_lat'],
+                'start_lon': row['start_lon'],
+                'release_time': row['release_time'],
+                'deadline': row['deadline']
+            }
+            worker = Worker(worker_dict)
+            workers.append(worker)
+        
+        # Convert tasks DataFrame to Task objects  
+        tasks = []
+        for _, row in self.tasks_df.iterrows():
+            task_dict = {
+                'task_id': row['task_id'],
+                'pickup_lat': row['pickup_lat'],
+                'pickup_lon': row['pickup_lon'],
+                'dropoff_lat': row['dropoff_lat'],
+                'dropoff_lon': row['dropoff_lon'],
+                'release_time': row['release_time'],
+                'expire_time': row['expire_time']
+            }
+            task = Task(task_dict)
+            tasks.append(task)
+        
+        # Run the simulation
+        results = run_simulation(workers, tasks, sim_config=self.config)
+        
+        # Standardize results for notebook analysis
+        standardized_results = {
+            'jfi': results.get('final_jains_fairness_index', 0.0),
+            'task_assignment_ratio': results.get('completed_tasks', 0) / len(tasks) if len(tasks) > 0 else 0.0,
+            'avg_wait_time_minutes': results.get('total_wait_min', 0) / results.get('completed_tasks', 1) if results.get('completed_tasks', 0) > 0 else 0.0,
+            'avg_pickup_distance_km': results.get('empty_km', 0) / results.get('completed_tasks', 1) if results.get('completed_tasks', 0) > 0 else 0.0,
+            'total_travel_distance_km': results.get('total_travel_km', 0),
+            'empty_km_ratio': results.get('empty_km', 0) / results.get('total_travel_km', 1) if results.get('total_travel_km', 0) > 0 else 0.0,
+            'ewma_cv': results.get('final_ewma_cv', 1.0),
+            'utility_difference': results.get('final_utility_difference_tasks', 0.0),
+            'fairness_loss': results.get('final_fairness_loss', 0.0),
+            'total_tasks': len(tasks),
+            'assigned_tasks': results.get('completed_tasks', 0),
+            'max_wait_time': max(results.get('wait_times', [0])) if results.get('wait_times') else 0.0,
+            'backlog_peak': results.get('backlog_peak', 0)
+        }
+        
+        return standardized_results
+
 
 if __name__ == "__main__":
     print("Standalone execution not yet implemented for event-driven simulator.")

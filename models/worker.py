@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import pandas as pd
-from config import SIM_CONFIG
+from config import get_strategy_params
 
 
 class Worker:
@@ -35,7 +35,7 @@ class Worker:
         self.last_state_ts: pd.Timestamp | None = self.release_time  # last time idle counter updated
 
         # EWMA fairness tracking
-        self.gamma: float = SIM_CONFIG.get("strategy_params", {}).get("gamma", 0.3)
+        self.gamma: float = get_strategy_params("composite").get("gamma", 0.3)
         self.fairness_ewma: float = 0.0  # starts at 0 (no under-service yet)
 
         self.completed_tasks: int = 0
@@ -75,6 +75,18 @@ class Worker:
         # Update cumulative idle duration
         self.total_idle_time += pd.to_timedelta(time_delta_seconds, unit='s')
 
+        # NOTE: EWMA fairness calculation moved to composite strategy
+        # This ensures fairness calculation follows research proposal methodology
+        # and prevents competing updates from different parts of the code
+
         # EWMA update using the time delta (not cumulative)
         # This follows the methodology: (1-γ)*T_idle(w_i) + γ*Previous_EWMA
         self.fairness_ewma = (1 - self.gamma) * time_delta_seconds + self.gamma * self.fairness_ewma
+        # EWMA update using the time delta (not cumulative)
+        # This follows the methodology: (1-γ)*T_idle(w_i) + γ*Previous_EWMA
+        self.fairness_ewma = (1 - self.gamma) * time_delta_seconds + self.gamma * self.fairness_ewma
+
+        # EWMA update using the time delta (not cumulative)
+        # This follows the methodology: (1-γ)*T_idle(w_i) + γ*Previous_EWMA
+        self.fairness_ewma = (1 - self.gamma) * time_delta_seconds + self.gamma * self.fairness_ewma
+

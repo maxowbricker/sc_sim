@@ -119,14 +119,22 @@ class Adapter:
             yield bucket
 
     def _load_gps(self) -> pd.DataFrame:
-        path = self.root / "gps.txt"
+        # Prefer temporally-aligned quarter file for faster development/testing
+        fixed_path = self.root / "gps_quarter_fixed.txt"
+        quarter_path = self.root / "gps_quarter.txt"
+        path = fixed_path if fixed_path.exists() else (quarter_path if quarter_path.exists() else self.root / "gps.txt")
+        print(f"📊 Loading GPS data from: {path.name} ({path.stat().st_size / 1024 / 1024:.1f} MB)")
         df = pd.read_csv(path, header=None)
         df.columns = ["driver_id", "order_id", "timestamp", "lon", "lat"]
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
         return df.sort_values("timestamp")
 
     def _load_orders(self) -> pd.DataFrame:
-        path = self.root / "order.txt"
+        # Prefer temporally-aligned quarter file for faster development/testing
+        fixed_path = self.root / "order_quarter_fixed.txt"
+        quarter_path = self.root / "order_quarter.txt"
+        path = fixed_path if fixed_path.exists() else (quarter_path if quarter_path.exists() else self.root / "order.txt")
+        print(f"📊 Loading Orders data from: {path.name} ({path.stat().st_size / 1024 / 1024:.1f} MB)")
         df = pd.read_csv(path, header=None)
 
         if df.shape[1] == 8: # if the order.txt has 8 columns, we need to remove the last column

@@ -11,7 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.loader import load_workers_tasks
 from simulator.simulation import run_simulation
-from config import SIM_CONFIG
+from config import get_experiment_preset, create_composite_config
 
 
 def quick_test(name, strategy_params_override=None):
@@ -22,13 +22,13 @@ def quick_test(name, strategy_params_override=None):
     
     workers, tasks = load_workers_tasks("didi")
     
-    config = dict(SIM_CONFIG)
-    config["assignment_strategy"] = "composite"
-    
+    # Build configuration using centralized system
+    overrides = {"assignment_strategy": "composite"}
     if strategy_params_override:
-        config["strategy_params"] = dict(config.get("strategy_params", {}))
-        config["strategy_params"].update(strategy_params_override)
+        overrides.update(strategy_params_override)
         print(f"Parameters: {strategy_params_override}")
+    
+    config = create_composite_config(**overrides)
     
     summary = run_simulation(workers, tasks, sim_config=config)
     
@@ -60,34 +60,9 @@ def main():
     print("QUICK PARAMETER EXPERIMENTATION")
     print("Testing key parameter combinations for research insights...")
     
-    experiments = [
-        # Baseline
-        ("Baseline (Current)", {}),
-        
-        # Fairness-focused configurations
-        ("High Fairness Focus", {"λ1": 2.0, "λ2": 1.0, "λ3": 0.3}),
-        ("Very High Fairness", {"λ1": 3.0, "λ2": 1.0, "λ3": 0.2}),
-        
-        # Efficiency-focused configurations  
-        ("High Efficiency Focus", {"λ1": 0.3, "λ2": 1.0, "λ3": 2.0}),
-        ("Very High Efficiency", {"λ1": 0.2, "λ2": 0.5, "λ3": 3.0}),
-        
-        # Starvation-focused
-        ("High Starvation Prevention", {"λ1": 1.0, "λ2": 3.0, "λ3": 0.5}),
-        
-        # Balanced approaches
-        ("Balanced Equal Weights", {"λ1": 1.0, "λ2": 1.0, "λ3": 1.0}),
-        ("Balanced with Fairness Bias", {"λ1": 1.5, "λ2": 1.0, "λ3": 0.7}),
-        
-        # Threshold experiments
-        ("Permissive Threshold", {"soft_threshold": 0.5}),
-        ("Strict Threshold", {"soft_threshold": 2.0}),
-        ("Very Strict Threshold", {"soft_threshold": 3.0}),
-        
-        # EWMA sensitivity
-        ("Responsive EWMA", {"gamma": 0.1}),
-        ("Smooth EWMA", {"gamma": 0.7}),
-    ]
+    # Use centralized experiment configurations
+    experiment_configs = get_experiment_preset("quick_test_configs")
+    experiments = [(config["name"], config["params"]) for config in experiment_configs]
     
     results = []
     for name, params in experiments:

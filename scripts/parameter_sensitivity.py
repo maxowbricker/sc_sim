@@ -19,7 +19,7 @@ import numpy as np
 from itertools import product
 from data.loader import load_workers_tasks
 from simulator.simulation import run_simulation
-from config import SIM_CONFIG
+from config import get_simulation_config, get_experiment_preset, create_composite_config
 import json
 
 
@@ -27,52 +27,12 @@ def run_parameter_sweep():
     """Run systematic parameter sensitivity analysis."""
     
     print("Loading dataset...")
-    workers, tasks = load_workers_tasks("didi")
+    base_config = get_simulation_config()
+    workers, tasks = load_workers_tasks(base_config["dataset"])
     print(f"Loaded {len(workers)} workers and {len(tasks)} tasks\n")
     
-    # Define parameter ranges for experimentation
-    experiments = {
-        "lambda_sweep": {
-            "description": "Impact of lambda weight combinations",
-            "params": {
-                "λ1": [0.5, 1.0, 1.5, 2.0],  # Fairness weight
-                "λ2": [0.5, 1.0, 1.5, 2.0],  # Starvation weight  
-                "λ3": [0.3, 0.5, 1.0, 1.5],  # Utility weight
-                "soft_threshold": [1.0],       # Keep constant
-                "gamma": [0.3]                 # Keep constant
-            }
-        },
-        "threshold_sweep": {
-            "description": "Impact of soft threshold values",
-            "params": {
-                "λ1": [1.0],                   # Keep constant
-                "λ2": [1.0],                   # Keep constant
-                "λ3": [0.5],                   # Keep constant
-                "soft_threshold": [0.0, 0.5, 1.0, 1.5, 2.0, 3.0],
-                "gamma": [0.3]                 # Keep constant
-            }
-        },
-        "gamma_sweep": {
-            "description": "Impact of EWMA gamma parameter",
-            "params": {
-                "λ1": [1.0],                   # Keep constant
-                "λ2": [1.0],                   # Keep constant
-                "λ3": [0.5],                   # Keep constant
-                "soft_threshold": [1.0],       # Keep constant
-                "gamma": [0.1, 0.2, 0.3, 0.5, 0.7, 0.9]
-            }
-        },
-        "focused_comparison": {
-            "description": "Key configurations for research comparison",
-            "params": {
-                "λ1": [0.5, 1.0, 2.0],        # Low, medium, high fairness
-                "λ2": [1.0],                   # Standard starvation
-                "λ3": [0.5, 1.0],             # Medium vs high utility
-                "soft_threshold": [0.5, 1.0, 2.0],  # Permissive, medium, strict
-                "gamma": [0.3]                 # Standard EWMA
-            }
-        }
-    }
+    # Use centralized experiment presets
+    experiments = get_experiment_preset("parameter_ranges")
     
     all_results = {}
     
@@ -96,28 +56,39 @@ def run_parameter_sweep():
                 progress = (i / total_combinations) * 100
                 print(f"Progress: {progress:.0f}% ({i+1}/{total_combinations})")
             
-            # Configure and run simulation
-            config = dict(SIM_CONFIG)
-            config["assignment_strategy"] = "composite"
-            config["strategy_params"] = dict(config.get("strategy_params", {}))
-            config["strategy_params"].update(params)
+            # Configure and run simulation using centralized config
+            config = create_composite_config(
+                assignment_strategy="composite",
+                **params  # Pass all parameters as overrides
+            )
             
             try:
                 summary = run_simulation(workers, tasks, sim_config=config)
                 
-                # Extract key metrics
+                # Extract key metrics with safe conversions
+                completed_tasks = summary.get('completed_tasks', 0)
+                total_wait_min = summary.get('total_wait_min', 0)
+                total_travel_km = summary.get('total_travel_km', 1)
+                empty_km = summary.get('empty_km', 0)
+                
+                # Validate results - skip pathological cases
+                task_assignment_ratio = completed_tasks / len(tasks)
+                if task_assignment_ratio < 0.5:  # Skip if less than 50% tasks completed
+                    print(f"Skipping pathological case with params {params}: TAR={task_assignment_ratio:.1%}")
+                    continue
+                
                 result = {
                     **params,
-                    'completed_tasks': summary.get('completed_tasks', 0),
-                    'task_assignment_ratio': summary.get('completed_tasks', 0) / len(tasks),
-                    'jains_fairness_index': summary.get('final_jains_fairness_index', 0),
-                    'utility_difference': summary.get('final_utility_difference_tasks', 0),
-                    'fairness_loss': summary.get('final_fairness_loss', 0),
-                    'ewma_cv': summary.get('final_ewma_cv', 0),
-                    'mean_jfi_over_time': summary.get('mean_jfi_over_time', 0),
-                    'backlog_peak': summary.get('backlog_peak', 0),
-                    'avg_wait_time': summary.get('total_wait_min', 0) / max(1, summary.get('completed_tasks', 1)),
-                    'empty_km_share': (summary.get('empty_km', 0) / max(1, summary.get('total_travel_km', 1))),
+                    'completed_tasks': int(completed_tasks),
+                    'task_assignment_ratio': float(task_assignment_ratio),
+                    'jains_fairness_index': float(summary.get('final_jains_fairness_index', 0)),
+                    'utility_difference': float(summary.get('final_utility_difference_tasks', 0)),
+                    'fairness_loss': float(summary.get('final_fairness_loss', 0)),
+                    'ewma_cv': float(summary.get('final_ewma_cv', 0)),
+                    'mean_jfi_over_time': float(summary.get('mean_jfi_over_time', 0)),
+                    'backlog_peak': int(summary.get('backlog_peak', 0)),
+                    'avg_wait_time': float(total_wait_min / max(1, completed_tasks)),
+                    'empty_km_share': float(empty_km / max(1, total_travel_km)),
                 }
                 results.append(result)
                 

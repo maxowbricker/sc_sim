@@ -83,7 +83,7 @@ def get_adapter(dataset: str, root_path: str, **kwargs):
     """
     Returns the appropriate adapter instance for the given dataset name.
     """
-    if dataset == "checkin":
+    if dataset == "checkin" or dataset == "checkins":
         return checkin.Adapter(root_path)
     elif dataset == "synthetic":
         return synthetic.Adapter(root_path)
