@@ -2,15 +2,35 @@
 .DS_Store
 data/tasks.txt
 data/workers.txt
+
+# Didi dataset files (all variations) - Keep in Google Drive only
 data/didi/gps.txt
 data/didi/order.txt
+data/didi/gps_20161113
+data/didi/order_20161113
+data/didi/gps_quarter.txt
+data/didi/order_quarter.txt
+data/didi/gps_quarter_fixed.txt
+data/didi/order_quarter_fixed.txt
+data/didi/gps_small.txt
+data/didi/order_small.txt
+data/didi/otherdata
+data/didi/sample_didi.py
+
+# Other dataset files
 data/checkins/tasks.txt
 data/checkins/workers.txt
 data/synthetic/tasks.txt
 data/synthetic/workers.txt
-data/didi/otherdata
-data/didi/sample_didi.py
+
+# Output files
 metrics_snapshot.csv
+results/
+*.json
+
+# Experimental result files
+rq*_results_*.json
+*_experiments_*.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
