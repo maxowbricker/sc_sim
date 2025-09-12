@@ -82,15 +82,4 @@ class Worker:
         # EWMA update using the time delta (not cumulative)
         # This follows the methodology: (1-γ)*T_idle(w_i) + γ*Previous_EWMA
         self.fairness_ewma = (1 - self.gamma) * time_delta_seconds + self.gamma * self.fairness_ewma
-        # EWMA update using the time delta (not cumulative)
-        # This follows the methodology: (1-γ)*T_idle(w_i) + γ*Previous_EWMA
-        self.fairness_ewma = (1 - self.gamma) * time_delta_seconds + self.gamma * self.fairness_ewma
-
-        # EWMA update using the time delta (not cumulative)
-        # This follows the methodology: (1-γ)*T_idle(w_i) + γ*Previous_EWMA
-        self.fairness_ewma = (1 - self.gamma) * time_delta_seconds + self.gamma * self.fairness_ewma
-
-        # EWMA update using the time delta (not cumulative)
-        # This follows the methodology: (1-γ)*T_idle(w_i) + γ*Previous_EWMA
-        self.fairness_ewma = (1 - self.gamma) * time_delta_seconds + self.gamma * self.fairness_ewma
 

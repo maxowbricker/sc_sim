@@ -180,9 +180,17 @@ class Simulation:
         from models.worker import Worker
         from models.task import Task
         
-        # Convert workers DataFrame to Worker objects
+        print("🚀 Converting DataFrames to objects...")
+        
+        # Convert workers DataFrame to Worker objects with progress indicators
         workers = []
-        for _, row in self.workers_df.iterrows():
+        total_workers = len(self.workers_df)
+        
+        for i, (_, row) in enumerate(self.workers_df.iterrows()):
+            # Progress indicator every 5000 workers
+            if i % 5000 == 0 and i > 0:
+                print(f"   📊 Converting workers: {i:,}/{total_workers:,} ({i/total_workers*100:.1f}%)")
+            
             worker_dict = {
                 'worker_id': row['worker_id'],
                 'start_lat': row['start_lat'],
@@ -193,9 +201,17 @@ class Simulation:
             worker = Worker(worker_dict)
             workers.append(worker)
         
-        # Convert tasks DataFrame to Task objects  
+        print(f"   ✅ Converted {len(workers):,} workers")
+        
+        # Convert tasks DataFrame to Task objects with progress indicators
         tasks = []
-        for _, row in self.tasks_df.iterrows():
+        total_tasks = len(self.tasks_df)
+        
+        for i, (_, row) in enumerate(self.tasks_df.iterrows()):
+            # Progress indicator every 20000 tasks
+            if i % 20000 == 0 and i > 0:
+                print(f"   📊 Converting tasks: {i:,}/{total_tasks:,} ({i/total_tasks*100:.1f}%)")
+            
             task_dict = {
                 'task_id': row['task_id'],
                 'pickup_lat': row['pickup_lat'],
@@ -207,6 +223,9 @@ class Simulation:
             }
             task = Task(task_dict)
             tasks.append(task)
+        
+        print(f"   ✅ Converted {len(tasks):,} tasks")
+        print("🚀 Starting simulation...")
         
         # Run the simulation
         results = run_simulation(workers, tasks, sim_config=self.config)
