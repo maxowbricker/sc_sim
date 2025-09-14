@@ -25,12 +25,15 @@ data/synthetic/workers.txt
 
 # Output files
 metrics_snapshot.csv
-results/
-*.json
 
-# Experimental result files
+# Results directory and experimental data
+results/
+
+# Experimental result files (specific patterns to avoid catching .ipynb)
 rq*_results_*.json
 *_experiments_*.json
+phase*_results_*.json
+parameter_sensitivity_results.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
