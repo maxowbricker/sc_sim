@@ -1,31 +1,37 @@
 #!/usr/bin/env python3
 """
-Focused Parameter Sweep: Optimized Ranges for fairness_weight, starvation_weight, utility_weight, and Soft Threshold
+Comprehensive Parameter Sweep: λ₁, λ₂, λ₃, and Soft Threshold Exploration
 =========================================================================
 
-Research Goal: Deep exploration of promising parameter ranges identified from
-previous experiments to find optimal configurations within refined bounds.
+Research Goal: Systematically explore the relationship between all three lambda 
+parameters and the soft threshold to understand their interactions and find 
+optimal configurations for different objectives.
 
-This script performs a focused grid search across optimized ranges:
-- fairness_weight: 1.0-2.0 (focused around high-fairness configurations)
-- starvation_weight: 0.5-1.5 (balanced starvation prevention)
-- utility_weight: 0.5-2.0 (efficiency-focused range)
-- soft_threshold: 0.25-1.25 (refined threshold exploration)
+This script performs a comprehensive grid search across:
+- fairness_weight (Fairness weight): Controls EWMA fairness priority
+- starvation_weight (Starvation weight): Controls idle time/starvation prevention priority  
+- utility_weight (Utility weight): Controls distance/efficiency priority
+- soft_threshold: Controls immediate assignment threshold
 
 Scoring Function: Score = fairness_weight×Fairness + starvation_weight×Starvation + utility_weight×Utility
 
-Dataset: Large scale with 50,000 tasks for robust results
-
 Usage:
-    python experiments/run_focused_parameter_sweep.py [--mode MODE]
+    python experiments/run_comprehensive_parameter_sweep.py [--mode MODE] [--focus FOCUS]
     
 Modes:
-    - standard: 5x5x5x5 grid = 625 experiments (~10-12 hours)
-    - fine: 7x7x7x7 grid = 2,401 experiments (~20-24 hours)
-    - ultra: 9x9x9x9 grid = 6,561 experiments (~40-48 hours)
+    - overnight: Full comprehensive sweep (DEFAULT) - 6-8 hours
+    - extensive: Extended ranges - 3-4 hours  
+    - standard: Reasonable ranges - 1-2 hours
+    - quick: Fast testing - 30 minutes
+    
+Focus Areas:
+    - all: Test all combinations (DEFAULT)
+    - fairness: Focus on fairness-optimized ranges
+    - efficiency: Focus on efficiency-optimized ranges
+    - balanced: Focus on balanced configurations
     
 Output:
-    results/focused_parameter_sweep_YYYYMMDD_HHMMSS.json
+    results/comprehensive_parameter_sweep_YYYYMMDD_HHMMSS.json
 """
 
 import sys
@@ -36,7 +42,6 @@ import argparse
 import itertools
 from datetime import datetime
 from pathlib import Path
-import numpy as np
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -46,46 +51,66 @@ from config import create_composite_config
 from simulator.simulation import Simulation
 from notebook_optimized_loader import load_data
 
-def get_focused_parameter_ranges(mode="standard"):
-    """Get focused parameter ranges based on promising configurations."""
+def get_parameter_ranges(mode="overnight", focus="all"):
+    """Get parameter ranges based on mode and focus area."""
     
-    # Define the focused ranges with different granularities
+    # Base parameter ranges by mode (REALISTIC for M1 MacBook Pro)
     ranges = {
+        "quick": {
+            "fairness_weight": [0.5, 1.0, 2.0],           # 3 values
+            "starvation_weight": [0.5, 1.0, 2.0],         # 3 values
+            "utility_weight": [0.5, 1.0],                 # 2 values  
+            "soft_threshold": [0.5, 1.0],    # 2 values
+            "dataset_size": {"max_tasks": 5000, "max_workers": 2500},  # Research-appropriate scale
+            "num_runs": 1                    # = 36 experiments (~1-2 hours)
+        },
         "standard": {
-            "fairness_weight": np.linspace(1.0, 2.0, 5).tolist(),      # [1.0, 1.25, 1.5, 1.75, 2.0]
-            "starvation_weight": np.linspace(0.5, 1.5, 5).tolist(),    # [0.5, 0.75, 1.0, 1.25, 1.5]
-            "utility_weight": np.linspace(0.5, 2.0, 5).tolist(),       # [0.5, 0.875, 1.25, 1.625, 2.0]
-            "soft_threshold": np.linspace(0.25, 1.25, 5).tolist(),  # [0.25, 0.5, 0.75, 1.0, 1.25]
-            "dataset_size": {"max_tasks": 50000, "max_workers": 20000},
-            "num_runs": 1,  # 625 experiments
-            "description": "Standard focused sweep - balanced detail"
+            "fairness_weight": [0.3, 1.0, 2.0],           # 3 values
+            "starvation_weight": [0.3, 1.0, 2.0],         # 3 values
+            "utility_weight": [0.5, 1.0, 1.5],            # 3 values
+            "soft_threshold": [0.1, 1.0, 2.0],  # 3 values
+            "dataset_size": {"max_tasks": 15000, "max_workers": 7500},  # Medium research scale
+            "num_runs": 2                    # = 162 experiments (~6-8 hours)
         },
-        "fine": {
-            "fairness_weight": np.linspace(1.0, 2.0, 7).tolist(),      # 7 values
-            "starvation_weight": np.linspace(0.5, 1.5, 7).tolist(),    # 7 values
-            "utility_weight": np.linspace(0.5, 2.0, 7).tolist(),       # 7 values
-            "soft_threshold": np.linspace(0.25, 1.25, 7).tolist(),  # 7 values
-            "dataset_size": {"max_tasks": 50000, "max_workers": 20000},
-            "num_runs": 1,  # 2,401 experiments
-            "description": "Fine-grained focused sweep - high detail"
+        "extensive": {
+            "fairness_weight": [0.1, 0.5, 1.0, 2.0, 5.0],     # 5 values
+            "starvation_weight": [0.1, 0.5, 1.0, 2.0, 5.0],   # 5 values
+            "utility_weight": [0.2, 0.5, 1.0, 2.0],           # 4 values
+            "soft_threshold": [0.1, 0.5, 1.0, 2.0],  # 4 values
+            "dataset_size": {"max_tasks": 50000, "max_workers": 20000},  # Large research scale
+            "num_runs": 1                        # = 400 experiments (~12-16 hours)
         },
-        "ultra": {
-            "fairness_weight": np.linspace(1.0, 2.0, 9).tolist(),      # 9 values
-            "starvation_weight": np.linspace(0.5, 1.5, 9).tolist(),    # 9 values
-            "utility_weight": np.linspace(0.5, 2.0, 9).tolist(),       # 9 values
-            "soft_threshold": np.linspace(0.25, 1.25, 9).tolist(),  # 9 values
-            "dataset_size": {"max_tasks": 50000, "max_workers": 20000},
-            "num_runs": 1,  # 6,561 experiments
-            "description": "Ultra-fine focused sweep - maximum detail"
+        "overnight": {
+            "fairness_weight": [0.1, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0],      # 7 values
+            "starvation_weight": [0.1, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0],    # 7 values
+            "utility_weight": [0.2, 0.5, 1.0, 1.5, 2.0],                 # 5 values
+            "soft_threshold": [0.05, 0.1, 0.5, 1.0, 2.0],  # 5 values
+            "dataset_size": {"max_tasks": None, "max_workers": None},  # FULL DATASET!
+            "num_runs": 1                                   # = 1,225 experiments (~24-36 hours)
         }
     }
     
-    # Round values to avoid floating point precision issues
-    for mode_key, config in ranges.items():
-        for param in ["fairness_weight", "starvation_weight", "utility_weight", "soft_threshold"]:
-            config[param] = [round(val, 3) for val in config[param]]
+    base_ranges = ranges[mode]
     
-    return ranges[mode]
+    # Apply focus filters
+    if focus == "fairness":
+        # Focus on fairness-heavy configurations
+        base_ranges["fairness_weight"] = [x for x in base_ranges["fairness_weight"] if x >= 1.0]
+        base_ranges["starvation_weight"] = [x for x in base_ranges["starvation_weight"] if x <= 2.0]
+        base_ranges["utility_weight"] = [x for x in base_ranges["utility_weight"] if x <= 1.0]
+    elif focus == "efficiency":
+        # Focus on efficiency-heavy configurations  
+        base_ranges["fairness_weight"] = [x for x in base_ranges["fairness_weight"] if x <= 1.0]
+        base_ranges["starvation_weight"] = [x for x in base_ranges["starvation_weight"] if x <= 1.0]
+        base_ranges["utility_weight"] = [x for x in base_ranges["utility_weight"] if x >= 1.0]
+    elif focus == "balanced":
+        # Focus on balanced configurations
+        base_ranges["fairness_weight"] = [x for x in base_ranges["fairness_weight"] if 0.5 <= x <= 2.0]
+        base_ranges["starvation_weight"] = [x for x in base_ranges["starvation_weight"] if 0.5 <= x <= 2.0]
+        base_ranges["utility_weight"] = [x for x in base_ranges["utility_weight"] if 0.5 <= x <= 2.0]
+    # "all" focus keeps all ranges unchanged
+    
+    return base_ranges
 
 def estimate_experiment_time(config):
     """Estimate total experiment time based on M1 MacBook Pro performance."""
@@ -95,8 +120,18 @@ def estimate_experiment_time(config):
                          len(config["soft_threshold"]) * 
                          config["num_runs"])
     
-    # Time estimate for large dataset (50k tasks)
-    time_per_experiment = 1.5  # minutes per experiment with large dataset
+    # Realistic time estimates for M1 MacBook Pro with FIXED conversion speed
+    max_tasks = config["dataset_size"]["max_tasks"]
+    if max_tasks is None:  # Full dataset
+        time_per_experiment = 2.0  # minutes - full dataset (fast conversion)
+    elif max_tasks <= 5000:
+        time_per_experiment = 0.3  # minutes - small dataset (fast conversion)
+    elif max_tasks <= 15000:
+        time_per_experiment = 0.5  # minutes - medium dataset (fast conversion)  
+    elif max_tasks <= 50000:
+        time_per_experiment = 1.0  # minutes - large dataset (fast conversion)
+    else:
+        time_per_experiment = 1.5  # minutes - very large dataset (fast conversion)
         
     total_time_minutes = total_combinations * time_per_experiment
     return total_time_minutes, total_combinations
@@ -106,7 +141,7 @@ def save_intermediate_results(results, config, start_time, filename):
     current_time = time.time()
     
     experiment_summary = {
-        'experiment': 'Focused Parameter Sweep - Optimized Range Deep Exploration',
+        'experiment': 'Comprehensive Parameter Sweep - Multi-dimensional Lambda and Threshold Analysis',
         'start_timestamp': datetime.fromtimestamp(start_time).isoformat(),
         'current_timestamp': datetime.now().isoformat(),
         'execution_time_minutes': (current_time - start_time) / 60,
@@ -114,33 +149,24 @@ def save_intermediate_results(results, config, start_time, filename):
         'total_experiments_planned': estimate_experiment_time(config)[1],
         'completed_experiments': len(results),
         'progress_percent': (len(results) / estimate_experiment_time(config)[1]) * 100,
-        'results': results,
-        'parameter_ranges': {
-            'fairness_weight_range': f"{min(config['fairness_weight'])}-{max(config['fairness_weight'])}",
-            'starvation_weight_range': f"{min(config['starvation_weight'])}-{max(config['starvation_weight'])}",
-            'utility_weight_range': f"{min(config['utility_weight'])}-{max(config['utility_weight'])}",
-            'threshold_range': f"{min(config['soft_threshold'])}-{max(config['soft_threshold'])}"
-        }
+        'results': results
     }
     
     with open(filename, 'w') as f:
         json.dump(experiment_summary, f, indent=2)
 
-def analyze_focused_results(results):
-    """Analyze results with focus on parameter optimization within ranges."""
+def analyze_parameter_relationships(results):
+    """Provide basic analysis of parameter relationships."""
     if not results:
         return {}
     
-    # Enhanced analysis for focused parameter space
+    # Find best configurations for different objectives
     analysis = {
         'best_jfi': max(results, key=lambda x: x.get('jfi', 0)),
         'best_tar': max(results, key=lambda x: x.get('tar', 0)),
-        'best_efficiency': min(results, key=lambda x: x.get('avg_pickup_distance', float('inf'))),
         'best_combined': max(results, key=lambda x: (x.get('jfi', 0) * 0.6 + x.get('tar', 0)/100 * 0.4)),
-        'best_balanced': None,
-        'pareto_optimal': [],
-        'parameter_correlations': {},
-        'hot_zones': {}
+        'best_balanced': None,  # JFI > 0.85 AND TAR > 95%
+        'parameter_stats': {}
     }
     
     # Find best balanced configuration
@@ -148,83 +174,39 @@ def analyze_focused_results(results):
     if balanced_candidates:
         analysis['best_balanced'] = max(balanced_candidates, key=lambda x: x.get('jfi', 0))
     
-    # Find Pareto optimal solutions (JFI vs TAR trade-off)
-    pareto_candidates = []
-    for result in results:
-        jfi = result.get('jfi', 0)
-        tar = result.get('tar', 0)
-        is_pareto = True
-        
-        # Check if dominated by any other solution
-        for other in results:
-            other_jfi = other.get('jfi', 0)
-            other_tar = other.get('tar', 0)
-            if (other_jfi >= jfi and other_tar >= tar and 
-                (other_jfi > jfi or other_tar > tar)):
-                is_pareto = False
-                break
-        
-        if is_pareto:
-            pareto_candidates.append(result)
-    
-    analysis['pareto_optimal'] = sorted(pareto_candidates, 
-                                      key=lambda x: x.get('jfi', 0), 
-                                      reverse=True)[:10]  # Top 10
-    
-    # Parameter correlation analysis
-    params = ['lambda1', 'lambda2', 'lambda3', 'soft_threshold']
-    metrics = ['jfi', 'tar', 'avg_pickup_distance']
-    
-    for param in params:
-        analysis['parameter_correlations'][param] = {}
-        param_values = [r[param] for r in results if param in r]
-        
-        for metric in metrics:
-            metric_values = [r.get(metric, 0) for r in results if param in r and metric in r]
-            if len(param_values) > 1 and len(metric_values) > 1:
-                correlation = np.corrcoef(param_values, metric_values)[0, 1]
-                analysis['parameter_correlations'][param][metric] = float(correlation) if not np.isnan(correlation) else 0.0
-    
-    # Identify parameter "hot zones" (high-performing regions)
-    successful_results = [r for r in results if r.get('balanced_success', False)]
-    if successful_results:
-        for param in params:
-            values = [r[param] for r in successful_results]
-            if values:
-                analysis['hot_zones'][param] = {
-                    'min': min(values),
-                    'max': max(values),
-                    'mean': sum(values) / len(values),
-                    'optimal_range': f"{min(values):.3f} - {max(values):.3f}"
-                }
+    # Basic parameter statistics
+    for param in ['fairness_weight', 'starvation_weight', 'utility_weight', 'soft_threshold']:
+        values = [r[param] for r in results if param in r]
+        if values:
+            analysis['parameter_stats'][param] = {
+                'min': min(values),
+                'max': max(values),
+                'avg_for_high_jfi': sum([r[param] for r in results if r.get('jfi', 0) > 0.85]) / 
+                                   max(1, len([r for r in results if r.get('jfi', 0) > 0.85]))
+            }
     
     return analysis
 
-def run_focused_parameter_sweep(mode="standard", save_frequency=50):
-    """Run focused parameter sweep on promising parameter ranges."""
+def run_comprehensive_parameter_sweep(mode="overnight", focus="all", save_frequency=50):
+    """Run comprehensive parameter sweep across all lambda values and soft threshold."""
     
-    print("🎯 FOCUSED PARAMETER SWEEP")
+    print("🌟 COMPREHENSIVE PARAMETER SWEEP")
     print("=" * 80)
-    print(f"🔬 Mode: {mode.upper()}")
-    print("📐 Deep exploration of optimized parameter ranges:")
-    print("   • fairness_weight: 1.0-2.0 (high-fairness focus)")
-    print("   • starvation_weight: 0.5-1.5 (balanced prevention)")  
-    print("   • utility_weight: 0.5-2.0 (efficiency-focused)")
-    print("   • Soft Threshold: 0.25-1.25 (refined range)")
-    print("🎯 Goal: Find optimal configurations within promising bounds")
+    print(f"🎯 Mode: {mode.upper()} | Focus: {focus.upper()}")
+    print("📐 Exploring relationships between fairness_weight, starvation_weight, utility_weight, and Soft Threshold")
+    print("🔬 Goal: Find optimal parameter combinations for different objectives")
     print()
     
     # Get configuration
-    config = get_focused_parameter_ranges(mode)
+    config = get_parameter_ranges(mode, focus)
     estimated_time, total_combinations = estimate_experiment_time(config)
     
-    print(f"📊 FOCUSED PARAMETER RANGES:")
-    print(f"   fairness_weight:     {len(config['fairness_weight'])} values: {min(config['fairness_weight']):.3f} → {max(config['fairness_weight']):.3f}")
-    print(f"   starvation_weight:   {len(config['starvation_weight'])} values: {min(config['starvation_weight']):.3f} → {max(config['starvation_weight']):.3f}")
-    print(f"   utility_weight:      {len(config['utility_weight'])} values: {min(config['utility_weight']):.3f} → {max(config['utility_weight']):.3f}")
-    print(f"   Soft Threshold:    {len(config['soft_threshold'])} values: {min(config['soft_threshold']):.3f} → {max(config['soft_threshold']):.3f}")
+    print(f"📊 PARAMETER RANGES:")
+    print(f"   fairness_weight:     {config['fairness_weight']}")
+    print(f"   starvation_weight:   {config['starvation_weight']}")
+    print(f"   utility_weight:      {config['utility_weight']}")
+    print(f"   Soft Threshold:    {config['soft_threshold']}")
     print(f"   Runs per config:   {config['num_runs']}")
-    print(f"   Description:       {config['description']}")
     print()
     
     print(f"📈 EXPERIMENT SCOPE:")
@@ -242,12 +224,12 @@ def run_focused_parameter_sweep(mode="standard", save_frequency=50):
     results = []
     start_time = time.time()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_file = f"results/focused_parameter_sweep_{timestamp}.json"
+    results_file = f"results/comprehensive_parameter_sweep_{timestamp}.json"
     
     # Create results directory
     os.makedirs('results', exist_ok=True)
     
-    print(f"🚀 Starting focused experiments... Results will be saved to {results_file}")
+    print(f"🚀 Starting experiments... Results will be saved to {results_file}")
     print(f"💾 Intermediate saves every {save_frequency} experiments")
     print("=" * 80)
     print()
@@ -262,17 +244,17 @@ def run_focused_parameter_sweep(mode="standard", save_frequency=50):
         config["soft_threshold"]
     ))
     
-    print(f"🔄 Processing {len(param_combinations)} focused parameter combinations...")
+    print(f"🔄 Processing {len(param_combinations)} unique parameter combinations...")
     
-    # Load data ONCE at start
-    print("🚀 Loading large dataset once for all experiments...")
+    # Load data ONCE at start (massive time savings!)
+    print("🚀 Loading dataset once for all experiments...")
     workers_df, tasks_df = load_data(
         'didi',
         max_workers=config['dataset_size']['max_workers'],
         max_tasks=config['dataset_size']['max_tasks']
     )
-    print(f"✅ Large dataset loaded: {len(workers_df):,} workers, {len(tasks_df):,} tasks")
-    print("🚀 Now running focused experiments with pre-loaded data...\n")
+    print(f"✅ Dataset loaded: {len(workers_df):,} workers, {len(tasks_df):,} tasks")
+    print("🚀 Now running experiments with pre-loaded data...\n")
     
     # Run experiments
     for run_id in range(config['num_runs']):
@@ -282,7 +264,7 @@ def run_focused_parameter_sweep(mode="standard", save_frequency=50):
         for i, (fairness_weight, starvation_weight, utility_weight, soft_thresh) in enumerate(param_combinations):
             experiment_count += 1
             
-            print(f"🧪 [{experiment_count:>5}/{total_combinations}] fw={fairness_weight:>5.3f} sw={starvation_weight:>5.3f} uw={utility_weight:>5.3f} thresh={soft_thresh:>5.3f}", end=" ")
+            print(f"🧪 [{experiment_count:>4}/{total_combinations}] fw={fairness_weight:>4} sw={starvation_weight:>4} uw={utility_weight:>4} thresh={soft_thresh:>4}", end=" ")
             
             try:
                 # Create simulation configuration
@@ -300,9 +282,9 @@ def run_focused_parameter_sweep(mode="standard", save_frequency=50):
                 def timeout_handler(signum, frame):
                     raise TimeoutError("Simulation timed out - likely pathological parameter combination")
                 
-                # Set timeout (10 minutes per experiment for large dataset)
+                # Set timeout (5 minutes per experiment max)
                 signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(600)  # 10 minute timeout for large dataset
+                signal.alarm(300)  # 5 minute timeout
                 
                 try:
                     sim = Simulation(sim_config, workers_df, tasks_df)
@@ -338,12 +320,12 @@ def run_focused_parameter_sweep(mode="standard", save_frequency=50):
                     'starvation_weight': starvation_weight,
                     'utility_weight': utility_weight,
                     'soft_threshold': soft_thresh,
-                    'parameter_sum': fairness_weight + starvation_weight + utility_weight,
-                    'fairness_ratio': fairness_weight / (fairness_weight + starvation_weight + utility_weight),
-                    'starvation_ratio': starvation_weight / (fairness_weight + starvation_weight + utility_weight),
-                    'utility_ratio': utility_weight / (fairness_weight + starvation_weight + utility_weight),
+                    'parameter_sum': fairness_weight + starvation_weight + utility_weight,  # Total weight
+                    'fairness_ratio': fairness_weight / (fairness_weight + starvation_weight + utility_weight),  # Relative fairness weight
+                    'starvation_ratio': starvation_weight / (fairness_weight + starvation_weight + utility_weight),  # Relative starvation weight
+                    'utility_ratio': utility_weight / (fairness_weight + starvation_weight + utility_weight),   # Relative utility weight
                     
-                    # Primary metrics
+                    # Primary metrics (ensure JSON serializable)
                     'jfi': float(sim_results.get('jfi', 0.0)),
                     'tar': float(sim_results.get('task_assignment_ratio', 0.0) * 100),
                     'avg_wait_time': float(sim_results.get('avg_wait_time_minutes', 0.0)),
@@ -359,7 +341,7 @@ def run_focused_parameter_sweep(mode="standard", save_frequency=50):
                     'assigned_tasks': int(sim_results.get('assigned_tasks', 0)),
                     'fairness_loss': float(sim_results.get('fairness_loss', 0.0)),
                     
-                    # Success criteria
+                    # Success criteria (multiple objectives)
                     'high_jfi': bool(sim_results.get('jfi', 0.0) > 0.85),
                     'high_tar': bool(sim_results.get('task_assignment_ratio', 0.0) > 0.95),
                     'balanced_success': bool((sim_results.get('jfi', 0.0) > 0.85) and 
@@ -372,7 +354,7 @@ def run_focused_parameter_sweep(mode="standard", save_frequency=50):
                     
                     # Configuration metadata
                     'mode': mode,
-                    'focus': 'optimized_ranges',
+                    'focus': focus,
                     'dataset_size': config['dataset_size'].copy()
                 }
                 
@@ -385,7 +367,7 @@ def run_focused_parameter_sweep(mode="standard", save_frequency=50):
                 
                 if result_entry['simulation_failed']:
                     failure_reason = result_entry['failure_reason']
-                    print(f"→ ❌ FAILED ({failure_reason})")
+                    print(f"→ ❌ FAILED ({failure_reason}) - skipping")
                 else:
                     efficiency = f"🚗{result_entry['avg_pickup_distance']:.1f}km"
                     print(f"→ JFI:{jfi:.3f} TAR:{tar:.1f}% {efficiency} {success}")
@@ -399,30 +381,29 @@ def run_focused_parameter_sweep(mode="standard", save_frequency=50):
                 print(f"💾 Saving intermediate results... ({len(results)} completed)")
                 save_intermediate_results(results, config, start_time, results_file)
                 
-                # Progress summary
+                # Quick progress summary
                 if results:
                     recent_results = results[-save_frequency:] if len(results) >= save_frequency else results
                     success_rate = sum(1 for r in recent_results if r.get('balanced_success', False)) / len(recent_results) * 100
                     avg_jfi = sum(r.get('jfi', 0) for r in recent_results) / len(recent_results)
-                    avg_efficiency = sum(r.get('avg_pickup_distance', 0) for r in recent_results) / len(recent_results)
-                    print(f"📊 Recent batch: {success_rate:.1f}% success, JFI:{avg_jfi:.3f}, Efficiency:{avg_efficiency:.1f}km")
+                    print(f"📊 Recent {len(recent_results)} experiments: {success_rate:.1f}% success, {avg_jfi:.3f} avg JFI")
                 print()
     
-    # Final analysis and save
-    print("\n🎯 FOCUSED EXPERIMENT COMPLETE! Performing advanced analysis...")
+    # Final save with complete analysis
+    print("\n🎯 EXPERIMENT COMPLETE! Analyzing results...")
     
-    # Enhanced analysis for focused results
-    analysis = analyze_focused_results(results)
+    # Perform final analysis
+    analysis = analyze_parameter_relationships(results)
     
     # Create comprehensive final results
     execution_time = (time.time() - start_time) / 60
     
     final_results = {
-        'experiment': 'Focused Parameter Sweep - Optimized Range Deep Exploration',
+        'experiment': 'Comprehensive Parameter Sweep - Multi-dimensional Lambda and Threshold Analysis',
         'timestamp': timestamp,
         'execution_time_minutes': execution_time,
         'mode': mode,
-        'focus': 'optimized_ranges',
+        'focus': focus,
         'config': config,
         'total_experiments': len(results),
         'successful_experiments': len([r for r in results if r.get('balanced_success', False)]),
@@ -433,8 +414,8 @@ def run_focused_parameter_sweep(mode="standard", save_frequency=50):
     with open(results_file, 'w') as f:
         json.dump(final_results, f, indent=2)
     
-    # Final comprehensive summary
-    print("✅ FOCUSED PARAMETER SWEEP COMPLETE!")
+    # Final summary
+    print("✅ COMPREHENSIVE PARAMETER SWEEP COMPLETE!")
     print("=" * 80)
     print(f"🕒 Execution time: {execution_time:.1f} minutes ({execution_time/60:.1f} hours)")
     print(f"🧪 Total experiments: {len(results):,}")
@@ -443,42 +424,40 @@ def run_focused_parameter_sweep(mode="standard", save_frequency=50):
     
     if results:
         success_rate = (final_results['successful_experiments'] / len(results)) * 100
-        print(f"📊 FOCUSED SWEEP RESULTS:")
+        print(f"📊 SUMMARY STATISTICS:")
         print(f"   Success rate (JFI>0.85 AND TAR>95%): {success_rate:.1f}%")
-        print(f"   Pareto optimal solutions found: {len(analysis.get('pareto_optimal', []))}")
         
         if analysis['best_jfi']:
             best = analysis['best_jfi']
-            print(f"   🏆 Best JFI: {best['jfi']:.3f} (fw={best['fairness_weight']:.3f}, sw={best['starvation_weight']:.3f}, uw={best['utility_weight']:.3f}, thresh={best['soft_threshold']:.3f})")
+            print(f"   Best JFI: {best['jfi']:.3f} (fw={best['fairness_weight']}, sw={best['starvation_weight']}, uw={best['utility_weight']}, thresh={best['soft_threshold']})")
         
         if analysis['best_balanced']:
             best = analysis['best_balanced']
-            print(f"   🎯 Best balanced: JFI={best['jfi']:.3f}, TAR={best['tar']:.1f}% (fw={best['fairness_weight']:.3f}, sw={best['starvation_weight']:.3f}, uw={best['utility_weight']:.3f})")
-        
-        if analysis.get('hot_zones'):
-            print(f"\n🔥 OPTIMAL PARAMETER ZONES:")
-            for param, zone in analysis['hot_zones'].items():
-                print(f"   {param}: {zone['optimal_range']} (mean: {zone['mean']:.3f})")
+            print(f"   Best balanced: JFI={best['jfi']:.3f}, TAR={best['tar']:.1f}% (fw={best['fairness_weight']}, sw={best['starvation_weight']}, uw={best['utility_weight']}, thresh={best['soft_threshold']})")
         
         print(f"\n📋 NEXT STEPS:")
-        print(f"   1. Analyze focused results with enhanced parameter correlation plots")
-        print(f"   2. Examine Pareto optimal solutions for trade-off insights")
-        print(f"   3. Refine parameter zones further based on hot zones")
-        print(f"   4. Consider multi-objective optimization within identified ranges")
+        print(f"   1. Analyze results: jupyter notebook analysis/Honours_Results_Analysis.ipynb")
+        print(f"   2. Create parameter heatmaps and interaction plots")
+        print(f"   3. Identify optimal ranges for different objectives")
     
     print("=" * 80)
     return results_file
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description='Run focused parameter sweep on optimized fairness_weight, starvation_weight, utility_weight, and soft_threshold ranges',
+        description='Run comprehensive parameter sweep across fairness_weight, starvation_weight, utility_weight, and soft_threshold',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
     parser.add_argument('--mode', 
-                       choices=['standard', 'fine', 'ultra'],
-                       default='standard',
-                       help='Experiment granularity (default: standard - 625 experiments)')
+                       choices=['quick', 'standard', 'extensive', 'overnight'],
+                       default='overnight',
+                       help='Experiment mode (default: overnight)')
+    
+    parser.add_argument('--focus',
+                       choices=['all', 'fairness', 'efficiency', 'balanced'], 
+                       default='all',
+                       help='Focus area for parameter exploration (default: all)')
     
     parser.add_argument('--save-freq',
                        type=int,
@@ -487,13 +466,8 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    print(f"🎯 Starting focused parameter sweep in {args.mode} mode...")
-    print(f"📐 Exploring optimized ranges with {args.save_freq}-experiment save frequency")
-    print()
-    
-    run_focused_parameter_sweep(
+    run_comprehensive_parameter_sweep(
         mode=args.mode,
+        focus=args.focus, 
         save_frequency=args.save_freq
     )
-
-

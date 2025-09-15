@@ -57,7 +57,27 @@ def run_simulation(
         'service_times': [], 'backlog_peak': 0,
     }
 
+    # Safety counters to prevent infinite loops
+    max_events = len(tasks) * 10  # Reasonable upper bound
+    event_count = 0
+    last_progress_report = 0
+    
     while event_queue:
+        event_count += 1
+        
+        # Progress reporting every 10,000 events
+        if event_count - last_progress_report >= 10000:
+            remaining_events = len(event_queue)
+            completed = summary['completed_tasks']
+            print(f"   📊 Simulation progress: {completed:,}/{total_tasks_count:,} tasks completed, {remaining_events:,} events remaining")
+            last_progress_report = event_count
+        
+        # Safety check: Prevent infinite loops
+        if event_count > max_events:
+            print(f"⚠️  Simulation terminated: Exceeded {max_events:,} events (likely pathological parameter combination)")
+            print(f"   Completed {summary['completed_tasks']:,}/{total_tasks_count:,} tasks before termination")
+            break
+            
         event_time, event_type, event_id = heappop(event_queue)
         
         if end_time and event_time > end_time:
@@ -182,14 +202,18 @@ class Simulation:
         
         print("🚀 Converting DataFrames to objects...")
         
-        # Convert workers DataFrame to Worker objects with progress indicators
+        # Convert workers DataFrame to Worker objects (FAST vectorized approach)
         workers = []
         total_workers = len(self.workers_df)
+        print(f"   📊 Converting {total_workers:,} workers...")
         
-        for i, (_, row) in enumerate(self.workers_df.iterrows()):
-            # Progress indicator every 5000 workers
-            if i % 5000 == 0 and i > 0:
-                print(f"   📊 Converting workers: {i:,}/{total_workers:,} ({i/total_workers*100:.1f}%)")
+        # Use to_dict('records') which is much faster than iterrows()
+        worker_records = self.workers_df.to_dict('records')
+        
+        for i, row in enumerate(worker_records):
+            # Progress indicator every 10000 workers
+            if i % 10000 == 0 and i > 0:
+                print(f"   📊 Progress: {i:,}/{total_workers:,} ({i/total_workers*100:.1f}%)")
             
             worker_dict = {
                 'worker_id': row['worker_id'],
@@ -203,14 +227,18 @@ class Simulation:
         
         print(f"   ✅ Converted {len(workers):,} workers")
         
-        # Convert tasks DataFrame to Task objects with progress indicators
+        # Convert tasks DataFrame to Task objects (FAST vectorized approach)
         tasks = []
         total_tasks = len(self.tasks_df)
+        print(f"   📊 Converting {total_tasks:,} tasks...")
         
-        for i, (_, row) in enumerate(self.tasks_df.iterrows()):
+        # Use to_dict('records') which is much faster than iterrows()
+        task_records = self.tasks_df.to_dict('records')
+        
+        for i, row in enumerate(task_records):
             # Progress indicator every 20000 tasks
             if i % 20000 == 0 and i > 0:
-                print(f"   📊 Converting tasks: {i:,}/{total_tasks:,} ({i/total_tasks*100:.1f}%)")
+                print(f"   📊 Progress: {i:,}/{total_tasks:,} ({i/total_tasks*100:.1f}%)")
             
             task_dict = {
                 'task_id': row['task_id'],

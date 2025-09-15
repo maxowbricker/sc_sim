@@ -73,16 +73,16 @@ def manhattan_km(lat1, lon1, lat2, lon2):
     d_lon = fabs(lon1 - lon2) * km_per_deg * cos(radians(avg_lat))
     return d_lat + d_lon
 
-def score(task, worker, λ1, λ2, λ3, now, fairness_metric='ewma', all_workers=None):
+def score(task, worker, fairness_weight, starvation_weight, utility_weight, now, fairness_metric='ewma', all_workers=None):
     distance = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
     fairness = calculate_fairness_signal(worker, now, fairness_metric, all_workers)
     starvation = log(1 + (now - task.release_time).total_seconds())
     utility = 1.0 / (1.0 + distance)
-    score_val = λ1 * fairness + λ2 * starvation + λ3 * utility
+    score_val = fairness_weight * fairness + starvation_weight * starvation + utility_weight * utility
     
     return score_val
 
-def _find_best_assignment_for_task(task, workers, now, λ1, λ2, λ3, k):
+def _find_best_assignment_for_task(task, workers, now, fairness_weight, starvation_weight, utility_weight, k):
     if not workers:
         return None, float("-inf")
 
@@ -106,7 +106,7 @@ def _find_best_assignment_for_task(task, workers, now, λ1, λ2, λ3, k):
 
     best_worker, best_score = None, float("-inf")
     for dist, w in candidates:
-        s = score(task, w, λ1, λ2, λ3, now)
+        s = score(task, w, fairness_weight, starvation_weight, utility_weight, now)
         if s > best_score:
             best_score, best_worker = s, w
             
@@ -126,10 +126,10 @@ def _commit_assignment(task, worker, now):
     worker.assign_task(task)
     return task
 
-def assign_new_tasks_composite(state, now, tasks_to_assign, λ1=1.0, λ2=1.0, λ3=1.0, k=15, soft_threshold=0.5, fairness_metric='ewma', **_):
+def assign_new_tasks_composite(state, now, tasks_to_assign, fairness_weight=1.0, starvation_weight=1.0, utility_weight=1.0, k=15, soft_threshold=0.5, fairness_metric='ewma', **_):
     assignments = []
     for task in tasks_to_assign:
-        best_worker, best_score = _find_best_assignment_for_task(task, state.available_workers, now, λ1, λ2, λ3, k)
+        best_worker, best_score = _find_best_assignment_for_task(task, state.available_workers, now, fairness_weight, starvation_weight, utility_weight, k)
         
         if best_worker and best_score >= soft_threshold:
             assigned_task = _commit_assignment(task, best_worker, now)
@@ -161,7 +161,7 @@ def assign_new_tasks_composite(state, now, tasks_to_assign, λ1=1.0, λ2=1.0, λ
             
     return assignments
 
-def match_worker_composite(state, now, worker, λ1=1.0, λ2=1.0, λ3=1.0, k=15, soft_threshold=0.5, **_):
+def match_worker_composite(state, now, worker, fairness_weight=1.0, starvation_weight=1.0, utility_weight=1.0, k=15, soft_threshold=0.5, **_):
     if not state.deferred_tasks:
         return None
 
@@ -174,7 +174,7 @@ def match_worker_composite(state, now, worker, λ1=1.0, λ2=1.0, λ3=1.0, k=15, 
         if finish_eta > worker.deadline or finish_eta > task.expire_time:
             continue
 
-        s = score(task, worker, λ1, λ2, λ3, now)
+        s = score(task, worker, fairness_weight, starvation_weight, utility_weight, now)
         if s > best_score:
             best_score, best_task = s, task
             

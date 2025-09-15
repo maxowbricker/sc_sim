@@ -188,8 +188,8 @@ class OptimizedDidiAdapter:
             chunk["timestamp"] = pd.to_datetime(chunk["timestamp"], unit="s", utc=True)
             
             # Extract first/last GPS per driver for this chunk
-            chunk_first = chunk.groupby("driver_id").first().reset_index()
-            chunk_last = chunk.groupby("driver_id").last().reset_index()
+            chunk_first = chunk.groupby("driver_id", observed=True).first().reset_index()
+            chunk_last = chunk.groupby("driver_id", observed=True).last().reset_index()
             
             first_gps_chunks.append(chunk_first[["driver_id", "timestamp", "lon", "lat"]])
             last_gps_chunks.append(chunk_last[["driver_id", "timestamp"]])
@@ -204,8 +204,8 @@ class OptimizedDidiAdapter:
         all_first = pd.concat(first_gps_chunks, ignore_index=True)
         all_last = pd.concat(last_gps_chunks, ignore_index=True)
         
-        first_gps = all_first.groupby("driver_id").first().reset_index()
-        last_gps = all_last.groupby("driver_id").last().reset_index()
+        first_gps = all_first.groupby("driver_id", observed=True).first().reset_index()
+        last_gps = all_last.groupby("driver_id", observed=True).last().reset_index()
         
         # Create workers DataFrame  
         first_gps = first_gps.rename(columns={
@@ -239,7 +239,7 @@ class OptimizedDidiAdapter:
         
         # First GPS per driver
         first_gps = (
-            gps_df.groupby("driver_id")
+            gps_df.groupby("driver_id", observed=True)
             .first()
             .reset_index()[["driver_id", "timestamp", "lon", "lat"]]
             .rename(columns={
@@ -252,7 +252,7 @@ class OptimizedDidiAdapter:
         
         # Last GPS per driver
         last_gps = (
-            gps_df.groupby("driver_id")["timestamp"].last().reset_index()
+            gps_df.groupby("driver_id", observed=True)["timestamp"].last().reset_index()
             .rename(columns={
                 "driver_id": "worker_id",
                 "timestamp": "last_seen",

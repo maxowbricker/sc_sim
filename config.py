@@ -31,10 +31,10 @@ SIMULATION_CONFIG = {
 STRATEGY_PARAMS = {
     # === COMPOSITE STRATEGY (Your Main Contribution) ===
     "composite": {
-        # Lambda weights for scoring function: Score = λ₁×Fairness + λ₂×Starvation + λ₃×Utility
-        "λ1": 1.0,                              # Fairness weight
-        "λ2": 1.0,                              # Starvation weight  
-        "λ3": 0.5,                              # Utility weight
+        # Weights for scoring function: Score = fairness_weight×Fairness + starvation_weight×Starvation + utility_weight×Utility
+        "fairness_weight": 1.0,                 # Fairness weight (formerly λ1)
+        "starvation_weight": 1.0,               # Starvation weight (formerly λ2)
+        "utility_weight": 0.5,                  # Utility weight (formerly λ3)
         
         # EWMA fairness calculation
         "gamma": 0.3,                           # EWMA smoothing factor (0.1=responsive, 0.9=smooth)
@@ -66,31 +66,31 @@ EXPERIMENT_PRESETS = {
     # === PARAMETER SENSITIVITY ANALYSIS ===
     "parameter_ranges": {
         "lambda_sweep": {
-            "λ1": [0.5, 1.0, 1.5, 2.0],        # Fairness focus range
-            "λ2": [0.5, 1.0, 1.5, 2.0],        # Starvation focus range
-            "λ3": [0.3, 0.5, 1.0, 1.5],        # Utility focus range
-            "soft_threshold": [1.0],             # Keep constant
-            "gamma": [0.3],                      # Keep constant
+            "fairness_weight": [0.5, 1.0, 1.5, 2.0],        # Fairness focus range
+            "starvation_weight": [0.5, 1.0, 1.5, 2.0],      # Starvation focus range
+            "utility_weight": [0.3, 0.5, 1.0, 1.5],         # Utility focus range
+            "soft_threshold": [1.0],                         # Keep constant
+            "gamma": [0.3],                                  # Keep constant
         },
         
         "threshold_sweep": {
-            "λ1": [1.0], "λ2": [1.0], "λ3": [0.5],  # Keep lambdas constant
+            "fairness_weight": [1.0], "starvation_weight": [1.0], "utility_weight": [0.5],  # Keep weights constant
             "soft_threshold": [0.0, 0.5, 1.0, 1.5, 2.0],  # Realistic threshold range
             "gamma": [0.3],
         },
         
         "gamma_sweep": {
-            "λ1": [1.0], "λ2": [1.0], "λ3": [0.5],  # Keep lambdas constant
+            "fairness_weight": [1.0], "starvation_weight": [1.0], "utility_weight": [0.5],  # Keep weights constant
             "soft_threshold": [1.0],                   # Keep threshold constant
             "gamma": [0.1, 0.2, 0.3, 0.5, 0.7, 0.9], # EWMA responsiveness range
         },
         
         "focused_comparison": {
-            "λ1": [0.5, 1.0, 2.0],              # Low, medium, high fairness
-            "λ2": [1.0],                         # Standard starvation
-            "λ3": [0.5, 1.0],                   # Medium vs high utility
-            "soft_threshold": [0.5, 1.0, 1.5],  # Permissive, medium, strict
-            "gamma": [0.3],                      # Standard EWMA
+            "fairness_weight": [0.5, 1.0, 2.0],     # Low, medium, high fairness
+            "starvation_weight": [1.0],              # Standard starvation
+            "utility_weight": [0.5, 1.0],           # Medium vs high utility
+            "soft_threshold": [0.5, 1.0, 1.5],      # Permissive, medium, strict
+            "gamma": [0.3],                          # Standard EWMA
         }
     },
     
@@ -100,19 +100,19 @@ EXPERIMENT_PRESETS = {
         {"name": "Baseline (Current)", "params": {}},
         
         # Fairness-focused configurations
-        {"name": "High Fairness Focus", "params": {"λ1": 2.0, "λ2": 1.0, "λ3": 0.3}},
-        {"name": "Very High Fairness", "params": {"λ1": 3.0, "λ2": 1.0, "λ3": 0.2}},
+        {"name": "High Fairness Focus", "params": {"fairness_weight": 2.0, "starvation_weight": 1.0, "utility_weight": 0.3}},
+        {"name": "Very High Fairness", "params": {"fairness_weight": 3.0, "starvation_weight": 1.0, "utility_weight": 0.2}},
         
         # Efficiency-focused configurations  
-        {"name": "High Efficiency Focus", "params": {"λ1": 0.3, "λ2": 1.0, "λ3": 2.0}},
-        {"name": "Very High Efficiency", "params": {"λ1": 0.2, "λ2": 0.5, "λ3": 3.0}},
+        {"name": "High Efficiency Focus", "params": {"fairness_weight": 0.3, "starvation_weight": 1.0, "utility_weight": 2.0}},
+        {"name": "Very High Efficiency", "params": {"fairness_weight": 0.2, "starvation_weight": 0.5, "utility_weight": 3.0}},
         
         # Starvation-focused
-        {"name": "High Starvation Prevention", "params": {"λ1": 1.0, "λ2": 3.0, "λ3": 0.5}},
+        {"name": "High Starvation Prevention", "params": {"fairness_weight": 1.0, "starvation_weight": 3.0, "utility_weight": 0.5}},
         
         # Balanced approaches
-        {"name": "Balanced Equal Weights", "params": {"λ1": 1.0, "λ2": 1.0, "λ3": 1.0}},
-        {"name": "Balanced with Fairness Bias", "params": {"λ1": 1.5, "λ2": 1.0, "λ3": 0.7}},
+        {"name": "Balanced Equal Weights", "params": {"fairness_weight": 1.0, "starvation_weight": 1.0, "utility_weight": 1.0}},
+        {"name": "Balanced with Fairness Bias", "params": {"fairness_weight": 1.5, "starvation_weight": 1.0, "utility_weight": 0.7}},
         
         # Threshold experiments
         {"name": "Permissive Threshold", "params": {"soft_threshold": 0.5}},
@@ -272,7 +272,7 @@ def create_composite_config(**overrides):
     Usage:
         config = create_composite_config(
             assignment_strategy="composite",
-            λ1=2.0, λ2=1.0, λ3=0.3,
+            fairness_weight=2.0, starvation_weight=1.0, utility_weight=0.3,
             soft_threshold=1.5
         )
     """
