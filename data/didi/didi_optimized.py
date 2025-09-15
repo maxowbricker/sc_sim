@@ -49,12 +49,19 @@ class OptimizedDidiAdapter:
         fixed_path = self.root / "order_quarter_fixed.txt" 
         quarter_path = self.root / "order_quarter.txt"
         
+        # PRIORITY: Always use full dataset if available
         if full_path.exists():
             path = full_path
+            print("📊 Using FULL dataset: order.txt (220,139 tasks)")
         elif fixed_path.exists():
             path = fixed_path
-        else:
+            print("📊 Using quarter dataset: order_quarter_fixed.txt (~140K tasks)")
+        elif quarter_path.exists():
             path = quarter_path
+            print("📊 Using quarter dataset: order_quarter.txt (~140K tasks)")
+        else:
+            available_files = list(self.root.glob("order*.txt"))
+            raise FileNotFoundError(f"No order files found in {self.root}. Available files: {available_files}")
             
         print(f"📊 Loading Orders from: {path.name} ({path.stat().st_size / 1024 / 1024:.1f} MB)")
         

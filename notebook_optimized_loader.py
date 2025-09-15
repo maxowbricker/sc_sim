@@ -6,6 +6,7 @@ This file provides a `load_data` function that can handle the full 3.1GB dataset
 
 from data.didi.didi_optimized import OptimizedDidiAdapter
 import pandas as pd
+from pathlib import Path
 
 def load_data(dataset, max_workers=None, max_tasks=None):
     """
@@ -26,7 +27,9 @@ def load_data(dataset, max_workers=None, max_tasks=None):
         print("📊 Loading from original gps.txt (3.1GB) and order.txt (20MB)")
         
         # Initialize optimized adapter - will use FULL dataset, not quarter
-        adapter = OptimizedDidiAdapter("/Users/maxapple/Documents/GitHub/sc_sim/data/didi")
+        # Use relative path that works on both Windows and Mac
+        data_path = Path(__file__).parent / "data" / "didi"
+        adapter = OptimizedDidiAdapter(str(data_path))
         
         # Load with memory optimization - this handles the full 3.1GB dataset!
         workers_df, tasks_df = adapter.load_for_simulation(
