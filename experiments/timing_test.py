@@ -158,7 +158,30 @@ def run_timing_test(dataset_size="small"):
         if estimated_full_time > 3600:
             print(f"                     {estimated_full_time/3600:.1f} hours")
     
-    # Save timing results
+    # Save timing results using JSON utilities
+    try:
+        from json_utils import save_results_json
+    except ImportError:
+        # Fallback if json_utils not available
+        def save_results_json(data, filepath):
+            import json
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            # Convert numpy types manually
+            def convert(obj):
+                if hasattr(obj, 'item'):
+                    return obj.item()
+                elif hasattr(obj, 'isoformat'):
+                    return obj.isoformat()
+                elif isinstance(obj, dict):
+                    return {k: convert(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [convert(v) for v in obj]
+                else:
+                    return obj
+            
+            with open(filepath, 'w') as f:
+                json.dump(convert(data), f, indent=2)
+    
     timing_results = {
         'timestamp': datetime.now().isoformat(),
         'dataset_size': dataset_size,
@@ -172,15 +195,11 @@ def run_timing_test(dataset_size="small"):
         'simulation_results': results
     }
     
-    # Create results directory if it doesn't exist
-    os.makedirs('../results', exist_ok=True)
-    
+    # Save with automatic type conversion
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     results_file = f'../results/timing_test_{dataset_size}_{timestamp}.json'
     
-    import json
-    with open(results_file, 'w') as f:
-        json.dump(timing_results, f, indent=2)
+    save_results_json(timing_results, results_file)
     
     print(f"📄 Detailed results saved to: {results_file}")
     print()

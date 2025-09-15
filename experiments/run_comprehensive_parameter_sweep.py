@@ -152,8 +152,27 @@ def save_intermediate_results(results, config, start_time, filename):
         'results': results
     }
     
-    with open(filename, 'w') as f:
-        json.dump(experiment_summary, f, indent=2)
+    # Use JSON-safe saving to handle numpy types
+    try:
+        from json_utils import save_results_json
+        save_results_json(experiment_summary, filename)
+    except ImportError:
+        # Fallback for numpy type conversion
+        import json
+        def convert_types(obj):
+            if hasattr(obj, 'item'):
+                return obj.item()
+            elif hasattr(obj, 'isoformat'):
+                return obj.isoformat()
+            elif isinstance(obj, dict):
+                return {k: convert_types(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_types(v) for v in obj]
+            else:
+                return obj
+        
+        with open(filename, 'w') as f:
+            json.dump(convert_types(experiment_summary), f, indent=2)
 
 def analyze_parameter_relationships(results):
     """Provide basic analysis of parameter relationships."""
@@ -411,8 +430,27 @@ def run_comprehensive_parameter_sweep(mode="overnight", focus="all", save_freque
         'results': results
     }
     
-    with open(results_file, 'w') as f:
-        json.dump(final_results, f, indent=2)
+    # Use JSON-safe saving to handle numpy types
+    try:
+        from json_utils import save_results_json
+        save_results_json(final_results, results_file)
+    except ImportError:
+        # Fallback for numpy type conversion
+        import json
+        def convert_types(obj):
+            if hasattr(obj, 'item'):
+                return obj.item()
+            elif hasattr(obj, 'isoformat'):
+                return obj.isoformat()
+            elif isinstance(obj, dict):
+                return {k: convert_types(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_types(v) for v in obj]
+            else:
+                return obj
+        
+        with open(results_file, 'w') as f:
+            json.dump(convert_types(final_results), f, indent=2)
     
     # Final summary
     print("✅ COMPREHENSIVE PARAMETER SWEEP COMPLETE!")
