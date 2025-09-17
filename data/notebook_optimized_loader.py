@@ -27,8 +27,8 @@ def load_data(dataset, max_workers=None, max_tasks=None):
         print("📊 Loading from original gps.txt (3.1GB) and order.txt (20MB)")
         
         # Initialize optimized adapter - will use FULL dataset, not quarter
-        # Use relative path that works on both Windows and Mac
-        data_path = Path(__file__).parent / "data" / "didi"
+        # Use relative path that works on both Windows and Mac (adjusted for data/ directory)
+        data_path = Path(__file__).parent / "didi"
         adapter = OptimizedDidiAdapter(str(data_path))
         
         # Load with memory optimization - this handles the full 3.1GB dataset!

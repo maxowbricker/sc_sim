@@ -44,7 +44,7 @@ sys.path.insert(0, str(project_root))
 
 from config import create_composite_config
 from simulator.simulation import Simulation
-from notebook_optimized_loader import load_data
+from data.notebook_optimized_loader import load_data
 
 def get_focused_parameter_ranges(mode="standard"):
     """Get focused parameter ranges based on promising configurations."""
@@ -52,13 +52,13 @@ def get_focused_parameter_ranges(mode="standard"):
     # Define the focused ranges with different granularities
     ranges = {
         "standard": {
-            "fairness_weight": np.linspace(1.0, 2.0, 5).tolist(),      # [1.0, 1.25, 1.5, 1.75, 2.0]
-            "starvation_weight": np.linspace(0.5, 1.5, 5).tolist(),    # [0.5, 0.75, 1.0, 1.25, 1.5]
-            "utility_weight": np.linspace(0.5, 2.0, 5).tolist(),       # [0.5, 0.875, 1.25, 1.625, 2.0]
-            "soft_threshold": np.linspace(0.25, 1.25, 5).tolist(),  # [0.25, 0.5, 0.75, 1.0, 1.25]
-            "dataset_size": {"max_tasks": 50000, "max_workers": 20000},
-            "num_runs": 1,  # 625 experiments
-            "description": "Standard focused sweep - balanced detail"
+            "fairness_weight": [1.0, 1.5],                             # 2 values - minimal test
+            "starvation_weight": [0.5, 1.0],                           # 2 values - minimal test
+            "utility_weight": [0.5, 1.5],                              # 2 values - minimal test  
+            "soft_threshold": [0.5, 1.0],                              # 2 values - minimal test
+            "dataset_size": {"max_tasks": 5000, "max_workers": 2500},  # SMALLER test dataset
+            "num_runs": 1,  # 2×2×2×2 = 16 experiments (~30 minutes total)
+            "description": "MINIMAL test - validate experiment script works"
         },
         "fine": {
             "fairness_weight": np.linspace(1.0, 2.0, 7).tolist(),      # 7 values
@@ -88,15 +88,24 @@ def get_focused_parameter_ranges(mode="standard"):
     return ranges[mode]
 
 def estimate_experiment_time(config):
-    """Estimate total experiment time based on M1 MacBook Pro performance."""
+    """Estimate total experiment time based on PROVEN performance with optimization fixes."""
     total_combinations = (len(config["fairness_weight"]) * 
                          len(config["starvation_weight"]) * 
                          len(config["utility_weight"]) * 
                          len(config["soft_threshold"]) * 
                          config["num_runs"])
     
-    # Time estimate for large dataset (50k tasks)
-    time_per_experiment = 1.5  # minutes per experiment with large dataset
+    # REALISTIC time estimates based on timing test results:
+    # 15K tasks = 6.62 minutes (proven), 50K tasks = ~22 minutes (extrapolated)
+    max_tasks = config["dataset_size"]["max_tasks"]
+    if max_tasks <= 5000:
+        time_per_experiment = 2.0   # minutes - small test dataset
+    elif max_tasks <= 15000:
+        time_per_experiment = 7.0   # minutes - proven with optimizations
+    elif max_tasks <= 50000:
+        time_per_experiment = 22.0  # minutes - extrapolated  
+    else:
+        time_per_experiment = 35.0  # minutes - very large datasets
         
     total_time_minutes = total_combinations * time_per_experiment
     return total_time_minutes, total_combinations

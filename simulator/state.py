@@ -12,17 +12,20 @@ class StateManager:
         self.all_workers_map = {w.id: w for w in all_workers} if all_workers else {}
         self.all_tasks_map = {t.id: t for t in all_tasks} if all_tasks else {}
         
-        # Dynamic pools
-        self.available_workers = []
-        self.active_tasks = []          # Released but unassigned
-        self.deferred_tasks = []        # Scored below threshold, waiting
+        # Dynamic pools - Using sets for O(1) operations instead of O(n) list operations
+        self.available_workers = set()
+        self.active_tasks = set()          # Released but unassigned
+        self.deferred_tasks = set()        # Scored below threshold, waiting
         
-        self.assigned_tasks = []
-        self.assigned_workers = []
-        self.completed_tasks = []
+        self.assigned_tasks = set()
+        self.assigned_workers = set()
+        self.completed_tasks = set()
         
-        # Logging for analysis
-        self.assignment_log = []
+        # PERFORMANCE FIX: Assignment logging removed - was causing memory bloat without any benefit
+        # Real statistics are collected via simulation summary and fairness tracker
+        
+        # Deferred tasks monitoring (optional)
+        self.deferred_monitor = None  # Set by simulation if monitoring enabled
 
     def get_worker(self, worker_id):
         return self.all_workers_map.get(worker_id)
@@ -31,37 +34,33 @@ class StateManager:
         return self.all_tasks_map.get(task_id)
 
     def release_worker(self, worker):
-        if worker not in self.available_workers:
-            self.available_workers.append(worker)
+        self.available_workers.add(worker)
 
     def release_task(self, task):
-        if task not in self.active_tasks:
-            self.active_tasks.append(task)
+        self.active_tasks.add(task)
 
     def assign_task(self, task, worker):
-        if task in self.active_tasks:
-            self.active_tasks.remove(task)
-        if task in self.deferred_tasks:
-            self.deferred_tasks.remove(task)
+        # Remove from active/deferred pools (O(1) operations with sets)
+        self.active_tasks.discard(task)      # discard() won't raise error if not present
+        self.deferred_tasks.discard(task)
         
-        self.available_workers.remove(worker)
-        self.assigned_tasks.append(task)
-        self.assigned_workers.append(worker)
+        # Move worker from available to assigned
+        self.available_workers.discard(worker)
+        self.assigned_tasks.add(task)
+        self.assigned_workers.add(worker)
 
     def defer_task(self, task):
-        if task in self.active_tasks:
-            self.active_tasks.remove(task)
-        if task not in self.deferred_tasks:
-            self.deferred_tasks.append(task)
+        # Move from active to deferred (O(1) operations)
+        self.active_tasks.discard(task)
+        self.deferred_tasks.add(task)
 
     def complete_task(self, task, worker, current_time):
-        if task in self.assigned_tasks:
-            self.assigned_tasks.remove(task)
-        if worker in self.assigned_workers:
-            self.assigned_workers.remove(worker)
+        # Remove from assigned pools (O(1) operations with sets)
+        self.assigned_tasks.discard(task)
+        self.assigned_workers.discard(worker)
 
         task.is_completed = True
-        self.completed_tasks.append(task)
+        self.completed_tasks.add(task)
         worker.record_completion(current_time)
 
         # The worker is now at the drop-off location of the completed task.
@@ -69,4 +68,5 @@ class StateManager:
         worker.start_lat = task.dropoff_lat
         worker.start_lon = task.dropoff_lon
             
-        self.available_workers.append(worker)
+        # Worker becomes available again
+        self.available_workers.add(worker)

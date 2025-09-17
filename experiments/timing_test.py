@@ -28,7 +28,7 @@ def run_timing_test(dataset_size="small"):
     try:
         from config import create_composite_config
         from simulator.simulation import Simulation
-        from notebook_optimized_loader import load_data
+        from data.notebook_optimized_loader import load_data
         print("✅ All imports successful")
     except ImportError as e:
         print(f"❌ Import error: {e}")

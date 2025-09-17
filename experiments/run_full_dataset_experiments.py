@@ -18,7 +18,7 @@ sys.path.insert(0, str(project_root))
 
 from config import create_composite_config
 from simulator.simulation import Simulation
-from notebook_optimized_loader import load_data
+from data.notebook_optimized_loader import load_data
 
 def get_targeted_parameter_ranges(strategy="validation"):
     """Get parameter ranges optimized for full dataset experiments."""

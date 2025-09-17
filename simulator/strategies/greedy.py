@@ -17,9 +17,13 @@ def _commit_assignment(task, worker, now):
     
     task.pickup_km = pickup_distance
     task.drop_km = drop_distance
-    hours = (pickup_distance + drop_distance) / AVG_SPEED_KMH
-    task.finish_time = now + pd.to_timedelta(hours, unit="h")
-    task.start_time = now
+    
+    # FIXED: Realistic timing - task starts after worker travels to pickup location  
+    pickup_travel_hours = pickup_distance / AVG_SPEED_KMH
+    service_travel_hours = drop_distance / AVG_SPEED_KMH
+    
+    task.start_time = now + pd.to_timedelta(pickup_travel_hours, unit="h")  # When worker arrives at pickup
+    task.finish_time = task.start_time + pd.to_timedelta(service_travel_hours, unit="h")  # When task completes
     
     task.assign_to_worker(worker)
     worker.assign_task(task)

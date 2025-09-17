@@ -49,7 +49,7 @@ sys.path.insert(0, str(project_root))
 
 from config import create_composite_config
 from simulator.simulation import Simulation
-from notebook_optimized_loader import load_data
+from data.notebook_optimized_loader import load_data
 
 def get_parameter_ranges(mode="overnight", focus="all"):
     """Get parameter ranges based on mode and focus area."""

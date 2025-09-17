@@ -33,7 +33,7 @@ def test_loader_fix():
         print(f"🧪 Testing {size_name} dataset ({max_tasks or 'ALL'} tasks)...")
         
         try:
-            from notebook_optimized_loader import load_data
+            from data.notebook_optimized_loader import load_data
             
             start_time = time.time()
             workers_df, tasks_df = load_data('didi', max_workers=None, max_tasks=max_tasks)
