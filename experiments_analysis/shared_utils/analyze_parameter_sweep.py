@@ -7,7 +7,7 @@ Tool for analyzing comprehensive parameter sweep results to understand
 relationships between λ₁, λ₂, λ₃, and soft_threshold parameters.
 
 Usage:
-    python experiments/analyze_parameter_sweep.py results/comprehensive_parameter_sweep_YYYYMMDD_HHMMSS.json
+    python experiments/analyze_parameter_sweep.py ../../../results/comprehensive_parameter_sweep_YYYYMMDD_HHMMSS.json
     
 Features:
 - Parameter correlation analysis

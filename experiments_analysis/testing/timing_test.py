@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 # Add project root to path
-project_root = Path(__file__).parent.parent
+project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 def run_timing_test(dataset_size="small"):
@@ -197,7 +197,7 @@ def run_timing_test(dataset_size="small"):
     
     # Save with automatic type conversion
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_file = f'../results/timing_test_{dataset_size}_{timestamp}.json'
+    results_file = f'../../../../results/timing_test_{dataset_size}_{timestamp}.json'
     
     save_results_json(timing_results, results_file)
     

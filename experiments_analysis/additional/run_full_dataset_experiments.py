@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Add project root to path
-project_root = Path(__file__).parent.parent
+project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from config import create_composite_config
@@ -160,7 +160,7 @@ def run_single_full_dataset_experiment(config_params, experiment_name="full_data
     
     # Save individual result
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    result_file = f"results/full_dataset_experiment_{experiment_name}_{timestamp}.json"
+    result_file = f"../../../results/full_dataset_experiment_{experiment_name}_{timestamp}.json"
     
     os.makedirs('results', exist_ok=True)
     with open(result_file, 'w') as f:

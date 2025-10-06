@@ -53,7 +53,7 @@ def run_balanced_experiments():
             
             print(f"🚀 Executing: {' '.join(cmd)}")
             print("💤 Running in background... check results periodically")
-            print("📁 Results will be saved to: ../results/focused_parameter_sweep_*.json")
+            print("📁 Results will be saved to: ../../../../results/focused_parameter_sweep_*.json")
             print()
             
             # Run the experiment
@@ -81,7 +81,7 @@ def run_balanced_experiments():
         print("-" * 60)
     
     # Save summary
-    summary_file = f"../results/balanced_experiments_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    summary_file = f"../../../../results/balanced_experiments_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     with open(summary_file, 'w') as f:
         json.dump(results_summary, f, indent=2)
     
@@ -89,7 +89,7 @@ def run_balanced_experiments():
     print(f"📄 Summary saved to: {summary_file}")
     print()
     print(f"🔍 NEXT STEPS WHEN YOU RETURN:")
-    print(f"   1. Check ../results/focused_parameter_sweep_*.json for latest results")
+    print(f"   1. Check ../../../../results/focused_parameter_sweep_*.json for latest results")
     print(f"   2. Run analysis in ../analysis/Honours_Results_Analysis.ipynb")
     print(f"   3. Look for configurations with JFI > 0.85 AND reasonable wait times")
     print(f"   4. If no balanced configs found, consider Phase 2 with expanded ranges")

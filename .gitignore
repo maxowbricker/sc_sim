@@ -35,6 +35,16 @@ rq*_results_*.json
 phase*_results_*.json
 parameter_sensitivity_results.json
 
+# Experiment data files - ignore ALL data except structure and READMEs
+experiments_analysis/*/data/
+experiments_analysis/shared_data/
+experiments_analysis/testing/data/
+
+# Keep README files in data directories
+!experiments_analysis/*/data/README.md
+!experiments_analysis/shared_data/README.md
+!experiments_analysis/testing/data/README.md
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

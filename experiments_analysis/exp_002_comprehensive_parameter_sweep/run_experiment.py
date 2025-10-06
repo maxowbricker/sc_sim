@@ -31,7 +31,7 @@ Focus Areas:
     - balanced: Focus on balanced configurations
     
 Output:
-    results/comprehensive_parameter_sweep_YYYYMMDD_HHMMSS.json
+    ../../../results/comprehensive_parameter_sweep_YYYYMMDD_HHMMSS.json
 """
 
 import sys
@@ -44,7 +44,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Add project root to path
-project_root = Path(__file__).parent.parent
+project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from config import create_composite_config
@@ -243,7 +243,7 @@ def run_comprehensive_parameter_sweep(mode="overnight", focus="all", save_freque
     results = []
     start_time = time.time()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_file = f"results/comprehensive_parameter_sweep_{timestamp}.json"
+    results_file = f"../../../results/comprehensive_parameter_sweep_{timestamp}.json"
     
     # Create results directory
     os.makedirs('results', exist_ok=True)

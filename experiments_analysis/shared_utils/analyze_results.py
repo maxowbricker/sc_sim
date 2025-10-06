@@ -6,8 +6,8 @@ Purpose: Load and analyze experiment results from JSON files
 Creates summary statistics and basic visualizations
 
 Usage:
-    python analyze_results.py results/experiments/parameter_sensitivity_20250912_143022.json
-    python analyze_results.py results/experiments/small_scale_validation_20250912_142015.json
+    python analyze_results.py ../../../results/experiments/parameter_sensitivity_20250912_143022.json
+    python analyze_results.py ../../../results/experiments/small_scale_validation_20250912_142015.json
 """
 
 import sys

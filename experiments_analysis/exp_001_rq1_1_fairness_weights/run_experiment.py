@@ -12,7 +12,7 @@ Usage:
     python experiments/run_rq1_1_fairness_weights.py [--quick]
     
 Output:
-    results/rq1_1_fairness_weights_YYYYMMDD_HHMMSS.json
+    ../../../results/rq1_1_fairness_weights_YYYYMMDD_HHMMSS.json
 """
 
 import sys
@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Add project root to path
-project_root = Path(__file__).parent.parent
+project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from config import create_composite_config
@@ -155,7 +155,7 @@ def run_rq1_1_experiments(quick_mode=False):
     
     # Save results to JSON
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_file = f"results/rq1_1_fairness_weights_{timestamp}.json"
+    results_file = f"../../../results/rq1_1_fairness_weights_{timestamp}.json"
     
     experiment_summary = {
         'experiment': 'RQ1.1 - Optimal Fairness Weight (λ₁) Analysis',

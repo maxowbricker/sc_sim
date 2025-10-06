@@ -40,7 +40,7 @@ def find_k_nearest_workers(task, available_workers: Set, k: int = 15) -> List:
         # BUGFIX: Removed problematic is_available filter that was causing 0% TAR
         # The available_workers set should already contain only available workers
         # if hasattr(worker, 'is_available') and not worker.is_available:
-        #     continue
+        #     continuefysp
             
         distance = manhattan_km(
             task.pickup_lat, task.pickup_lon,

@@ -11,6 +11,7 @@ from config import get_simulation_config
 from simulator.state import StateManager
 from simulator.strategies import get_strategy
 from metrics.fairness import FairnessMetricsTracker
+from metrics.tracker import MetricTracker
 
 def run_simulation(
     workers,
@@ -35,6 +36,7 @@ def run_simulation(
     total_tasks_count = len(tasks)
     event_queue = []
     fairness_tracker = FairnessMetricsTracker()
+    metric_tracker = MetricTracker()
 
     if start_time is None:
         releases = [w.release_time for w in workers] + [t.release_time for t in tasks]
@@ -95,16 +97,24 @@ def run_simulation(
             state.release_worker(worker)
             assignment = free_worker_handler(state, current_time, worker, **strategy_params)
             if assignment:
-                assigned_task, _, _ = assignment
+                assigned_task, assigned_worker, _ = assignment
+                # Track task assignment for supervisor's fairness metrics
+                fairness_tracker.record_task_assignment(assigned_task, assigned_worker, current_time)
                 heappush(event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
 
         elif event_type == "TASK_RELEASE":
             task = state.get_task(event_id)
             state.release_task(task)
+            
+            # Track task eligibility for supervisor's fairness metrics
+            fairness_tracker.record_task_release(task, list(state.available_workers), current_time)
+            
             if state.available_workers:
                 assignments = new_task_handler(state, current_time, [task], **strategy_params)
                 if assignments:
-                    assigned_task, _, _ = assignments[0]
+                    assigned_task, assigned_worker, _ = assignments[0]
+                    # Track task assignment for supervisor's fairness metrics
+                    fairness_tracker.record_task_assignment(assigned_task, assigned_worker, current_time)
                     heappush(event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
             else:
                 # No workers available, so task must wait.
@@ -123,7 +133,9 @@ def run_simulation(
             
             assignment = free_worker_handler(state, current_time, worker, **strategy_params)
             if assignment:
-                assigned_task, _, _ = assignment
+                assigned_task, assigned_worker, _ = assignment
+                # Track task assignment for supervisor's fairness metrics  
+                fairness_tracker.record_task_assignment(assigned_task, assigned_worker, current_time)
                 heappush(event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
 
             summary['completed_tasks'] += 1
@@ -143,6 +155,8 @@ def run_simulation(
         if len(event_queue) % 100 == 0:
             fairness_tracker.update_worker_stats(state.all_workers_map.values())
             fairness_tracker.record_snapshot(current_time)
+            # Record enhanced metrics for temporal analysis
+            metric_tracker.snapshot(state, current_time)
 
     print("\nSimulation complete.")
     
@@ -182,6 +196,7 @@ def run_simulation(
 
     # Combine all metrics for return
     summary.update(fairness_summary)
+    summary['metric_tracker'] = metric_tracker  # Include enhanced metrics tracker
     return summary
 
 
@@ -193,6 +208,7 @@ class Simulation:
         self.config = config
         self.workers_df = workers_df
         self.tasks_df = tasks_df
+        self.metric_tracker = None  # Will be populated after running simulation
         
     def run(self):
         """Run the simulation and return standardized results."""
@@ -258,6 +274,9 @@ class Simulation:
         # Run the simulation
         results = run_simulation(workers, tasks, sim_config=self.config)
         
+        # Store the enhanced metric tracker for later analysis
+        self.metric_tracker = results.get('metric_tracker')
+        
         # Standardize results for notebook analysis
         standardized_results = {
             'jfi': results.get('final_jains_fairness_index', 0.0),
@@ -272,7 +291,16 @@ class Simulation:
             'total_tasks': len(tasks),
             'assigned_tasks': results.get('completed_tasks', 0),
             'max_wait_time': max(results.get('wait_times', [0])) if results.get('wait_times') else 0.0,
-            'backlog_peak': results.get('backlog_peak', 0)
+            'backlog_peak': results.get('backlog_peak', 0),
+            
+            # Supervisor's enhanced fairness metrics
+            'supervisor_utility_difference': results.get('supervisor_utility_difference'),
+            'supervisor_fairness_loss': results.get('supervisor_fairness_loss'),
+            'mean_input_output_ratio': results.get('mean_input_output_ratio'),
+            'min_input_output_ratio': results.get('min_input_output_ratio'),
+            'max_input_output_ratio': results.get('max_input_output_ratio'),
+            'workers_with_eligibility_data': results.get('workers_with_eligibility_data', 0),
+            'total_task_assignments_tracked': results.get('total_task_assignments_tracked', 0),
         }
         
         return standardized_results

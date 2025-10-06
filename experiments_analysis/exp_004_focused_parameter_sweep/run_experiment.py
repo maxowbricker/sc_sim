@@ -25,7 +25,7 @@ Modes:
     - ultra: 9x9x9x9 grid = 6,561 experiments (~40-48 hours)
     
 Output:
-    results/focused_parameter_sweep_YYYYMMDD_HHMMSS.json
+    ../../../results/focused_parameter_sweep_YYYYMMDD_HHMMSS.json
 """
 
 import sys
@@ -39,7 +39,7 @@ from pathlib import Path
 import numpy as np
 
 # Add project root to path
-project_root = Path(__file__).parent.parent
+project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from config import create_composite_config
@@ -251,7 +251,7 @@ def run_focused_parameter_sweep(mode="standard", save_frequency=50):
     results = []
     start_time = time.time()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_file = f"results/focused_parameter_sweep_{timestamp}.json"
+    results_file = f"../../../results/focused_parameter_sweep_{timestamp}.json"
     
     # Create results directory
     os.makedirs('results', exist_ok=True)
