@@ -39,17 +39,17 @@ def run_ewma_gamma_sensitivity():
     start_time = datetime.now()
     timestamp = start_time.strftime("%Y%m%d_%H%M%S")
     
-    print("🔍 EXPERIMENT 007: EWMA Gamma Sensitivity Analysis")
+    print("[EXPERIMENT 007] EWMA Gamma Sensitivity Analysis")
     print("=" * 55)
-    print("🎯 CRITICAL: Diagnosing worker idle time paradox")
-    print("📊 Testing EWMA γ parameter effects on worker idle times")
-    print("🔬 Sweet Spot Configuration: λ₁=0.5, λ₂=0.8, λ₃=0.8, threshold=0.5")
+    print("[CRITICAL] Diagnosing worker idle time paradox")
+    print("[ANALYSIS] Testing EWMA gamma parameter effects on worker idle times")
+    print("[CONFIG] Sweet Spot Configuration: lambda1=0.5, lambda2=0.8, lambda3=0.8, threshold=0.5")
     print()
     
     # Load dataset once
-    print("📥 Loading dataset...")
+    print("[LOADING] Loading dataset...")
     workers_df, tasks_df = load_data('didi', max_workers=15000, max_tasks=20000)
-    print(f"✅ Dataset loaded: {len(workers_df):,} workers, {len(tasks_df):,} tasks")
+    print(f"[SUCCESS] Dataset loaded: {len(workers_df):,} workers, {len(tasks_df):,} tasks")
     print()
     
     # Define experimental configurations
@@ -57,7 +57,7 @@ def run_ewma_gamma_sensitivity():
     experiment_id = 1
     
     # Phase 1: EWMA γ Sensitivity Analysis
-    print("📋 PHASE 1: EWMA γ SENSITIVITY ANALYSIS")
+    print("[PHASE 1] EWMA GAMMA SENSITIVITY ANALYSIS")
     print("=" * 40)
     
     # Sweet Spot configuration from Experiment 006
@@ -89,10 +89,10 @@ def run_ewma_gamma_sensitivity():
             })
             experiment_id += 1
     
-    print(f"🧮 Phase 1: {len([e for e in experiments if e['phase'] == 'gamma_sensitivity'])} experiments")
+    print(f"[PHASE 1] {len([e for e in experiments if e['phase'] == 'gamma_sensitivity'])} experiments")
     
     # Phase 2: Weight Interaction Analysis
-    print("\n📋 PHASE 2: WEIGHT INTERACTION ANALYSIS")
+    print("\n[PHASE 2] WEIGHT INTERACTION ANALYSIS")
     print("=" * 40)
     
     # Test configurations to address weight imbalance hypothesis
@@ -127,7 +127,7 @@ def run_ewma_gamma_sensitivity():
             })
             experiment_id += 1
     
-    print(f"🧮 Phase 2: {len([e for e in experiments if e['phase'] == 'weight_interaction'])} experiments")
+    print(f"[PHASE 2] {len([e for e in experiments if e['phase'] == 'weight_interaction'])} experiments")
     print(f"🔢 Total Experiments: {len(experiments)}")
     print()
     
@@ -197,7 +197,7 @@ def run_ewma_gamma_sensitivity():
             tar = experiment_result['tar']
             pct_idle_30 = experiment_result['pct_workers_idle_30min']
             
-            success_indicator = "✅" if idle_time < 20 and jfi > 0.85 else "⚠️" if idle_time < 25 else "❌"
+            success_indicator = "[SUCCESS]" if idle_time < 20 and jfi > 0.85 else "[WARNING]" if idle_time < 25 else "[ISSUE]"
             
             print(f"   {success_indicator} Idle: {idle_time:.1f}min, JFI: {jfi:.3f}, TAR: {tar:.1f}%")
             print(f"      30min+ idle: {pct_idle_30:.1f}%, Duration: {exp_duration:.1f}s")
@@ -221,7 +221,7 @@ def run_ewma_gamma_sensitivity():
                 sim.metric_tracker.save_all_data(temporal_path)
             
         except Exception as e:
-            print(f"   ❌ FAILED: {str(e)}")
+            print(f"   [FAILED] {str(e)}")
             failed_experiments.append({
                 'experiment': exp,
                 'error': str(e),
@@ -232,17 +232,17 @@ def run_ewma_gamma_sensitivity():
     # Analysis and Results Summary
     total_duration = (datetime.now() - start_time).total_seconds()
     
-    print(f"\n🏆 EXPERIMENT 007 COMPLETED!")
+    print(f"\n[COMPLETED] EXPERIMENT 007 COMPLETED!")
     print("=" * 35)
-    print(f"✅ Successful experiments: {len(results)}/{len(experiments)}")
-    print(f"⏱️  Total duration: {total_duration/3600:.1f} hours")
+    print(f"[SUCCESS] Successful experiments: {len(results)}/{len(experiments)}")
+    print(f"[TIMING] Total duration: {total_duration/3600:.1f} hours")
     
     if failed_experiments:
-        print(f"❌ Failed experiments: {len(failed_experiments)}")
+        print(f"[FAILED] Failed experiments: {len(failed_experiments)}")
     
     # Phase 1 Analysis: EWMA γ Sensitivity
     if phase1_results:
-        print(f"\n📊 PHASE 1 ANALYSIS: EWMA γ SENSITIVITY")
+        print(f"\n[ANALYSIS] PHASE 1 ANALYSIS: EWMA GAMMA SENSITIVITY")
         print("=" * 45)
         
         gamma_analysis = {}
@@ -267,9 +267,9 @@ def run_ewma_gamma_sensitivity():
         if valid_gammas:
             optimal_gamma_result = min(valid_gammas.items(), key=lambda x: x[1]['avg_idle_time'])
             optimal_gamma = optimal_gamma_result[0]
-            print(f"\n🎯 OPTIMAL γ: {optimal_gamma} (Idle: {optimal_gamma_result[1]['avg_idle_time']:.1f}min)")
+            print(f"\n[OPTIMAL] OPTIMAL GAMMA: {optimal_gamma} (Idle: {optimal_gamma_result[1]['avg_idle_time']:.1f}min)")
         else:
-            print(f"\n⚠️  No γ achieved JFI > 0.8 - may need function redesign")
+            print(f"\n[WARNING] No gamma achieved JFI > 0.8 - may need function redesign")
     
     # Save comprehensive results
     final_results = {
@@ -310,19 +310,19 @@ def run_ewma_gamma_sensitivity():
         print(f"   Workers 30min+ idle: {best_overall['pct_workers_idle_30min']:.1f}%")
         
         if best_overall['mean_worker_idle_time'] < 20 and best_overall['jfi'] > 0.85:
-            print(f"\n✅ SUCCESS: Idle time paradox resolved!")
+            print(f"\n[SUCCESS] SUCCESS: Idle time paradox resolved!")
             print(f"📈 Ready to proceed with RQ1/RQ3 comprehensive exploration")
         elif best_overall['mean_worker_idle_time'] < 25:
-            print(f"\n⚠️  PARTIAL SUCCESS: Improvement achieved but more optimization needed")
-            print(f"🔬 Consider deeper parameter exploration or function redesign")
+            print(f"\n[WARNING] PARTIAL SUCCESS: Improvement achieved but more optimization needed")
+            print(f"[RECOMMEND] Consider deeper parameter exploration or function redesign")
         else:
-            print(f"\n❌ ISSUE PERSISTS: Worker idle time paradox not resolved")
+            print(f"\n[ISSUE] ISSUE PERSISTS: Worker idle time paradox not resolved")
             print(f"🔧 May require composite function redesign or bug investigation")
     
     return results_path
 
 if __name__ == "__main__":
-    print("🔍 Running Experiment 007: EWMA Gamma Sensitivity Analysis")
+    print("[EXPERIMENT] Running Experiment 007: EWMA Gamma Sensitivity Analysis")
     print("🚨 CRITICAL: Diagnosing Worker Idle Time Paradox")
     print("=" * 60)
     
@@ -331,13 +331,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     if args.quick:
-        print("⚡ Quick mode: Testing γ=[0.3, 0.5, 0.7] only")
+        print("[QUICK MODE] Quick mode: Testing gamma=[0.3, 0.5, 0.7] only")
     
     try:
         results_file = run_ewma_gamma_sensitivity()
-        print(f"\n🚀 EWMA Gamma Sensitivity Analysis completed!")
-        print(f"📊 Analyze results: jupyter notebook analysis.ipynb")
+        print(f"\n[COMPLETED] EWMA Gamma Sensitivity Analysis completed!")
+        print(f"[ANALYSIS] Analyze results: jupyter notebook analysis.ipynb")
         print(f"📈 Results file: {results_file}")
     except Exception as e:
-        print(f"\n❌ Experiment failed: {e}")
+        print(f"\n[ERROR] Experiment failed: {e}")
         print(traceback.format_exc())

@@ -25,20 +25,20 @@ def run_experiment(exp_number):
     }
     
     if exp_number not in experiment_map:
-        print(f"❌ Error: Experiment {exp_number} not found")
-        print(f"📋 Available experiments: {list(experiment_map.keys())}")
+        print(f"[ERROR] Error: Experiment {exp_number} not found")
+        print(f"[INFO] Available experiments: {list(experiment_map.keys())}")
         return False
     
     exp_dir = f"experiments_analysis/{experiment_map[exp_number]}"
     run_script = f"{exp_dir}/run_experiment.py"
     
     if not os.path.exists(run_script):
-        print(f"❌ Error: {run_script} not found")
+        print(f"[ERROR] Error: {run_script} not found")
         return False
     
-    print(f"🚀 Running Experiment {exp_number}: {experiment_map[exp_number]}")
+    print(f"[RUNNING] Running Experiment {exp_number}: {experiment_map[exp_number]}")
     print(f"📁 Directory: {exp_dir}")
-    print(f"🎯 This will run in the background...")
+    print(f"[INFO] This will run in the background...")
     print()
     
     # Change to experiment directory and run
@@ -50,7 +50,7 @@ def run_experiment(exp_number):
                               capture_output=False, text=True)
         return result.returncode == 0
     except Exception as e:
-        print(f"❌ Error running experiment: {e}")
+        print(f"[ERROR] Error running experiment: {e}")
         return False
 
 if __name__ == "__main__":
@@ -71,10 +71,10 @@ if __name__ == "__main__":
         exp_num = int(sys.argv[1])
         success = run_experiment(exp_num)
         if success:
-            print("✅ Experiment completed successfully!")
+            print("[SUCCESS] Experiment completed successfully!")
         else:
-            print("❌ Experiment failed!")
+            print("[FAILED] Experiment failed!")
             sys.exit(1)
     except ValueError:
-        print("❌ Error: Experiment number must be an integer")
+        print("[ERROR] Error: Experiment number must be an integer")
         sys.exit(1)
