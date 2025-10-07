@@ -29,7 +29,7 @@ REM Create logs directory if it doesn't exist
 if not exist "logs" mkdir logs
 
 REM Run in background and save output to log file
-start /B python run_experiment.py %1 > logs/experiment_%1_%date:~-4,4%%date:~-10,2%%date:~-7,2%_%time:~0,2%%time:~3,2%%time:~6,2%.log 2>&1
+start /B cmd /c "python run_experiment.py %1 > logs/experiment_%1_%date:~-4,4%%date:~-10,2%%date:~-7,2%_%time:~0,2%%time:~3,2%%time:~6,2%.log 2>&1"
 
 echo Experiment %1 started in background!
 echo Check logs/ directory for progress
