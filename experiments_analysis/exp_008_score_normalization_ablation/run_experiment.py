@@ -31,7 +31,7 @@ import traceback
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from config import create_composite_config, create_greedy_config
+from config import create_composite_config
 from simulator.simulation import Simulation
 from data.notebook_optimized_loader import load_data
 
@@ -188,13 +188,13 @@ def run_experiment_008():
         try:
             # Create config for this experiment
             if exp['strategy'] == 'greedy':
-                config = create_greedy_config()
+                config = create_composite_config(assignment_strategy='greedy')
             else:
                 config = create_composite_config(**exp['config_params'])
             
             # Run simulation
             print("[RUNNING] Starting simulation...")
-            sim = Simulation(workers_df, tasks_df, config)
+            sim = Simulation(config, workers_df, tasks_df)
             summary = sim.run()
             
             exp_duration = time.time() - exp_start_time
