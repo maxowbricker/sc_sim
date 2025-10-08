@@ -15,7 +15,8 @@ experiments_analysis/
 ├── exp_004_focused_parameter_sweep/             # Focused parameter exploration
 ├── exp_005_bottleneck_analysis/                 # System bottleneck identification
 ├── exp_006_comparative_parameter_sweep/         # 🌟 MOST COMPREHENSIVE: Enhanced metrics analysis
-├── exp_007_ewma_gamma_sensitivity/              # 🔄 NEXT: EWMA gamma parameter optimization
+├── exp_007_ewma_gamma_sensitivity/              # EWMA gamma parameter optimization
+├── exp_008_score_normalization_ablation/        # 🔄 IN PROGRESS: Worker idle time paradox diagnosis
 ├── shared_utils/                                # Shared analysis utilities
 ├── testing/                                    # Testing and validation scripts
 ├── additional/                                 # Additional experimental scripts
@@ -33,6 +34,20 @@ experiments_analysis/
 - **Analysis**: `exp_006_comparative_parameter_sweep/analysis_comprehensive.ipynb`
 - **Key Findings**: Fairness-efficiency trade-offs, worker idle time paradox
 - **RQs Addressed**: RQ1, RQ2, RQ4, RQ5, RQ10-11
+
+### **Experiment 008: Score Normalization and Threshold Ablation** 🔄 IN PROGRESS
+- **Status**: 🔄 IN PROGRESS - Diagnostic experiment
+- **Scope**: 12 experiments (4 groups × 3 replications)
+- **Dataset**: 15K workers, 20K tasks
+- **Focus**: Resolve worker idle time paradox from Experiment 006
+- **Hypotheses**: (1) Mis-scaled score components, (2) Soft-threshold feedback loop
+- **Experimental Groups**:
+  - Group A: Greedy baseline
+  - Group B: Composite current (replicate paradox)
+  - Group C: Composite + normalization (test H1)
+  - Group D: Composite + normalization + no threshold (test H1+H2)
+- **Key Metrics**: Worker idle time, component dominance, deferral rate
+- **RQs Addressed**: RQ1.2 (parameter interactions), RQ2 (optimization)
 
 ### **Experiment 001: RQ1.1 Fairness Weights**
 - **Status**: ✅ COMPLETE with multiple runs
@@ -83,20 +98,28 @@ experiments_analysis/
 6. **Bottleneck Identification**: Performance bottleneck analysis and optimization insights
 
 ### 🔍 **Key Research Findings**
-- **Fairness Improvement**: Composite strategy achieves 15-25% higher JFI than Greedy
-- **Efficiency Trade-off**: 10-15% increase in average wait times for fairness gains
-- **Worker Idle Time Paradox**: Fairness-aware strategy unexpectedly increases worker idle times
+- **Fairness Improvement**: Composite strategy achieves 9.3% JFI improvement over Greedy
+- **Efficiency Trade-off**: 72% increase in wait times and pickup distances for fairness gains
+- **Worker Idle Time Paradox**: Composite increases mean idle time from 24 to 33 minutes (+19%)
+  - Workers idle >30min increased from 23.9% to 33.3% (+9.5 percentage points)
+  - **Experiment 008 underway** to diagnose and resolve this paradox
 - **Parameter Sensitivity**: λ₁ (fairness weight) has strongest impact on JFI
-- **Statistical Significance**: All major findings confirmed with Mann-Whitney U tests
-- **Optimal Parameter Ranges**: Identified promising parameter combinations for different objectives
+- **Statistical Significance**: All major findings confirmed with Mann-Whitney U tests (p < 0.001)
+- **Optimal Parameter Ranges**: Sweet spot identified (λ₁=0.5, λ₂=0.8, λ₃=0.8, threshold=0.5)
 
-### 🔄 **Research Complete - Ready for Publication**
-All planned experiments have been executed and analyzed. The research framework provides:
-- **Comprehensive parameter exploration** across multiple dimensions
-- **Statistical validation** of all major findings
-- **Temporal evolution analysis** of fairness and efficiency metrics
-- **Performance optimization insights** from bottleneck analysis
-- **Publication-ready visualizations** and statistical analysis
+### 🔄 **Current Research Status**
+**Core experiments complete**, with ongoing diagnostic work:
+- **Comprehensive parameter exploration** across multiple dimensions ✅
+- **Statistical validation** of all major findings ✅
+- **Temporal evolution analysis** of fairness and efficiency metrics ✅
+- **Performance optimization insights** from bottleneck analysis ✅
+- **Diagnostic investigation** of worker idle time paradox 🔄 IN PROGRESS (Experiment 008)
+
+**Next Steps:**
+- Complete Experiment 008 to identify root cause of idle time paradox
+- Implement validated solutions (normalization and/or threshold redesign)
+- Validate fixes in Experiment 009
+- Finalize thesis contributions
 
 ## 📊 Usage Instructions
 

@@ -46,6 +46,13 @@ STRATEGY_PARAMS = {
         # Fairness metric selection
         "fairness_metric": "ewma",              # "ewma" | "idle_time" | "task_count"
                                                 # RESEARCH PROPOSAL: Use EWMA as per methodology
+        
+        # EXPERIMENT 008: Score Normalization and Threshold Ablation
+        # These flags enable diagnostic experiments to understand the worker idle time paradox
+        "normalize_scores": False,              # Enable min-max normalization of F, S, U components
+                                                # Set to True to test if mis-scaled components cause the paradox
+        "disable_soft_threshold": False,        # Bypass soft threshold check (always assign if worker exists)
+                                                # Set to True to test if threshold delays cause the paradox
     },
     
     # === OTHER STRATEGIES ===

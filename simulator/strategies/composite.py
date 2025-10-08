@@ -2,6 +2,7 @@ from simulator.strategies import register
 from math import log, fabs, cos, radians
 import random
 import pandas as pd
+from typing import Optional, Tuple, List, Dict
 
 def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_workers=None):
     """Calculate fairness signal for a worker based on research proposal methodology."""
@@ -82,7 +83,43 @@ def score(task, worker, fairness_weight, starvation_weight, utility_weight, now,
     
     return score_val
 
-def _find_best_assignment_for_task(task, workers, now, fairness_weight, starvation_weight, utility_weight, k):
+def _normalize_components(components: List[float]) -> List[float]:
+    """Apply min-max normalization to component values.
+    
+    Parameters
+    ----------
+    components : List[float]
+        List of component values to normalize
+        
+    Returns
+    -------
+    List[float]
+        Normalized values in [0, 1] range
+    """
+    if not components:
+        return []
+    
+    min_val = min(components)
+    max_val = max(components)
+    
+    # Avoid division by zero
+    if max_val - min_val < 1e-10:
+        return [0.5] * len(components)  # All values are the same
+    
+    return [(v - min_val) / (max_val - min_val) for v in components]
+
+
+def _find_best_assignment_for_task(
+    task, 
+    workers, 
+    now, 
+    fairness_weight, 
+    starvation_weight, 
+    utility_weight, 
+    k,
+    normalize_scores=False,
+    diagnostic_tracker=None
+) -> Tuple[Optional[object], float, Optional[Dict]]:
     """
     OPTIMIZED: Advanced Nearest Neighbor (ANN) approach from FATP paper.
     
@@ -92,24 +129,42 @@ def _find_best_assignment_for_task(task, workers, now, fairness_weight, starvati
     
     This reduces complexity from O(|W|) to O(k) where k=15 << |W|=38,000.
     Massive performance improvement: 38,000 -> 15 workers checked per task!
+    
+    EXPERIMENT 008: Enhanced with score normalization and diagnostic tracking.
+    
+    Parameters
+    ----------
+    normalize_scores : bool
+        If True, apply min-max normalization to F, S, U across candidates
+    diagnostic_tracker : DiagnosticTracker, optional
+        If provided, record score component details for analysis
+        
+    Returns
+    -------
+    best_worker : Worker or None
+        Best candidate worker
+    best_score : float
+        Best composite score achieved
+    diagnostic_info : dict or None
+        Component values for diagnostic tracking
     """
     from simulator.spatial_index import find_k_nearest_workers
     
     if not workers:
-        return None, float("-inf")
+        return None, float("-inf"), None
 
     # OPTIMIZATION 1: Find only k nearest workers instead of checking all workers
     # This reduces from 38,000 workers to 15 workers checked per task!
     nearest_workers = find_k_nearest_workers(task, workers, k)
     
     if not nearest_workers:
-        return None, float("-inf")
+        return None, float("-inf"), None
     
     # OPTIMIZATION 2: Pre-calculate task drop distance (constant for all workers)
     drop_distance_const = manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
     
-    # OPTIMIZATION 3: Filter valid candidates and score only nearest workers
-    best_worker, best_score = None, float("-inf")
+    # EXPERIMENT 008: Collect component values for all feasible candidates
+    candidate_data = []
     
     for worker in nearest_workers:
         # Check feasibility constraints
@@ -119,13 +174,75 @@ def _find_best_assignment_for_task(task, workers, now, fairness_weight, starvati
         
         if finish_eta > worker.deadline or finish_eta > task.expire_time:
             continue
+        
+        # Calculate raw component values
+        distance = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
+        fairness_raw = calculate_fairness_signal(worker, now)
+        starvation_raw = log(1 + (now - task.release_time).total_seconds())
+        utility_raw = 1.0 / (1.0 + distance)
+        
+        candidate_data.append({
+            'worker': worker,
+            'fairness_raw': fairness_raw,
+            'starvation_raw': starvation_raw,
+            'utility_raw': utility_raw
+        })
+    
+    if not candidate_data:
+        return None, float("-inf"), None
+    
+    # EXPERIMENT 008: Apply normalization if requested
+    if normalize_scores:
+        # Extract component values
+        fairness_values = [c['fairness_raw'] for c in candidate_data]
+        starvation_values = [c['starvation_raw'] for c in candidate_data]
+        utility_values = [c['utility_raw'] for c in candidate_data]
+        
+        # Normalize each component across candidates
+        fairness_norm = _normalize_components(fairness_values)
+        starvation_norm = _normalize_components(starvation_values)
+        utility_norm = _normalize_components(utility_values)
+        
+        # Add normalized values to candidate data
+        for i, candidate in enumerate(candidate_data):
+            candidate['fairness_norm'] = fairness_norm[i]
+            candidate['starvation_norm'] = starvation_norm[i]
+            candidate['utility_norm'] = utility_norm[i]
             
-        # Score this worker (only k workers scored instead of |W|!)
-        s = score(task, worker, fairness_weight, starvation_weight, utility_weight, now)
-        if s > best_score:
-            best_score, best_worker = s, worker
+            # Calculate score with normalized values
+            candidate['score'] = (
+                fairness_weight * fairness_norm[i] +
+                starvation_weight * starvation_norm[i] +
+                utility_weight * utility_norm[i]
+            )
+    else:
+        # Calculate scores with raw values (original behavior)
+        for candidate in candidate_data:
+            candidate['score'] = (
+                fairness_weight * candidate['fairness_raw'] +
+                starvation_weight * candidate['starvation_raw'] +
+                utility_weight * candidate['utility_raw']
+            )
+            candidate['fairness_norm'] = None
+            candidate['starvation_norm'] = None
+            candidate['utility_norm'] = None
+    
+    # Find best candidate
+    best_candidate = max(candidate_data, key=lambda c: c['score'])
+    best_worker = best_candidate['worker']
+    best_score = best_candidate['score']
+    
+    # Prepare diagnostic info for the best candidate
+    diagnostic_info = {
+        'fairness_raw': best_candidate['fairness_raw'],
+        'starvation_raw': best_candidate['starvation_raw'],
+        'utility_raw': best_candidate['utility_raw'],
+        'fairness_norm': best_candidate.get('fairness_norm'),
+        'starvation_norm': best_candidate.get('starvation_norm'),
+        'utility_norm': best_candidate.get('utility_norm'),
+    }
             
-    return best_worker, best_score
+    return best_worker, best_score, diagnostic_info
 
 def _commit_assignment(task, worker, now):
     pickup_distance = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
@@ -145,33 +262,122 @@ def _commit_assignment(task, worker, now):
     worker.assign_task(task)
     return task
 
-def assign_new_tasks_composite(state, now, tasks_to_assign, fairness_weight=1.0, starvation_weight=1.0, utility_weight=1.0, k=15, soft_threshold=0.2, fairness_metric='ewma', **_):
+def assign_new_tasks_composite(
+    state, 
+    now, 
+    tasks_to_assign, 
+    fairness_weight=1.0, 
+    starvation_weight=1.0, 
+    utility_weight=1.0, 
+    k=15, 
+    soft_threshold=0.2, 
+    fairness_metric='ewma',
+    normalize_scores=False,
+    disable_soft_threshold=False,
+    diagnostic_tracker=None,
+    **_
+):
+    """Assign new tasks to available workers using composite scoring.
+    
+    EXPERIMENT 008: Enhanced with score normalization and threshold ablation.
+    
+    Parameters
+    ----------
+    normalize_scores : bool
+        If True, normalize F, S, U components before scoring (default: False)
+    disable_soft_threshold : bool
+        If True, bypass threshold check and assign immediately (default: False)
+    diagnostic_tracker : DiagnosticTracker, optional
+        If provided, record assignment diagnostics for analysis
+    """
     assignments = []
     for task in tasks_to_assign:
-        best_worker, best_score = _find_best_assignment_for_task(task, state.available_workers, now, fairness_weight, starvation_weight, utility_weight, k)
+        best_worker, best_score, diagnostic_info = _find_best_assignment_for_task(
+            task, 
+            state.available_workers, 
+            now, 
+            fairness_weight, 
+            starvation_weight, 
+            utility_weight, 
+            k,
+            normalize_scores=normalize_scores,
+            diagnostic_tracker=diagnostic_tracker
+        )
         
-        if best_worker and best_score >= soft_threshold:
+        # EXPERIMENT 008: Optionally disable threshold check
+        threshold_passed = disable_soft_threshold or (best_score >= soft_threshold)
+        
+        if best_worker and threshold_passed:
             assigned_task = _commit_assignment(task, best_worker, now)
             state.assign_task(assigned_task, best_worker)
             assignments.append((assigned_task, best_worker, best_score))
-            # PERFORMANCE FIX: Assignment logging disabled - was causing O(n²) memory growth
-            # The assignment log was never used for analysis but consumed massive memory
-            # Real statistics are collected via summary dict and fairness_tracker
+            
+            # EXPERIMENT 008: Record assignment to diagnostic tracker
+            if diagnostic_tracker and diagnostic_info:
+                diagnostic_tracker.record_assignment(
+                    task_id=task.id,
+                    worker_id=best_worker.id,
+                    fairness_raw=diagnostic_info['fairness_raw'],
+                    starvation_raw=diagnostic_info['starvation_raw'],
+                    utility_raw=diagnostic_info['utility_raw'],
+                    fairness_norm=diagnostic_info.get('fairness_norm'),
+                    starvation_norm=diagnostic_info.get('starvation_norm'),
+                    utility_norm=diagnostic_info.get('utility_norm'),
+                    fairness_weight=fairness_weight,
+                    starvation_weight=starvation_weight,
+                    utility_weight=utility_weight,
+                    final_score=best_score,
+                    was_deferred_before=False,
+                    timestamp=now
+                )
         else:
             state.defer_task(task)
+            
+            # EXPERIMENT 008: Record deferral to diagnostic tracker
+            if diagnostic_tracker:
+                reason = "no_candidates" if not best_worker else "below_threshold"
+                diagnostic_tracker.record_task_deferred(
+                    task_id=task.id,
+                    best_score=best_score,
+                    threshold=soft_threshold,
+                    reason=reason,
+                    timestamp=now,
+                    best_worker_id=best_worker.id if best_worker else None
+                )
+            
             # Monitor deferred task behavior (if monitoring enabled)
             if hasattr(state, 'deferred_monitor') and state.deferred_monitor:
                 state.deferred_monitor.record_task_deferred(task.id, now)
-            # PERFORMANCE FIX: Old assignment logging was disabled - caused O(n²) memory growth
             
     return assignments
 
-def match_worker_composite(state, now, worker, fairness_weight=1.0, starvation_weight=1.0, utility_weight=1.0, k=15, soft_threshold=0.2, **_):
-    """
-    OPTIMIZED: Match a free worker to deferred tasks.
+def match_worker_composite(
+    state, 
+    now, 
+    worker, 
+    fairness_weight=1.0, 
+    starvation_weight=1.0, 
+    utility_weight=1.0, 
+    k=15, 
+    soft_threshold=0.2,
+    normalize_scores=False,
+    disable_soft_threshold=False,
+    diagnostic_tracker=None,
+    **_
+):
+    """Match a free worker to deferred tasks.
     
-    This function is called less frequently than task assignment, so the optimization
-    impact is smaller, but we still improve it by avoiding list() conversion.
+    OPTIMIZED: Improved by avoiding list() conversion.
+    EXPERIMENT 008: Enhanced with score normalization and threshold ablation.
+    
+    Parameters
+    ----------
+    normalize_scores : bool
+        If True, normalize F, S, U components before scoring (default: False)
+    disable_soft_threshold : bool
+        If True, bypass threshold check and assign immediately (default: False)
+    diagnostic_tracker : DiagnosticTracker, optional
+        If provided, record assignment diagnostics for analysis
     """
     if not state.deferred_tasks:
         return None
@@ -181,10 +387,10 @@ def match_worker_composite(state, now, worker, fairness_weight=1.0, starvation_w
     if hasattr(state, 'deferred_monitor') and state.deferred_monitor:
         state.deferred_monitor.record_deferred_iteration(deferred_count)
 
-    best_task, best_score = None, float("-inf")
+    # Collect component values for normalization if needed
+    candidate_data = []
     
     # Iterate over deferred tasks directly (sets are iterable)
-    # No need for list() conversion - sets support iteration
     for task in state.deferred_tasks.copy():  # copy() to avoid modification during iteration
         drop_distance_const = manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
         d_pick = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
@@ -194,13 +400,82 @@ def match_worker_composite(state, now, worker, fairness_weight=1.0, starvation_w
         if finish_eta > worker.deadline or finish_eta > task.expire_time:
             continue
 
-        s = score(task, worker, fairness_weight, starvation_weight, utility_weight, now)
-        if s > best_score:
-            best_score, best_task = s, task
+        # Calculate raw component values
+        distance = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
+        fairness_raw = calculate_fairness_signal(worker, now)
+        starvation_raw = log(1 + (now - task.release_time).total_seconds())
+        utility_raw = 1.0 / (1.0 + distance)
+        
+        candidate_data.append({
+            'task': task,
+            'fairness_raw': fairness_raw,
+            'starvation_raw': starvation_raw,
+            'utility_raw': utility_raw
+        })
+    
+    if not candidate_data:
+        return None
+    
+    # EXPERIMENT 008: Apply normalization if requested
+    if normalize_scores:
+        fairness_values = [c['fairness_raw'] for c in candidate_data]
+        starvation_values = [c['starvation_raw'] for c in candidate_data]
+        utility_values = [c['utility_raw'] for c in candidate_data]
+        
+        fairness_norm = _normalize_components(fairness_values)
+        starvation_norm = _normalize_components(starvation_values)
+        utility_norm = _normalize_components(utility_values)
+        
+        for i, candidate in enumerate(candidate_data):
+            candidate['fairness_norm'] = fairness_norm[i]
+            candidate['starvation_norm'] = starvation_norm[i]
+            candidate['utility_norm'] = utility_norm[i]
+            candidate['score'] = (
+                fairness_weight * fairness_norm[i] +
+                starvation_weight * starvation_norm[i] +
+                utility_weight * utility_norm[i]
+            )
+    else:
+        for candidate in candidate_data:
+            candidate['score'] = (
+                fairness_weight * candidate['fairness_raw'] +
+                starvation_weight * candidate['starvation_raw'] +
+                utility_weight * candidate['utility_raw']
+            )
+            candidate['fairness_norm'] = None
+            candidate['starvation_norm'] = None
+            candidate['utility_norm'] = None
+    
+    # Find best candidate
+    best_candidate = max(candidate_data, key=lambda c: c['score'])
+    best_task = best_candidate['task']
+    best_score = best_candidate['score']
+    
+    # EXPERIMENT 008: Optionally disable threshold check
+    threshold_passed = disable_soft_threshold or (best_score >= soft_threshold)
             
-    if best_task and best_score >= soft_threshold:
+    if best_task and threshold_passed:
         assigned_task = _commit_assignment(best_task, worker, now)
         state.assign_task(assigned_task, worker)
+        
+        # EXPERIMENT 008: Record assignment to diagnostic tracker
+        if diagnostic_tracker:
+            diagnostic_tracker.record_assignment(
+                task_id=best_task.id,
+                worker_id=worker.id,
+                fairness_raw=best_candidate['fairness_raw'],
+                starvation_raw=best_candidate['starvation_raw'],
+                utility_raw=best_candidate['utility_raw'],
+                fairness_norm=best_candidate.get('fairness_norm'),
+                starvation_norm=best_candidate.get('starvation_norm'),
+                utility_norm=best_candidate.get('utility_norm'),
+                fairness_weight=fairness_weight,
+                starvation_weight=starvation_weight,
+                utility_weight=utility_weight,
+                final_score=best_score,
+                was_deferred_before=True,
+                timestamp=now
+            )
         
         # Monitor successful assignment from deferred state (if monitoring enabled)
         if hasattr(state, 'deferred_monitor') and state.deferred_monitor:

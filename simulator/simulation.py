@@ -12,6 +12,7 @@ from simulator.state import StateManager
 from simulator.strategies import get_strategy
 from metrics.fairness import FairnessMetricsTracker
 from metrics.tracker import MetricTracker
+from metrics.diagnostic_tracker import DiagnosticTracker
 
 def run_simulation(
     workers,
@@ -37,6 +38,12 @@ def run_simulation(
     event_queue = []
     fairness_tracker = FairnessMetricsTracker()
     metric_tracker = MetricTracker()
+    
+    # EXPERIMENT 008: Create diagnostic tracker for composite strategy
+    diagnostic_tracker = None
+    if strategy_name == "composite":
+        diagnostic_tracker = DiagnosticTracker()
+        strategy_params['diagnostic_tracker'] = diagnostic_tracker
 
     if start_time is None:
         releases = [w.release_time for w in workers] + [t.release_time for t in tasks]
@@ -197,6 +204,12 @@ def run_simulation(
     # Combine all metrics for return
     summary.update(fairness_summary)
     summary['metric_tracker'] = metric_tracker  # Include enhanced metrics tracker
+    
+    # EXPERIMENT 008: Include diagnostic tracker if available
+    if diagnostic_tracker:
+        summary['diagnostic_tracker'] = diagnostic_tracker
+        summary['diagnostic_summary'] = diagnostic_tracker.get_summary_stats()
+    
     return summary
 
 
@@ -290,6 +303,7 @@ class Simulation:
             'fairness_loss': results.get('final_fairness_loss', 0.0),
             'total_tasks': len(tasks),
             'assigned_tasks': results.get('completed_tasks', 0),
+            'completed_tasks': results.get('completed_tasks', 0),  # Added for experiment scripts
             'max_wait_time': max(results.get('wait_times', [0])) if results.get('wait_times') else 0.0,
             'backlog_peak': results.get('backlog_peak', 0),
             
@@ -301,6 +315,10 @@ class Simulation:
             'max_input_output_ratio': results.get('max_input_output_ratio'),
             'workers_with_eligibility_data': results.get('workers_with_eligibility_data', 0),
             'total_task_assignments_tracked': results.get('total_task_assignments_tracked', 0),
+            
+            # EXPERIMENT 008: Pass through diagnostic tracker and summary
+            'diagnostic_tracker': results.get('diagnostic_tracker'),
+            'diagnostic_summary': results.get('diagnostic_summary'),
         }
         
         return standardized_results
