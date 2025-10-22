@@ -1,0 +1,1121 @@
+================================================================================
+EXPERIMENT 010: Pareto Frontier High-Resolution Sweep
+================================================================================
+[START TIME] 2025-10-21 00:03:15
+
+[OBJECTIVE] High-resolution mapping of critical λ₁ range (2.5-4.5)
+[FOCUS] Find the 'knee' of the fairness-efficiency Pareto curve
+
+[OUTPUT DIR] /Users/maxapple/Documents/GitHub/sc_sim/experiments_analysis/exp_010_extended_boundaries/data/exp_010_20251021_000315
+
+[LOADING DATASET]
+   Dataset: DiDi (15,000 workers, 20,000 tasks)
+🚀 Using OPTIMIZED loading for FULL dataset...
+💡 Memory usage reduced by ~70% vs standard loading
+📊 Loading from original gps.txt (3.1GB) and order.txt (20MB)
+🚀 Loading data with memory optimization...
+📊 Using FULL dataset: order.txt (220,139 tasks)
+📊 Loading Orders from: order.txt (20.4 MB)
+✅ Loaded 20,000 tasks
+📅 Task time range: 2016-11-12 16:01:34+00:00 to 2016-11-13 19:59:49+00:00
+📊 Loading GPS from: gps.txt (3109.6 MB)
+🔄 Using chunked loading for large file...
+🔗 Combining 340 chunks...
+✅ Created 15,000 workers
+✅ Loaded 15,000 workers, 20,000 tasks
+🧠 Peak memory usage: ~2-3GB (vs 9GB+ with standard loading)
+🎯 Ready for experiments with FULL dataset!
+   ✅ Loaded: 15,000 workers, 20,000 tasks
+
+[FIXED SETTINGS FOR ALL COMPOSITE RUNS]
+   normalize_scores: True
+   enable_diagnostics: False
+   gamma: 0.5
+   starvation_weight: 0.5
+   soft_threshold: 0.5
+   k: 15
+
+[GROUP A] Greedy Baseline
+   Purpose: Efficiency reference
+   ✅ 1 experiment configured
+
+[GROUP B] Pareto Frontier High-Resolution Sweep
+   Purpose: Map critical fairness-efficiency trade-off region
+   Fixed: L2=0.5, Threshold=0.5
+   Grid: λ₁ ∈ [2.5, 3.0, 3.5, 4.0, 4.5] × λ₃ ∈ [0.5, 1.0, 1.5, 2.0]
+
+   ✅ 20 experiments configured
+   Grid resolution: 5 λ₁ values × 4 λ₃ values
+
+================================================================================
+TOTAL EXPERIMENTS CONFIGURED: 21
+================================================================================
+
+✅ Manifest saved: /Users/maxapple/Documents/GitHub/sc_sim/experiments_analysis/exp_010_extended_boundaries/data/exp_010_20251021_000315/experiment_manifest.json
+
+
+================================================================================
+[EXPERIMENT 1/21] Greedy_Baseline (Group A)
+================================================================================
+Description: Greedy baseline for efficiency comparison
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'greedy' strategy...
+   📊 Simulation progress: 2,879/20,000 tasks completed, 28,556 events remaining
+   📊 Simulation progress: 5,988/20,000 tasks completed, 22,274 events remaining
+   📊 Simulation progress: 9,129/20,000 tasks completed, 15,960 events remaining
+   📊 Simulation progress: 12,317/20,000 tasks completed, 9,643 events remaining
+   📊 Simulation progress: 15,500/20,000 tasks completed, 3,351 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17248
+Task Assignment Ratio: 86.24%
+Avg wait time (min):   1.9
+Avg travel distance km:9.37
+P90 wait (min):        5.5   max 47.0
+Avg service min:       16.8   max 110.2
+Empty-km share:        10.13%
+Peak backlog:          17
+Expired/unserved:      2752
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.263
+Utility Difference:    19.0
+Fairness Loss:         1.188
+EWMA CV:              0.466
+Mean JFI over time:    0.150
+
+✅ Simulation complete in 2030.3 seconds
+   Completed tasks: 17248/20000
+   JFI: 0.2627
+   Mean wait time: 1.90 min
+   TAR: 86.24%
+
+[PROGRESS] 1/21 complete (1 successful, 0 failed)
+[TIME] Elapsed: 0.6h | Estimated remaining: 11.4h
+
+================================================================================
+[EXPERIMENT 2/21] ParetoSweep_L1_2.5_L3_0.5 (Group B)
+================================================================================
+Description: L1=2.5, L2=0.5, L3=0.5, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,871/20,000 tasks completed, 28,554 events remaining
+   📊 Simulation progress: 5,982/20,000 tasks completed, 22,256 events remaining
+   📊 Simulation progress: 9,135/20,000 tasks completed, 15,944 events remaining
+   📊 Simulation progress: 12,332/20,000 tasks completed, 9,618 events remaining
+   📊 Simulation progress: 15,521/20,000 tasks completed, 3,303 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17247
+Task Assignment Ratio: 86.23%
+Avg wait time (min):   3.0
+Avg travel distance km:9.89
+P90 wait (min):        7.0   max 86.3
+Avg service min:       16.8   max 110.2
+Empty-km share:        14.92%
+Peak backlog:          20
+Expired/unserved:      2753
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.295
+Utility Difference:    16.0
+Fairness Loss:         1.090
+EWMA CV:              1.594
+Mean JFI over time:    0.168
+
+✅ Simulation complete in 1554.1 seconds
+   Completed tasks: 17247/20000
+   JFI: 0.2953
+   Mean wait time: 2.96 min
+   TAR: 86.23%
+
+[PROGRESS] 2/21 complete (2 successful, 0 failed)
+[TIME] Elapsed: 1.0h | Estimated remaining: 9.5h
+
+================================================================================
+[EXPERIMENT 3/21] ParetoSweep_L1_2.5_L3_1.0 (Group B)
+================================================================================
+Description: L1=2.5, L2=0.5, L3=1.0, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,875/20,000 tasks completed, 28,550 events remaining
+   📊 Simulation progress: 5,985/20,000 tasks completed, 22,257 events remaining
+   📊 Simulation progress: 9,139/20,000 tasks completed, 15,940 events remaining
+   📊 Simulation progress: 12,328/20,000 tasks completed, 9,620 events remaining
+   📊 Simulation progress: 15,517/20,000 tasks completed, 3,304 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17247
+Task Assignment Ratio: 86.23%
+Avg wait time (min):   2.8
+Avg travel distance km:9.82
+P90 wait (min):        6.6   max 79.8
+Avg service min:       16.8   max 110.2
+Empty-km share:        14.29%
+Peak backlog:          21
+Expired/unserved:      2753
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.291
+Utility Difference:    16.0
+Fairness Loss:         1.093
+EWMA CV:              2.207
+Mean JFI over time:    0.164
+
+✅ Simulation complete in 1548.7 seconds
+   Completed tasks: 17247/20000
+   JFI: 0.2908
+   Mean wait time: 2.82 min
+   TAR: 86.23%
+
+[PROGRESS] 3/21 complete (3 successful, 0 failed)
+[TIME] Elapsed: 1.4h | Estimated remaining: 8.6h
+
+================================================================================
+[EXPERIMENT 4/21] ParetoSweep_L1_2.5_L3_1.5 (Group B)
+================================================================================
+Description: L1=2.5, L2=0.5, L3=1.5, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,877/20,000 tasks completed, 28,552 events remaining
+   📊 Simulation progress: 5,983/20,000 tasks completed, 22,257 events remaining
+   📊 Simulation progress: 9,133/20,000 tasks completed, 15,942 events remaining
+   📊 Simulation progress: 12,336/20,000 tasks completed, 9,613 events remaining
+   📊 Simulation progress: 15,520/20,000 tasks completed, 3,303 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17250
+Task Assignment Ratio: 86.25%
+Avg wait time (min):   2.8
+Avg travel distance km:9.84
+P90 wait (min):        6.8   max 77.1
+Avg service min:       16.8   max 110.2
+Empty-km share:        14.40%
+Peak backlog:          19
+Expired/unserved:      2750
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.289
+Utility Difference:    18.0
+Fairness Loss:         1.102
+EWMA CV:              1.903
+Mean JFI over time:    0.164
+
+✅ Simulation complete in 1562.5 seconds
+   Completed tasks: 17250/20000
+   JFI: 0.2886
+   Mean wait time: 2.84 min
+   TAR: 86.25%
+
+[PROGRESS] 4/21 complete (4 successful, 0 failed)
+[TIME] Elapsed: 1.9h | Estimated remaining: 7.9h
+
+================================================================================
+[EXPERIMENT 5/21] ParetoSweep_L1_2.5_L3_2.0 (Group B)
+================================================================================
+Description: L1=2.5, L2=0.5, L3=2.0, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,878/20,000 tasks completed, 28,550 events remaining
+   📊 Simulation progress: 5,982/20,000 tasks completed, 22,255 events remaining
+   📊 Simulation progress: 9,138/20,000 tasks completed, 15,938 events remaining
+   📊 Simulation progress: 12,333/20,000 tasks completed, 9,617 events remaining
+   📊 Simulation progress: 15,521/20,000 tasks completed, 3,297 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17248
+Task Assignment Ratio: 86.24%
+Avg wait time (min):   2.7
+Avg travel distance km:9.77
+P90 wait (min):        6.7   max 78.3
+Avg service min:       16.8   max 110.2
+Empty-km share:        13.80%
+Peak backlog:          20
+Expired/unserved:      2752
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.290
+Utility Difference:    18.0
+Fairness Loss:         1.107
+EWMA CV:              1.578
+Mean JFI over time:    0.159
+
+✅ Simulation complete in 1546.6 seconds
+   Completed tasks: 17248/20000
+   JFI: 0.2895
+   Mean wait time: 2.70 min
+   TAR: 86.24%
+
+[PROGRESS] 5/21 complete (5 successful, 0 failed)
+[TIME] Elapsed: 2.3h | Estimated remaining: 7.3h
+
+================================================================================
+[EXPERIMENT 6/21] ParetoSweep_L1_3.0_L3_0.5 (Group B)
+================================================================================
+Description: L1=3.0, L2=0.5, L3=0.5, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,876/20,000 tasks completed, 28,551 events remaining
+   📊 Simulation progress: 5,987/20,000 tasks completed, 22,256 events remaining
+   📊 Simulation progress: 9,130/20,000 tasks completed, 15,947 events remaining
+   📊 Simulation progress: 12,332/20,000 tasks completed, 9,617 events remaining
+   📊 Simulation progress: 15,518/20,000 tasks completed, 3,302 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17250
+Task Assignment Ratio: 86.25%
+Avg wait time (min):   3.0
+Avg travel distance km:9.90
+P90 wait (min):        7.0   max 79.8
+Avg service min:       16.8   max 110.2
+Empty-km share:        14.92%
+Peak backlog:          17
+Expired/unserved:      2750
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.286
+Utility Difference:    18.0
+Fairness Loss:         1.091
+EWMA CV:              2.131
+Mean JFI over time:    0.163
+
+✅ Simulation complete in 1545.8 seconds
+   Completed tasks: 17250/20000
+   JFI: 0.2857
+   Mean wait time: 2.96 min
+   TAR: 86.25%
+
+[PROGRESS] 6/21 complete (6 successful, 0 failed)
+[TIME] Elapsed: 2.7h | Estimated remaining: 6.8h
+
+================================================================================
+[EXPERIMENT 7/21] ParetoSweep_L1_3.0_L3_1.0 (Group B)
+================================================================================
+Description: L1=3.0, L2=0.5, L3=1.0, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,874/20,000 tasks completed, 28,552 events remaining
+   📊 Simulation progress: 5,981/20,000 tasks completed, 22,252 events remaining
+   📊 Simulation progress: 9,132/20,000 tasks completed, 15,944 events remaining
+   📊 Simulation progress: 12,333/20,000 tasks completed, 9,616 events remaining
+   📊 Simulation progress: 15,521/20,000 tasks completed, 3,300 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17250
+Task Assignment Ratio: 86.25%
+Avg wait time (min):   2.9
+Avg travel distance km:9.87
+P90 wait (min):        6.7   max 66.6
+Avg service min:       16.9   max 110.2
+Empty-km share:        14.65%
+Peak backlog:          18
+Expired/unserved:      2750
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.291
+Utility Difference:    18.0
+Fairness Loss:         1.091
+EWMA CV:              2.768
+Mean JFI over time:    0.162
+
+✅ Simulation complete in 1557.1 seconds
+   Completed tasks: 17250/20000
+   JFI: 0.2909
+   Mean wait time: 2.90 min
+   TAR: 86.25%
+
+[PROGRESS] 7/21 complete (7 successful, 0 failed)
+[TIME] Elapsed: 3.2h | Estimated remaining: 6.3h
+
+================================================================================
+[EXPERIMENT 8/21] ParetoSweep_L1_3.0_L3_1.5 (Group B)
+================================================================================
+Description: L1=3.0, L2=0.5, L3=1.5, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,875/20,000 tasks completed, 28,547 events remaining
+   📊 Simulation progress: 5,981/20,000 tasks completed, 22,251 events remaining
+   📊 Simulation progress: 9,142/20,000 tasks completed, 15,937 events remaining
+   📊 Simulation progress: 12,333/20,000 tasks completed, 9,618 events remaining
+   📊 Simulation progress: 15,525/20,000 tasks completed, 3,295 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17248
+Task Assignment Ratio: 86.24%
+Avg wait time (min):   2.8
+Avg travel distance km:9.80
+P90 wait (min):        6.5   max 66.9
+Avg service min:       16.8   max 110.2
+Empty-km share:        14.07%
+Peak backlog:          19
+Expired/unserved:      2752
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.283
+Utility Difference:    18.0
+Fairness Loss:         1.101
+EWMA CV:              2.639
+Mean JFI over time:    0.161
+
+✅ Simulation complete in 1567.7 seconds
+   Completed tasks: 17248/20000
+   JFI: 0.2830
+   Mean wait time: 2.76 min
+   TAR: 86.24%
+
+[PROGRESS] 8/21 complete (8 successful, 0 failed)
+[TIME] Elapsed: 3.6h | Estimated remaining: 5.8h
+
+================================================================================
+[EXPERIMENT 9/21] ParetoSweep_L1_3.0_L3_2.0 (Group B)
+================================================================================
+Description: L1=3.0, L2=0.5, L3=2.0, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,876/20,000 tasks completed, 28,552 events remaining
+   📊 Simulation progress: 5,986/20,000 tasks completed, 22,255 events remaining
+   📊 Simulation progress: 9,132/20,000 tasks completed, 15,942 events remaining
+   📊 Simulation progress: 12,332/20,000 tasks completed, 9,617 events remaining
+   📊 Simulation progress: 15,516/20,000 tasks completed, 3,306 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17248
+Task Assignment Ratio: 86.24%
+Avg wait time (min):   2.7
+Avg travel distance km:9.78
+P90 wait (min):        6.5   max 80.6
+Avg service min:       16.8   max 110.2
+Empty-km share:        13.86%
+Peak backlog:          20
+Expired/unserved:      2752
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.288
+Utility Difference:    16.0
+Fairness Loss:         1.101
+EWMA CV:              1.746
+Mean JFI over time:    0.157
+
+✅ Simulation complete in 1540.9 seconds
+   Completed tasks: 17248/20000
+   JFI: 0.2878
+   Mean wait time: 2.72 min
+   TAR: 86.24%
+
+[PROGRESS] 9/21 complete (9 successful, 0 failed)
+[TIME] Elapsed: 4.0h | Estimated remaining: 5.4h
+
+================================================================================
+[EXPERIMENT 10/21] ParetoSweep_L1_3.5_L3_0.5 (Group B)
+================================================================================
+Description: L1=3.5, L2=0.5, L3=0.5, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,871/20,000 tasks completed, 28,555 events remaining
+   📊 Simulation progress: 5,981/20,000 tasks completed, 22,253 events remaining
+   📊 Simulation progress: 9,138/20,000 tasks completed, 15,941 events remaining
+   📊 Simulation progress: 12,334/20,000 tasks completed, 9,618 events remaining
+   📊 Simulation progress: 15,523/20,000 tasks completed, 3,299 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17249
+Task Assignment Ratio: 86.25%
+Avg wait time (min):   3.0
+Avg travel distance km:9.90
+P90 wait (min):        6.8   max 79.8
+Avg service min:       16.8   max 110.2
+Empty-km share:        14.91%
+Peak backlog:          19
+Expired/unserved:      2751
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.289
+Utility Difference:    19.0
+Fairness Loss:         1.092
+EWMA CV:              0.821
+Mean JFI over time:    0.167
+
+✅ Simulation complete in 1637.3 seconds
+   Completed tasks: 17249/20000
+   JFI: 0.2887
+   Mean wait time: 2.96 min
+   TAR: 86.25%
+
+[PROGRESS] 10/21 complete (10 successful, 0 failed)
+[TIME] Elapsed: 4.5h | Estimated remaining: 4.9h
+
+================================================================================
+[EXPERIMENT 11/21] ParetoSweep_L1_3.5_L3_1.0 (Group B)
+================================================================================
+Description: L1=3.5, L2=0.5, L3=1.0, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,877/20,000 tasks completed, 28,548 events remaining
+   📊 Simulation progress: 5,982/20,000 tasks completed, 22,250 events remaining
+   📊 Simulation progress: 9,135/20,000 tasks completed, 15,942 events remaining
+   📊 Simulation progress: 12,334/20,000 tasks completed, 9,615 events remaining
+   📊 Simulation progress: 15,523/20,000 tasks completed, 3,298 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17249
+Task Assignment Ratio: 86.25%
+Avg wait time (min):   2.9
+Avg travel distance km:9.85
+P90 wait (min):        6.5   max 70.8
+Avg service min:       16.8   max 110.2
+Empty-km share:        14.47%
+Peak backlog:          18
+Expired/unserved:      2751
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.287
+Utility Difference:    19.0
+Fairness Loss:         1.094
+EWMA CV:              1.422
+Mean JFI over time:    0.160
+
+✅ Simulation complete in 1522.9 seconds
+   Completed tasks: 17249/20000
+   JFI: 0.2871
+   Mean wait time: 2.86 min
+   TAR: 86.25%
+
+[PROGRESS] 11/21 complete (11 successful, 0 failed)
+[TIME] Elapsed: 4.9h | Estimated remaining: 4.5h
+
+================================================================================
+[EXPERIMENT 12/21] ParetoSweep_L1_3.5_L3_1.5 (Group B)
+================================================================================
+Description: L1=3.5, L2=0.5, L3=1.5, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,874/20,000 tasks completed, 28,546 events remaining
+   📊 Simulation progress: 5,982/20,000 tasks completed, 22,252 events remaining
+   📊 Simulation progress: 9,136/20,000 tasks completed, 15,939 events remaining
+   📊 Simulation progress: 12,333/20,000 tasks completed, 9,614 events remaining
+   📊 Simulation progress: 15,522/20,000 tasks completed, 3,300 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17248
+Task Assignment Ratio: 86.24%
+Avg wait time (min):   2.8
+Avg travel distance km:9.80
+P90 wait (min):        6.4   max 68.3
+Avg service min:       16.8   max 110.2
+Empty-km share:        14.09%
+Peak backlog:          20
+Expired/unserved:      2752
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.284
+Utility Difference:    20.0
+Fairness Loss:         1.103
+EWMA CV:              2.816
+Mean JFI over time:    0.159
+
+✅ Simulation complete in 1578.2 seconds
+   Completed tasks: 17248/20000
+   JFI: 0.2837
+   Mean wait time: 2.77 min
+   TAR: 86.24%
+
+[PROGRESS] 12/21 complete (12 successful, 0 failed)
+[TIME] Elapsed: 5.3h | Estimated remaining: 4.0h
+
+================================================================================
+[EXPERIMENT 13/21] ParetoSweep_L1_3.5_L3_2.0 (Group B)
+================================================================================
+Description: L1=3.5, L2=0.5, L3=2.0, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,878/20,000 tasks completed, 28,551 events remaining
+   📊 Simulation progress: 5,984/20,000 tasks completed, 22,258 events remaining
+   📊 Simulation progress: 9,137/20,000 tasks completed, 15,943 events remaining
+   📊 Simulation progress: 12,331/20,000 tasks completed, 9,618 events remaining
+   📊 Simulation progress: 15,516/20,000 tasks completed, 3,305 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17247
+Task Assignment Ratio: 86.23%
+Avg wait time (min):   2.8
+Avg travel distance km:9.81
+P90 wait (min):        6.7   max 79.8
+Avg service min:       16.8   max 110.2
+Empty-km share:        14.22%
+Peak backlog:          20
+Expired/unserved:      2753
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.286
+Utility Difference:    17.0
+Fairness Loss:         1.100
+EWMA CV:              1.308
+Mean JFI over time:    0.162
+
+✅ Simulation complete in 1555.0 seconds
+   Completed tasks: 17247/20000
+   JFI: 0.2857
+   Mean wait time: 2.80 min
+   TAR: 86.23%
+
+[PROGRESS] 13/21 complete (13 successful, 0 failed)
+[TIME] Elapsed: 5.8h | Estimated remaining: 3.5h
+
+================================================================================
+[EXPERIMENT 14/21] ParetoSweep_L1_4.0_L3_0.5 (Group B)
+================================================================================
+Description: L1=4.0, L2=0.5, L3=0.5, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,875/20,000 tasks completed, 28,554 events remaining
+   📊 Simulation progress: 5,982/20,000 tasks completed, 22,260 events remaining
+   📊 Simulation progress: 9,138/20,000 tasks completed, 15,939 events remaining
+   📊 Simulation progress: 12,337/20,000 tasks completed, 9,615 events remaining
+   📊 Simulation progress: 15,519/20,000 tasks completed, 3,303 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17251
+Task Assignment Ratio: 86.26%
+Avg wait time (min):   3.0
+Avg travel distance km:9.91
+P90 wait (min):        6.9   max 79.8
+Avg service min:       16.9   max 110.2
+Empty-km share:        14.95%
+Peak backlog:          16
+Expired/unserved:      2749
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.288
+Utility Difference:    19.0
+Fairness Loss:         1.092
+EWMA CV:              1.298
+Mean JFI over time:    0.163
+
+✅ Simulation complete in 1552.5 seconds
+   Completed tasks: 17251/20000
+   JFI: 0.2885
+   Mean wait time: 2.97 min
+   TAR: 86.26%
+
+[PROGRESS] 14/21 complete (14 successful, 0 failed)
+[TIME] Elapsed: 6.2h | Estimated remaining: 3.1h
+
+================================================================================
+[EXPERIMENT 15/21] ParetoSweep_L1_4.0_L3_1.0 (Group B)
+================================================================================
+Description: L1=4.0, L2=0.5, L3=1.0, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,873/20,000 tasks completed, 28,551 events remaining
+   📊 Simulation progress: 5,986/20,000 tasks completed, 22,254 events remaining
+   📊 Simulation progress: 9,138/20,000 tasks completed, 15,937 events remaining
+   📊 Simulation progress: 12,333/20,000 tasks completed, 9,615 events remaining
+   📊 Simulation progress: 15,519/20,000 tasks completed, 3,300 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17250
+Task Assignment Ratio: 86.25%
+Avg wait time (min):   2.9
+Avg travel distance km:9.88
+P90 wait (min):        6.7   max 72.6
+Avg service min:       16.8   max 110.2
+Empty-km share:        14.77%
+Peak backlog:          17
+Expired/unserved:      2750
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.292
+Utility Difference:    16.0
+Fairness Loss:         1.091
+EWMA CV:              2.573
+Mean JFI over time:    0.166
+
+✅ Simulation complete in 1549.1 seconds
+   Completed tasks: 17250/20000
+   JFI: 0.2918
+   Mean wait time: 2.93 min
+   TAR: 86.25%
+
+[PROGRESS] 15/21 complete (15 successful, 0 failed)
+[TIME] Elapsed: 6.6h | Estimated remaining: 2.7h
+
+================================================================================
+[EXPERIMENT 16/21] ParetoSweep_L1_4.0_L3_1.5 (Group B)
+================================================================================
+Description: L1=4.0, L2=0.5, L3=1.5, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,877/20,000 tasks completed, 28,550 events remaining
+   📊 Simulation progress: 5,984/20,000 tasks completed, 22,257 events remaining
+   📊 Simulation progress: 9,137/20,000 tasks completed, 15,945 events remaining
+   📊 Simulation progress: 12,331/20,000 tasks completed, 9,621 events remaining
+   📊 Simulation progress: 15,516/20,000 tasks completed, 3,305 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17247
+Task Assignment Ratio: 86.23%
+Avg wait time (min):   2.8
+Avg travel distance km:9.80
+P90 wait (min):        6.6   max 72.8
+Avg service min:       16.8   max 110.2
+Empty-km share:        14.09%
+Peak backlog:          20
+Expired/unserved:      2753
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.285
+Utility Difference:    20.0
+Fairness Loss:         1.100
+EWMA CV:              1.394
+Mean JFI over time:    0.156
+
+✅ Simulation complete in 1536.1 seconds
+   Completed tasks: 17247/20000
+   JFI: 0.2847
+   Mean wait time: 2.77 min
+   TAR: 86.23%
+
+[PROGRESS] 16/21 complete (16 successful, 0 failed)
+[TIME] Elapsed: 7.1h | Estimated remaining: 2.2h
+
+================================================================================
+[EXPERIMENT 17/21] ParetoSweep_L1_4.0_L3_2.0 (Group B)
+================================================================================
+Description: L1=4.0, L2=0.5, L3=2.0, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,871/20,000 tasks completed, 28,551 events remaining
+   📊 Simulation progress: 5,987/20,000 tasks completed, 22,252 events remaining
+   📊 Simulation progress: 9,139/20,000 tasks completed, 15,938 events remaining
+   📊 Simulation progress: 12,337/20,000 tasks completed, 9,611 events remaining
+   📊 Simulation progress: 15,526/20,000 tasks completed, 3,291 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17249
+Task Assignment Ratio: 86.25%
+Avg wait time (min):   2.8
+Avg travel distance km:9.81
+P90 wait (min):        6.7   max 78.3
+Avg service min:       16.8   max 110.2
+Empty-km share:        14.15%
+Peak backlog:          19
+Expired/unserved:      2751
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.290
+Utility Difference:    20.0
+Fairness Loss:         1.092
+EWMA CV:              2.206
+Mean JFI over time:    0.165
+
+✅ Simulation complete in 1567.2 seconds
+   Completed tasks: 17249/20000
+   JFI: 0.2895
+   Mean wait time: 2.78 min
+   TAR: 86.25%
+
+[PROGRESS] 17/21 complete (17 successful, 0 failed)
+[TIME] Elapsed: 7.5h | Estimated remaining: 1.8h
+
+================================================================================
+[EXPERIMENT 18/21] ParetoSweep_L1_4.5_L3_0.5 (Group B)
+================================================================================
+Description: L1=4.5, L2=0.5, L3=0.5, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,874/20,000 tasks completed, 28,550 events remaining
+   📊 Simulation progress: 5,988/20,000 tasks completed, 22,252 events remaining
+   📊 Simulation progress: 9,137/20,000 tasks completed, 15,940 events remaining
+   📊 Simulation progress: 12,336/20,000 tasks completed, 9,613 events remaining
+   📊 Simulation progress: 15,518/20,000 tasks completed, 3,305 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17248
+Task Assignment Ratio: 86.24%
+Avg wait time (min):   2.9
+Avg travel distance km:9.89
+P90 wait (min):        6.8   max 86.9
+Avg service min:       16.8   max 110.2
+Empty-km share:        14.83%
+Peak backlog:          20
+Expired/unserved:      2752
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.292
+Utility Difference:    18.0
+Fairness Loss:         1.086
+EWMA CV:              2.649
+Mean JFI over time:    0.165
+
+✅ Simulation complete in 1559.4 seconds
+   Completed tasks: 17248/20000
+   JFI: 0.2923
+   Mean wait time: 2.94 min
+   TAR: 86.24%
+
+[PROGRESS] 18/21 complete (18 successful, 0 failed)
+[TIME] Elapsed: 7.9h | Estimated remaining: 1.3h
+
+================================================================================
+[EXPERIMENT 19/21] ParetoSweep_L1_4.5_L3_1.0 (Group B)
+================================================================================
+Description: L1=4.5, L2=0.5, L3=1.0, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,873/20,000 tasks completed, 28,553 events remaining
+   📊 Simulation progress: 5,985/20,000 tasks completed, 22,256 events remaining
+   📊 Simulation progress: 9,136/20,000 tasks completed, 15,938 events remaining
+   📊 Simulation progress: 12,336/20,000 tasks completed, 9,613 events remaining
+   📊 Simulation progress: 15,524/20,000 tasks completed, 3,293 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17249
+Task Assignment Ratio: 86.25%
+Avg wait time (min):   3.0
+Avg travel distance km:9.90
+P90 wait (min):        6.8   max 91.3
+Avg service min:       16.8   max 110.2
+Empty-km share:        14.96%
+Peak backlog:          18
+Expired/unserved:      2751
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.292
+Utility Difference:    21.0
+Fairness Loss:         1.094
+EWMA CV:              1.572
+Mean JFI over time:    0.163
+
+✅ Simulation complete in 1568.9 seconds
+   Completed tasks: 17249/20000
+   JFI: 0.2922
+   Mean wait time: 2.97 min
+   TAR: 86.25%
+
+[PROGRESS] 19/21 complete (19 successful, 0 failed)
+[TIME] Elapsed: 8.4h | Estimated remaining: 0.9h
+
+================================================================================
+[EXPERIMENT 20/21] ParetoSweep_L1_4.5_L3_1.5 (Group B)
+================================================================================
+Description: L1=4.5, L2=0.5, L3=1.5, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,874/20,000 tasks completed, 28,552 events remaining
+   📊 Simulation progress: 5,986/20,000 tasks completed, 22,254 events remaining
+   📊 Simulation progress: 9,142/20,000 tasks completed, 15,940 events remaining
+   📊 Simulation progress: 12,332/20,000 tasks completed, 9,618 events remaining
+   📊 Simulation progress: 15,516/20,000 tasks completed, 3,305 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17249
+Task Assignment Ratio: 86.25%
+Avg wait time (min):   2.9
+Avg travel distance km:9.89
+P90 wait (min):        6.9   max 79.8
+Avg service min:       16.8   max 110.2
+Empty-km share:        14.86%
+Peak backlog:          18
+Expired/unserved:      2751
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.291
+Utility Difference:    17.0
+Fairness Loss:         1.097
+EWMA CV:              2.235
+Mean JFI over time:    0.162
+
+✅ Simulation complete in 1564.0 seconds
+   Completed tasks: 17249/20000
+   JFI: 0.2913
+   Mean wait time: 2.95 min
+   TAR: 86.25%
+
+[PROGRESS] 20/21 complete (20 successful, 0 failed)
+[TIME] Elapsed: 8.8h | Estimated remaining: 0.4h
+
+================================================================================
+[EXPERIMENT 21/21] ParetoSweep_L1_4.5_L3_2.0 (Group B)
+================================================================================
+Description: L1=4.5, L2=0.5, L3=2.0, Threshold=0.5
+
+🚀 Starting simulation...
+🚀 Converting DataFrames to objects...
+   📊 Converting 15,000 workers...
+   📊 Progress: 10,000/15,000 (66.7%)
+   ✅ Converted 15,000 workers
+   📊 Converting 20,000 tasks...
+   ✅ Converted 20,000 tasks
+🚀 Starting simulation...
+Starting event-driven simulation with 'composite' strategy...
+   📊 Simulation progress: 2,876/20,000 tasks completed, 28,548 events remaining
+   📊 Simulation progress: 5,984/20,000 tasks completed, 22,253 events remaining
+   📊 Simulation progress: 9,138/20,000 tasks completed, 15,939 events remaining
+   📊 Simulation progress: 12,332/20,000 tasks completed, 9,618 events remaining
+   📊 Simulation progress: 15,517/20,000 tasks completed, 3,300 events remaining
+
+Simulation complete.
+
+---- Simulation Summary ----
+Total tasks:           20000
+Completed tasks:       17250
+Task Assignment Ratio: 86.25%
+Avg wait time (min):   2.9
+Avg travel distance km:9.88
+P90 wait (min):        6.7   max 91.3
+Avg service min:       16.8   max 110.2
+Empty-km share:        14.70%
+Peak backlog:          19
+Expired/unserved:      2750
+
+---- Fairness Metrics ----
+Jain's Fairness Index: 0.286
+Utility Difference:    16.0
+Fairness Loss:         1.099
+EWMA CV:              2.536
+Mean JFI over time:    0.158
+
+✅ Simulation complete in 1959.0 seconds
+   Completed tasks: 17250/20000
+   JFI: 0.2859
+   Mean wait time: 2.91 min
+   TAR: 86.25%
+
+[PROGRESS] 21/21 complete (21 successful, 0 failed)
+[TIME] Elapsed: 9.3h | Estimated remaining: 0.0h
+
+================================================================================
+SAVING AGGREGATE RESULTS
+================================================================================
+✅ Saved: /Users/maxapple/Documents/GitHub/sc_sim/experiments_analysis/exp_010_extended_boundaries/data/exp_010_20251021_000315/experiment_010_aggregate_results.csv
+
+================================================================================
+EXPERIMENT 010 COMPLETE
+================================================================================
+[END TIME] 2025-10-21 09:23:37
+[DURATION] 9.34 hours
+[SUCCESS] 21/21 experiments
+[FAILED] 0/21 experiments
+
+[OUTPUT] /Users/maxapple/Documents/GitHub/sc_sim/experiments_analysis/exp_010_extended_boundaries/data/exp_010_20251021_000315
+================================================================================

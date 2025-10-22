@@ -18,6 +18,7 @@ class Task:
         self.start_time = None   # when service starts
         self.pickup_km = None
         self.drop_km = None
+        self.deferral_count = 0  # Number of times this task was deferred
 
     def is_available(self, current_time):
         return (not self.assigned) and self.release_time <= current_time <= self.expire_time

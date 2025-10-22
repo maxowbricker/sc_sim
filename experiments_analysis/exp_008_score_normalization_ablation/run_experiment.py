@@ -100,7 +100,7 @@ def run_experiment_008():
     # Group B: Composite Current (replicate paradox) (3 replications)
     print("[GROUP B] Composite Current (Paradox Replication)")
     print("   Purpose: Confirm paradox reproducibility")
-    print("   normalize_scores=False, disable_soft_threshold=False")
+    print("   normalize_scores=False, disable_soft_threshold=False, enable_diagnostics=True")
     for run in range(1, 4):
         experiments.append({
             'id': experiment_id,
@@ -111,7 +111,8 @@ def run_experiment_008():
             'config_params': {
                 **sweet_spot_params,
                 'normalize_scores': False,
-                'disable_soft_threshold': False
+                'disable_soft_threshold': False,
+                'enable_diagnostics': True
             },
             'normalize_scores': False,
             'disable_soft_threshold': False,
@@ -124,7 +125,7 @@ def run_experiment_008():
     # Group C: Composite + Normalization (test H1) (3 replications)
     print("[GROUP C] Composite + Normalization (Test Hypothesis 1)")
     print("   Purpose: Test if score normalization resolves the paradox")
-    print("   normalize_scores=True, disable_soft_threshold=False")
+    print("   normalize_scores=True, disable_soft_threshold=False, enable_diagnostics=True")
     for run in range(1, 4):
         experiments.append({
             'id': experiment_id,
@@ -135,7 +136,8 @@ def run_experiment_008():
             'config_params': {
                 **sweet_spot_params,
                 'normalize_scores': True,
-                'disable_soft_threshold': False
+                'disable_soft_threshold': False,
+                'enable_diagnostics': True
             },
             'normalize_scores': True,
             'disable_soft_threshold': False,
@@ -148,7 +150,7 @@ def run_experiment_008():
     # Group D: Composite + Normalization + No Threshold (test H1+H2) (3 replications)
     print("[GROUP D] Composite + Normalization + No Threshold (Test Both Hypotheses)")
     print("   Purpose: Test if combined intervention fully resolves the paradox")
-    print("   normalize_scores=True, disable_soft_threshold=True")
+    print("   normalize_scores=True, disable_soft_threshold=True, enable_diagnostics=True")
     for run in range(1, 4):
         experiments.append({
             'id': experiment_id,
@@ -159,7 +161,8 @@ def run_experiment_008():
             'config_params': {
                 **sweet_spot_params,
                 'normalize_scores': True,
-                'disable_soft_threshold': True
+                'disable_soft_threshold': True,
+                'enable_diagnostics': True
             },
             'normalize_scores': True,
             'disable_soft_threshold': True,
@@ -225,10 +228,10 @@ def run_experiment_008():
                 'task_assignment_ratio': summary.get('completed_tasks', 0) / 20000,
                 
                 # Secondary metrics
-                'jains_fairness_index': summary.get('final_jains_fairness_index', 0),
-                'mean_task_wait_time_min': summary.get('total_wait_min', 0) / max(1, summary.get('completed_tasks', 1)),
-                'mean_pickup_distance_km': summary.get('empty_km', 0) / max(1, summary.get('completed_tasks', 1)),
-                'total_travel_km': summary.get('total_travel_km', 0),
+                'jains_fairness_index': summary.get('jfi', 0),
+                'mean_task_wait_time_min': summary.get('avg_wait_time_minutes', 0),
+                'mean_pickup_distance_km': summary.get('avg_pickup_distance_km', 0),
+                'total_travel_km': summary.get('total_travel_distance_km', 0),
                 
                 # System metrics
                 'peak_backlog': summary.get('backlog_peak', 0),

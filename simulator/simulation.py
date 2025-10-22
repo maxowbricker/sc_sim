@@ -39,9 +39,9 @@ def run_simulation(
     fairness_tracker = FairnessMetricsTracker()
     metric_tracker = MetricTracker()
     
-    # EXPERIMENT 008: Create diagnostic tracker for composite strategy
+    # Diagnostic tracker (opt-in for performance, only when explicitly enabled)
     diagnostic_tracker = None
-    if strategy_name == "composite":
+    if strategy_name == "composite" and strategy_params.get('enable_diagnostics', False):
         diagnostic_tracker = DiagnosticTracker()
         strategy_params['diagnostic_tracker'] = diagnostic_tracker
 
@@ -64,6 +64,7 @@ def run_simulation(
         'completed_tasks': 0, 'total_travel_km': 0.0, 'empty_km': 0.0,
         'passenger_km': 0.0, 'total_wait_min': 0.0, 'wait_times': [],
         'service_times': [], 'backlog_peak': 0,
+        'pickup_distances': [], 'assignment_delays': [],
     }
 
     # Safety counters to prevent infinite loops
@@ -108,6 +109,10 @@ def run_simulation(
                 # Track task assignment for supervisor's fairness metrics
                 fairness_tracker.record_task_assignment(assigned_task, assigned_worker, current_time)
                 heappush(event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
+                # Track assignment delay
+                if assigned_task.start_time:
+                    assignment_delay = (current_time - assigned_task.release_time).total_seconds()
+                    summary['assignment_delays'].append(assignment_delay)
 
         elif event_type == "TASK_RELEASE":
             task = state.get_task(event_id)
@@ -123,6 +128,10 @@ def run_simulation(
                     # Track task assignment for supervisor's fairness metrics
                     fairness_tracker.record_task_assignment(assigned_task, assigned_worker, current_time)
                     heappush(event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
+                    # Track assignment delay
+                    if assigned_task.start_time:
+                        assignment_delay = (current_time - assigned_task.release_time).total_seconds()
+                        summary['assignment_delays'].append(assignment_delay)
             else:
                 # No workers available, so task must wait.
                 # The greedy strategy will find it when a worker is freed.
@@ -144,10 +153,16 @@ def run_simulation(
                 # Track task assignment for supervisor's fairness metrics  
                 fairness_tracker.record_task_assignment(assigned_task, assigned_worker, current_time)
                 heappush(event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
+                # Track assignment delay
+                if assigned_task.start_time:
+                    assignment_delay = (current_time - assigned_task.release_time).total_seconds()
+                    summary['assignment_delays'].append(assignment_delay)
 
             summary['completed_tasks'] += 1
             summary['total_travel_km'] += (task.pickup_km or 0) + (task.drop_km or 0)
             summary['empty_km'] += task.pickup_km or 0
+            if task.pickup_km is not None:
+                summary['pickup_distances'].append(task.pickup_km)
             summary['passenger_km'] += task.drop_km or 0
             wait_min = (task.start_time - task.release_time).total_seconds()/60 if task.start_time else 0
             summary['total_wait_min'] += wait_min
@@ -180,6 +195,125 @@ def run_simulation(
     # Final fairness metrics calculation
     fairness_tracker.update_worker_stats(state.all_workers_map.values())
     fairness_summary = fairness_tracker.get_fairness_summary()
+    
+    # Add task wait time statistics to summary
+    if summary['wait_times']:
+        wait_times_array = np.array(summary['wait_times'])
+        summary['avg_wait_time_minutes'] = avg_wait_min  # Already computed
+        summary['std_wait_time_minutes'] = float(np.std(wait_times_array))
+        summary['p90_wait_time_minutes'] = float(wait_p90)  # Already computed
+        summary['p95_wait_time_minutes'] = float(np.percentile(wait_times_array, 95))
+        summary['max_wait_time_minutes'] = float(wait_max)  # Already computed
+        summary['cv_wait_time'] = float(summary['std_wait_time_minutes'] / avg_wait_min) if avg_wait_min > 0 else 0
+    else:
+        summary['avg_wait_time_minutes'] = 0
+        summary['std_wait_time_minutes'] = 0
+        summary['p90_wait_time_minutes'] = 0
+        summary['p95_wait_time_minutes'] = 0
+        summary['max_wait_time_minutes'] = 0
+        summary['cv_wait_time'] = 0
+    
+    # Compute worker idle time statistics
+    worker_idle_times = [w.total_idle_time.total_seconds() / 60.0 for w in state.all_workers_map.values()]
+    if worker_idle_times:
+        summary['mean_worker_idle_time_min'] = float(np.mean(worker_idle_times))
+        summary['std_worker_idle_time_min'] = float(np.std(worker_idle_times))
+        summary['p90_worker_idle_time_min'] = float(np.percentile(worker_idle_times, 90))
+        summary['max_worker_idle_time_min'] = float(np.max(worker_idle_times))
+        summary['cv_worker_idle_time'] = float(np.std(worker_idle_times) / np.mean(worker_idle_times)) if np.mean(worker_idle_times) > 0 else 0
+    else:
+        summary['mean_worker_idle_time_min'] = 0
+        summary['std_worker_idle_time_min'] = 0
+        summary['p90_worker_idle_time_min'] = 0
+        summary['max_worker_idle_time_min'] = 0
+        summary['cv_worker_idle_time'] = 0
+    
+    # Pickup distance distribution statistics
+    if summary['pickup_distances']:
+        pickup_array = np.array(summary['pickup_distances'])
+        summary['std_pickup_distance_km'] = float(np.std(pickup_array))
+        summary['p90_pickup_distance_km'] = float(np.percentile(pickup_array, 90))
+        summary['max_pickup_distance_km'] = float(np.max(pickup_array))
+    else:
+        summary['std_pickup_distance_km'] = 0
+        summary['p90_pickup_distance_km'] = 0
+        summary['max_pickup_distance_km'] = 0
+    
+    # Assignment delay statistics
+    if summary['assignment_delays']:
+        delay_array = np.array(summary['assignment_delays'])
+        summary['mean_assignment_delay_sec'] = float(np.mean(delay_array))
+        summary['std_assignment_delay_sec'] = float(np.std(delay_array))
+        summary['p90_assignment_delay_sec'] = float(np.percentile(delay_array, 90))
+    else:
+        summary['mean_assignment_delay_sec'] = 0
+        summary['std_assignment_delay_sec'] = 0
+        summary['p90_assignment_delay_sec'] = 0
+    
+    # Worker task distribution statistics
+    tasks_per_worker = [w.completed_tasks for w in state.all_workers_map.values()]
+    if tasks_per_worker:
+        tasks_array = np.array(tasks_per_worker)
+        summary['tasks_per_worker_mean'] = float(np.mean(tasks_array))
+        summary['tasks_per_worker_std'] = float(np.std(tasks_array))
+        summary['tasks_per_worker_cv'] = float(np.std(tasks_array) / np.mean(tasks_array)) if np.mean(tasks_array) > 0 else 0
+        summary['pct_workers_zero_tasks'] = float(sum(1 for t in tasks_per_worker if t == 0) / len(tasks_per_worker))
+        summary['pct_workers_single_task'] = float(sum(1 for t in tasks_per_worker if t == 1) / len(tasks_per_worker))
+        
+        # Gini coefficient
+        sorted_tasks = sorted(tasks_per_worker)
+        n = len(sorted_tasks)
+        if np.sum(sorted_tasks) > 0:
+            index_sum = sum((i+1) * t for i, t in enumerate(sorted_tasks))
+            summary['tasks_per_worker_gini'] = float((2 * index_sum) / (n * np.sum(sorted_tasks)) - (n + 1) / n)
+        else:
+            summary['tasks_per_worker_gini'] = 0.0
+        
+        # Percentiles
+        summary['tasks_per_worker_p10'] = float(np.percentile(tasks_array, 10))
+        summary['tasks_per_worker_p50'] = float(np.percentile(tasks_array, 50))
+        summary['tasks_per_worker_p90'] = float(np.percentile(tasks_array, 90))
+    else:
+        summary['tasks_per_worker_mean'] = 0
+        summary['tasks_per_worker_std'] = 0
+        summary['tasks_per_worker_cv'] = 0
+        summary['pct_workers_zero_tasks'] = 0
+        summary['pct_workers_single_task'] = 0
+        summary['tasks_per_worker_gini'] = 0
+        summary['tasks_per_worker_p10'] = 0
+        summary['tasks_per_worker_p50'] = 0
+        summary['tasks_per_worker_p90'] = 0
+    
+    # Worker utilization statistics
+    utilization_rates = []
+    for w in state.all_workers_map.values():
+        available_time = (w.deadline - w.release_time).total_seconds()
+        if available_time > 0:
+            busy_time = available_time - w.total_idle_time.total_seconds()
+            utilization = max(0.0, min(1.0, busy_time / available_time))  # Clamp to [0,1]
+            utilization_rates.append(utilization)
+
+    if utilization_rates:
+        util_array = np.array(utilization_rates)
+        summary['mean_worker_utilization'] = float(np.mean(util_array))
+        summary['std_worker_utilization'] = float(np.std(util_array))
+        summary['p10_worker_utilization'] = float(np.percentile(util_array, 10))
+        summary['p90_worker_utilization'] = float(np.percentile(util_array, 90))
+    else:
+        summary['mean_worker_utilization'] = 0
+        summary['std_worker_utilization'] = 0
+        summary['p10_worker_utilization'] = 0
+        summary['p90_worker_utilization'] = 0
+    
+    # Deferred task statistics
+    all_tasks = list(state.all_tasks_map.values())
+    deferral_counts = [getattr(t, 'deferral_count', 0) for t in all_tasks]
+    tasks_with_deferrals = sum(1 for c in deferral_counts if c > 0)
+
+    summary['total_deferrals'] = int(sum(deferral_counts))
+    summary['pct_tasks_deferred'] = float(tasks_with_deferrals / len(all_tasks)) if all_tasks else 0
+    summary['mean_deferrals_per_task'] = float(np.mean(deferral_counts)) if deferral_counts else 0
+    summary['max_deferrals_per_task'] = int(max(deferral_counts)) if deferral_counts else 0
     
     print("\n---- Simulation Summary ----")
     print(f"Total tasks:           {total_tasks_count}")

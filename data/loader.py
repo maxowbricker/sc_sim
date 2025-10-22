@@ -10,7 +10,7 @@ from models.task import Task
 
 # Dataset-specific adapters
 from data.checkins import checkin  # Gowalla / Weeplaces
-from data.synthetic import synthetic  # Synthetic generator (placeholder)
+# from data.synthetic import synthetic  # Synthetic generator (placeholder) - not implemented
 from data.didi import didi  # Didi Gaia GPS + orders
 
 def load_workers(file_path):

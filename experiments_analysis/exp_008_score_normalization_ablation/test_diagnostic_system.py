@@ -45,71 +45,62 @@ def test_diagnostic_system():
     print(f"   ✅ Loaded: {len(workers_df)} workers, {len(tasks_df)} tasks")
     print()
     
-    # Test 1: Standard Composite (no new features)
-    print("[2/4] Test 1: Standard Composite Strategy")
-    print("   normalize_scores=False, disable_soft_threshold=False")
+    # Test 1: Fast Path (no diagnostics - should be fast)
+    print("[2/4] Test 1: Fast Path - Standard Composite (No Diagnostics)")
+    print("   normalize_scores=False, disable_soft_threshold=False, enable_diagnostics=False")
+    print("   Expected: FAST PATH (single-pass algorithm)")
     config1 = create_composite_config(
         fairness_weight=0.5,
         starvation_weight=0.8,
         utility_weight=0.8,
         soft_threshold=0.5,
         normalize_scores=False,
-        disable_soft_threshold=False
+        disable_soft_threshold=False,
+        enable_diagnostics=False  # No diagnostics = fast path
     )
     
+    import time
+    start = time.time()
     sim1 = Simulation(config1, workers_df, tasks_df)
     summary1 = sim1.run()
+    duration1 = time.time() - start
     
-    # Check diagnostic tracker
-    if 'diagnostic_tracker' in summary1:
-        tracker1 = summary1['diagnostic_tracker']
-        stats1 = tracker1.get_summary_stats()
-        
-        print(f"   ✅ DiagnosticTracker created successfully")
-        print(f"   📊 Assignments recorded: {stats1['total_assignments']}")
-        print(f"   📊 Deferrals recorded: {stats1['total_deferrals']}")
-        print(f"   📊 Deferral rate: {stats1['deferral_rate']*100:.1f}%")
-        
-        if stats1['total_assignments'] > 0:
-            print(f"   📊 Component dominance:")
-            for component, pct in stats1['dominance_percentages'].items():
-                print(f"      - {component.capitalize()}: {pct:.1f}%")
-            print(f"   📊 Avg dominance ratio: {stats1['overall_avg_dominance_ratio']:.2f}")
-        
-        # Test DataFrame export
-        assignments_df = tracker1.to_dataframe('assignments')
-        deferrals_df = tracker1.to_dataframe('deferrals')
-        print(f"   ✅ DataFrame export: {len(assignments_df)} assignment records, {len(deferrals_df)} deferral records")
-        
-        if len(assignments_df) > 0:
-            print(f"   ✅ Assignment columns: {', '.join(assignments_df.columns[:5])}...")
-            print(f"   ✅ Normalization used: {assignments_df['normalization_used'].any()}")
+    # Should NOT have diagnostic tracker
+    if 'diagnostic_tracker' not in summary1 or summary1['diagnostic_tracker'] is None:
+        print(f"   ✅ Fast path confirmed: No DiagnosticTracker created")
+        print(f"   ⚡ Duration: {duration1:.2f}s (baseline speed)")
+        print(f"   📊 Completed tasks: {summary1.get('completed_tasks', 0)}")
     else:
-        print("   ❌ ERROR: DiagnosticTracker not found in summary!")
+        print(f"   ❌ ERROR: DiagnosticTracker was created but shouldn't be (fast path)")
         return False
     
     print()
     
-    # Test 2: Composite with Normalization
-    print("[3/4] Test 2: Composite with Score Normalization")
-    print("   normalize_scores=True, disable_soft_threshold=False")
+    # Test 2: Slow Path with Diagnostics and Normalization
+    print("[3/4] Test 2: Slow Path - Composite with Diagnostics + Normalization")
+    print("   normalize_scores=True, disable_soft_threshold=False, enable_diagnostics=True")
+    print("   Expected: SLOW PATH (multi-pass algorithm with diagnostics)")
     config2 = create_composite_config(
         fairness_weight=0.5,
         starvation_weight=0.8,
         utility_weight=0.8,
         soft_threshold=0.5,
-        normalize_scores=True,  # ⚠️ NEW FEATURE
-        disable_soft_threshold=False
+        normalize_scores=True,  # ⚠️ Forces slow path
+        disable_soft_threshold=False,
+        enable_diagnostics=True  # ⚠️ Enables diagnostics
     )
     
+    start = time.time()
     sim2 = Simulation(config2, workers_df, tasks_df)
     summary2 = sim2.run()
+    duration2 = time.time() - start
     
-    if 'diagnostic_tracker' in summary2:
+    if 'diagnostic_tracker' in summary2 and summary2['diagnostic_tracker'] is not None:
         tracker2 = summary2['diagnostic_tracker']
         stats2 = tracker2.get_summary_stats()
         
-        print(f"   ✅ DiagnosticTracker working with normalization")
+        print(f"   ✅ Slow path confirmed: DiagnosticTracker created")
+        print(f"   ⚡ Duration: {duration2:.2f}s ({duration2/duration1:.1f}x slower than fast path)")
         print(f"   📊 Assignments: {stats2['total_assignments']}, Deferrals: {stats2['total_deferrals']}")
         print(f"   📊 Deferral rate: {stats2['deferral_rate']*100:.1f}%")
         
@@ -137,22 +128,23 @@ def test_diagnostic_system():
     
     print()
     
-    # Test 3: Composite with Normalization + No Threshold
-    print("[4/4] Test 3: Composite with Normalization + Threshold Disabled")
-    print("   normalize_scores=True, disable_soft_threshold=True")
+    # Test 3: Composite with Normalization + No Threshold + Diagnostics
+    print("[4/4] Test 3: Composite with Normalization + Threshold Disabled + Diagnostics")
+    print("   normalize_scores=True, disable_soft_threshold=True, enable_diagnostics=True")
     config3 = create_composite_config(
         fairness_weight=0.5,
         starvation_weight=0.8,
         utility_weight=0.8,
         soft_threshold=0.5,  # This will be bypassed
         normalize_scores=True,  # ⚠️ NEW FEATURE
-        disable_soft_threshold=True  # ⚠️ NEW FEATURE
+        disable_soft_threshold=True,  # ⚠️ NEW FEATURE
+        enable_diagnostics=True  # ⚠️ Enable diagnostics
     )
     
     sim3 = Simulation(config3, workers_df, tasks_df)
     summary3 = sim3.run()
     
-    if 'diagnostic_tracker' in summary3:
+    if 'diagnostic_tracker' in summary3 and summary3['diagnostic_tracker'] is not None:
         tracker3 = summary3['diagnostic_tracker']
         stats3 = tracker3.get_summary_stats()
         
@@ -180,22 +172,29 @@ def test_diagnostic_system():
     print("=" * 80)
     print("COMPARISON SUMMARY")
     print("=" * 80)
-    print(f"{'Metric':<35} {'Standard':<15} {'Normalized':<15} {'Both':<15}")
+    print(f"{'Metric':<35} {'Fast Path':<15} {'Normalized':<15} {'Both':<15}")
     print("-" * 80)
     
-    if all('diagnostic_tracker' in s for s in [summary1, summary2, summary3]):
-        s1 = summary1['diagnostic_tracker'].get_summary_stats()
+    # Basic metrics available for all
+    print(f"{'Completed Tasks':<35} {summary1.get('completed_tasks', 0):<15} {summary2.get('completed_tasks', 0):<15} {summary3.get('completed_tasks', 0):<15}")
+    print(f"{'Duration (seconds)':<35} {duration1:<15.2f} {duration2:<15.2f} {'N/A':<15}")
+    print(f"{'Speed vs Fast Path':<35} {'1.0x':<15} {f'{duration2/duration1:.1f}x':<15} {'N/A':<15}")
+    print()
+    
+    # Diagnostic metrics only for tests 2 and 3
+    if all(s.get('diagnostic_tracker') for s in [summary2, summary3]):
+        print("Diagnostic Metrics (Tests 2 & 3 only):")
         s2 = summary2['diagnostic_tracker'].get_summary_stats()
         s3 = summary3['diagnostic_tracker'].get_summary_stats()
         
-        print(f"{'Total Assignments':<35} {s1['total_assignments']:<15} {s2['total_assignments']:<15} {s3['total_assignments']:<15}")
-        print(f"{'Total Deferrals':<35} {s1['total_deferrals']:<15} {s2['total_deferrals']:<15} {s3['total_deferrals']:<15}")
-        print(f"{'Deferral Rate (%)':<35} {s1['deferral_rate']*100:<15.1f} {s2['deferral_rate']*100:<15.1f} {s3['deferral_rate']*100:<15.1f}")
+        print(f"{'Total Assignments':<35} {'N/A':<15} {s2['total_assignments']:<15} {s3['total_assignments']:<15}")
+        print(f"{'Total Deferrals':<35} {'N/A':<15} {s2['total_deferrals']:<15} {s3['total_deferrals']:<15}")
+        print(f"{'Deferral Rate (%)':<35} {'N/A':<15} {s2['deferral_rate']*100:<15.1f} {s3['deferral_rate']*100:<15.1f}")
         
-        if all(s['total_assignments'] > 0 for s in [s1, s2, s3]):
-            print(f"{'Fairness Dominance (%)':<35} {s1['dominance_percentages'].get('fairness', 0):<15.1f} {s2['dominance_percentages'].get('fairness', 0):<15.1f} {s3['dominance_percentages'].get('fairness', 0):<15.1f}")
-            print(f"{'Utility Dominance (%)':<35} {s1['dominance_percentages'].get('utility', 0):<15.1f} {s2['dominance_percentages'].get('utility', 0):<15.1f} {s3['dominance_percentages'].get('utility', 0):<15.1f}")
-            print(f"{'Avg Dominance Ratio':<35} {s1['overall_avg_dominance_ratio']:<15.2f} {s2['overall_avg_dominance_ratio']:<15.2f} {s3['overall_avg_dominance_ratio']:<15.2f}")
+        if all(s['total_assignments'] > 0 for s in [s2, s3]):
+            print(f"{'Fairness Dominance (%)':<35} {'N/A':<15} {s2['dominance_percentages'].get('fairness', 0):<15.1f} {s3['dominance_percentages'].get('fairness', 0):<15.1f}")
+            print(f"{'Utility Dominance (%)':<35} {'N/A':<15} {s2['dominance_percentages'].get('utility', 0):<15.1f} {s3['dominance_percentages'].get('utility', 0):<15.1f}")
+            print(f"{'Avg Dominance Ratio':<35} {'N/A':<15} {s2['overall_avg_dominance_ratio']:<15.2f} {s3['overall_avg_dominance_ratio']:<15.2f}")
     
     print()
     print(f"{'Task Assignment Ratio':<35} {summary1.get('completed_tasks', 0)/200:<15.2%} {summary2.get('completed_tasks', 0)/200:<15.2%} {summary3.get('completed_tasks', 0)/200:<15.2%}")

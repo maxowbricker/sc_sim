@@ -1,7 +1,7 @@
 # Experiment 008: Score Normalization and Threshold Ablation
 
 ## Status
-🔄 **In Progress** - Diagnostic experiment for worker idle time paradox
+✅ **Complete** - Experiment completed October 19, 2025 (5.74 hours, 12/12 successful)
 
 ## Overview
 This experiment systematically tests hypotheses about the worker idle time paradox observed in Experiment 006, where the fairness-aware Composite strategy unexpectedly increased worker idle times compared to the Greedy baseline (~33 min vs ~24 min mean idle time, with a 9.5 percentage point increase in workers idle >30min).
@@ -46,12 +46,14 @@ The soft threshold mechanism (default threshold=0.5) delays task assignments whe
 
 ### Experimental Groups
 
-| Group | Strategy | normalize_scores | disable_soft_threshold | Purpose |
-|-------|----------|-----------------|----------------------|---------|
-| **A** | Greedy | N/A | N/A | Efficiency baseline |
-| **B** | Composite | False | False | Replicate paradox (control) |
-| **C** | Composite | True | False | Test Hypothesis 1 (normalization only) |
-| **D** | Composite | True | True | Test both hypotheses (normalization + no threshold) |
+| Group | Strategy | normalize_scores | disable_soft_threshold | enable_diagnostics | Purpose |
+|-------|----------|-----------------|----------------------|-------------------|---------|
+| **A** | Greedy | N/A | N/A | N/A | Efficiency baseline |
+| **B** | Composite | False | False | True | Replicate paradox (control) |
+| **C** | Composite | True | False | True | Test Hypothesis 1 (normalization only) |
+| **D** | Composite | True | True | True | Test both hypotheses (normalization + no threshold) |
+
+**Note on `enable_diagnostics`:** This flag enables the DiagnosticTracker which collects detailed score component data. When enabled, the system uses a "slow path" that collects all candidate data for analysis. When disabled (or for Greedy strategy), the system uses a "fast path" optimized for performance.
 
 ### Parameters (Sweet Spot from Experiment 006)
 - `fairness_weight` = 0.5
@@ -161,10 +163,17 @@ The soft threshold mechanism (default threshold=0.5) delays task assignments whe
    - Added `normalize_scores` parameter
    - Added `disable_soft_threshold` parameter
    - Integrated diagnostic tracking
+   - **Performance optimization**: Fast path (no diagnostics) vs Slow path (with diagnostics)
 
 3. **Config Flags** (`config.py`)
    - `normalize_scores = False` (default)
    - `disable_soft_threshold = False` (default)
+   - `enable_diagnostics = False` (default - opt-in for performance)
+
+### Performance Optimization
+The implementation includes two code paths:
+- **Fast Path**: When `enable_diagnostics=False` and `normalize_scores=False`, uses original single-pass algorithm (backward compatible with Experiments 006/007)
+- **Slow Path**: When either flag is enabled, collects candidate data for normalization and/or diagnostic tracking (required for Experiment 008 analysis)
 
 ### Running the Experiment
 ```bash
@@ -172,15 +181,20 @@ cd experiments_analysis/exp_008_score_normalization_ablation/
 python run_experiment.py
 ```
 
-Expected duration: ~3-4 hours (12 experiments × 15-20 minutes each)
+**Completed Run:**
+- Date: October 19, 2025
+- Duration: 5.74 hours (12 experiments)
+- Success: 12/12 experiments
+- Data directory: `data/exp_008_20251019_112545/`
+- Analysis notebook: `results_analysis.ipynb`
 
 ## Success Criteria
 
 This experiment is successful if:
-1. ✅ All 12 experiments complete without errors
-2. ✅ Diagnostic data is collected for all Composite experiments (B, C, D)
-3. ✅ We can definitively determine which hypothesis (or both) explains the paradox
-4. ✅ We identify a path forward to resolve the idle time paradox
+1. ✅ All 12 experiments complete without errors - **COMPLETE**
+2. ✅ Diagnostic data is collected for all Composite experiments (B, C, D) - **COMPLETE**
+3. ⏳ We can definitively determine which hypothesis (or both) explains the paradox - **ANALYSIS IN PROGRESS**
+4. ⏳ We identify a path forward to resolve the idle time paradox - **PENDING ANALYSIS**
 
 ## Next Steps
 

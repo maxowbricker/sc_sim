@@ -53,6 +53,8 @@ STRATEGY_PARAMS = {
                                                 # Set to True to test if mis-scaled components cause the paradox
         "disable_soft_threshold": False,        # Bypass soft threshold check (always assign if worker exists)
                                                 # Set to True to test if threshold delays cause the paradox
+        "enable_diagnostics": False,            # Enable detailed diagnostic tracking (component dominance, deferrals)
+                                                # WARNING: Has performance impact, only enable when needed
     },
     
     # === OTHER STRATEGIES ===

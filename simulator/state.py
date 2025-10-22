@@ -53,6 +53,7 @@ class StateManager:
         # Move from active to deferred (O(1) operations)
         self.active_tasks.discard(task)
         self.deferred_tasks.add(task)
+        task.deferral_count += 1  # Track number of times this task was deferred
 
     def complete_task(self, task, worker, current_time):
         # Remove from assigned pools (O(1) operations with sets)

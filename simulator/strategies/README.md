@@ -142,11 +142,31 @@ config = {
 
 ### 4. Diagnostic Tracking (Experiment 008)
 
-When running Composite strategy, the simulator automatically creates a `DiagnosticTracker` that records:
-- Raw and normalized component values (F, S, U)
-- Which component dominates each assignment
+**Purpose**: Collect detailed data about assignment decisions for analysis and debugging.
+
+**Enable diagnostic tracking:**
+```python
+config = {
+    'assignment_strategy': 'composite',
+    'strategy_params': {
+        # ... other params ...
+        'enable_diagnostics': True  # ⚠️ PERFORMANCE IMPACT
+    }
+}
+```
+
+**What it records:**
+- Raw and normalized component values (F, S, U) for each assignment
+- Which component dominates each assignment decision
 - Dominance ratio (max component / sum of others)
 - Task deferral events and reasons
+- Score statistics and distributions
+
+**Performance considerations:**
+- **Default: OFF** - Diagnostics disabled by default for performance
+- **When enabled**: Forces SLOW PATH in assignment algorithm
+- **Performance impact**: 2-3x slower (e.g., 3 hours → 6-9 hours)
+- **Only enable when needed** for experimental analysis
 
 **Accessing diagnostic data:**
 ```python

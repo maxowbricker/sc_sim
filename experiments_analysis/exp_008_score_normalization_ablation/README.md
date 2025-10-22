@@ -2,18 +2,23 @@
 
 ## Quick Start
 
-### Running the Experiment
+### Completed Experiment
+✅ **Run completed**: October 19, 2025 (5.74 hours, 12/12 successful)  
+📁 **Data location**: `data/exp_008_20251019_112545/`
+
+### Analyzing Results
+```bash
+cd experiments_analysis/exp_008_score_normalization_ablation/
+jupyter notebook results_analysis.ipynb
+```
+
+### Running a New Experiment
 ```bash
 cd experiments_analysis/exp_008_score_normalization_ablation/
 python run_experiment.py
 ```
 
-Expected duration: 3-4 hours for 12 experiments
-
-### Analyzing Results
-```bash
-jupyter notebook analysis.ipynb
-```
+Expected duration: ~6 hours for 12 experiments
 
 ## What This Experiment Does
 
@@ -24,9 +29,9 @@ This experiment diagnoses the **worker idle time paradox** discovered in Experim
 **4 Groups × 3 Replications = 12 Experiments:**
 
 1. **Group A (Greedy)**: Baseline efficiency reference
-2. **Group B (Composite Current)**: Reproduce the paradox
-3. **Group C (Normalized)**: Test if score normalization fixes it
-4. **Group D (Normalized + No Threshold)**: Test both interventions
+2. **Group B (Composite Current)**: Reproduce the paradox (`normalize_scores=False`, `enable_diagnostics=True`)
+3. **Group C (Normalized)**: Test if score normalization fixes it (`normalize_scores=True`, `enable_diagnostics=True`)
+4. **Group D (Normalized + No Threshold)**: Test both interventions (`normalize_scores=True`, `disable_soft_threshold=True`, `enable_diagnostics=True`)
 
 ### Key Hypotheses
 
@@ -90,7 +95,7 @@ This experiment diagnoses the **worker idle time paradox** discovered in Experim
 
 ## Configuration Flags
 
-The experiment uses two new flags in the Composite strategy:
+The experiment uses three new flags in the Composite strategy:
 
 ```python
 # config.py
@@ -99,9 +104,12 @@ STRATEGY_PARAMS = {
         # ... existing params ...
         "normalize_scores": False,           # Min-max normalize F, S, U
         "disable_soft_threshold": False,     # Skip threshold check
+        "enable_diagnostics": False,         # Enable detailed diagnostic tracking (opt-in)
     }
 }
 ```
+
+**Performance Note:** When `enable_diagnostics=True`, the system uses a "slow path" that collects detailed score component data for analysis. When disabled (default), it uses the original fast path for maximum performance.
 
 These can be used in any simulation:
 
@@ -111,19 +119,19 @@ config = create_composite_config(
     starvation_weight=0.8,
     utility_weight=0.8,
     normalize_scores=True,        # ⚠️ Experimental
-    disable_soft_threshold=True   # ⚠️ Experimental
+    disable_soft_threshold=True,  # ⚠️ Experimental
+    enable_diagnostics=True       # ⚠️ Performance impact - only enable when needed
 )
 ```
 
-## Next Steps After Running
+## Next Steps (Analysis)
 
-1. **Run analysis.ipynb** to visualize results
+1. **Run results_analysis.ipynb** to visualize results
 2. **Check component dominance** plots - does Fairness dominate in Group B?
-3. **Compare idle times** - which group(s) show improvement?
-4. **Review deferral rates** - does Group D have zero deferrals?
+3. **Compare wait times** - which group(s) show improvement?
+4. **Review deferral rates** - does Group D have significantly lower deferrals?
 5. **Statistical tests** - are improvements significant?
-6. **Document findings** in `results.md`
-7. **Decide on solution** based on which hypothesis is supported
+6. **Document findings** based on which hypothesis is supported
 
 ## References
 
@@ -131,7 +139,14 @@ config = create_composite_config(
 - **Research Context**: The scientist's analysis in your initial message
 - **Actual Idle Time Numbers**: 24-33 minutes (NOT 140 minutes as initially claimed)
 
-## Important Note
+## Data Files
 
-The research scientist's analysis was based on a **factual error** - they claimed 140-150 minutes of idle time, but your actual results show 24-33 minutes. This is still a significant 19% increase worth investigating, but the problem is **not as catastrophic** as they described. The proposed hypotheses and solutions are still valid, just at a more reasonable scale.
+### Completed Run (October 19, 2025)
+- **Aggregate results**: `data/exp_008_20251019_112545/experiment_008_aggregate_results.csv`
+- **Metadata**: `data/exp_008_20251019_112545/experiment_008_metadata.json`
+- **Individual experiments**: `data/exp_008_20251019_112545/exp_001_*.json` (12 files)
+- **Diagnostic data**: `data/exp_008_20251019_112545/exp_*_assignments.csv` and `exp_*_deferrals.csv` (for composite groups)
+
+### Analysis Notebook
+- **Primary analysis**: `results_analysis.ipynb` - Ready to run with completed data
 

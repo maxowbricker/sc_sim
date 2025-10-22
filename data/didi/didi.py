@@ -119,10 +119,21 @@ class Adapter:
             yield bucket
 
     def _load_gps(self) -> pd.DataFrame:
-        # Prefer temporally-aligned quarter file for faster development/testing
+        # Prefer 3-hour peak window for guaranteed temporal overlap
+        peak_path = self.root / "gps_3hour_peak.txt"
         fixed_path = self.root / "gps_quarter_fixed.txt"
         quarter_path = self.root / "gps_quarter.txt"
-        path = fixed_path if fixed_path.exists() else (quarter_path if quarter_path.exists() else self.root / "gps.txt")
+        full_path = self.root / "gps.txt"
+        
+        if peak_path.exists():
+            path = peak_path
+        elif fixed_path.exists():
+            path = fixed_path
+        elif quarter_path.exists():
+            path = quarter_path
+        else:
+            path = full_path
+            
         print(f"📊 Loading GPS data from: {path.name} ({path.stat().st_size / 1024 / 1024:.1f} MB)")
         df = pd.read_csv(path, header=None)
         df.columns = ["driver_id", "order_id", "timestamp", "lon", "lat"]
@@ -130,10 +141,21 @@ class Adapter:
         return df.sort_values("timestamp")
 
     def _load_orders(self) -> pd.DataFrame:
-        # Prefer temporally-aligned quarter file for faster development/testing
+        # Prefer 3-hour peak window for guaranteed temporal overlap
+        peak_path = self.root / "order_3hour_peak.txt"
         fixed_path = self.root / "order_quarter_fixed.txt"
         quarter_path = self.root / "order_quarter.txt"
-        path = fixed_path if fixed_path.exists() else (quarter_path if quarter_path.exists() else self.root / "order.txt")
+        full_path = self.root / "order.txt"
+        
+        if peak_path.exists():
+            path = peak_path
+        elif fixed_path.exists():
+            path = fixed_path
+        elif quarter_path.exists():
+            path = quarter_path
+        else:
+            path = full_path
+            
         print(f"📊 Loading Orders data from: {path.name} ({path.stat().st_size / 1024 / 1024:.1f} MB)")
         df = pd.read_csv(path, header=None)
 

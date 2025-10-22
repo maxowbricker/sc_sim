@@ -130,14 +130,26 @@ def _find_best_assignment_for_task(
     This reduces complexity from O(|W|) to O(k) where k=15 << |W|=38,000.
     Massive performance improvement: 38,000 -> 15 workers checked per task!
     
-    EXPERIMENT 008: Enhanced with score normalization and diagnostic tracking.
+    Performance Optimization: Fast/Slow Path
+    -----------------------------------------
+    FAST PATH: When normalize_scores=False and diagnostic_tracker=None
+        - Uses single-pass algorithm (like Experiments 006/007)
+        - Scores candidates inline, no data collection overhead
+        - Typical performance: 3-4 hours for 20k tasks
+    
+    SLOW PATH: When normalize_scores=True or diagnostic_tracker provided
+        - Collects all candidate data for normalization and/or diagnostics
+        - Multiple passes through candidate list
+        - Performance: 2-3x slower but enables advanced features
     
     Parameters
     ----------
-    normalize_scores : bool
-        If True, apply min-max normalization to F, S, U across candidates
+    normalize_scores : bool, default False
+        If True, apply min-max normalization to F, S, U across candidates.
+        Forces SLOW PATH. Use to test if mis-scaled components cause issues.
     diagnostic_tracker : DiagnosticTracker, optional
-        If provided, record score component details for analysis
+        If provided, record score component details for analysis.
+        Forces SLOW PATH. Enable via config: enable_diagnostics=True.
         
     Returns
     -------
@@ -146,7 +158,7 @@ def _find_best_assignment_for_task(
     best_score : float
         Best composite score achieved
     diagnostic_info : dict or None
-        Component values for diagnostic tracking
+        Component values for diagnostic tracking (None for fast path)
     """
     from simulator.spatial_index import find_k_nearest_workers
     
@@ -163,7 +175,30 @@ def _find_best_assignment_for_task(
     # OPTIMIZATION 2: Pre-calculate task drop distance (constant for all workers)
     drop_distance_const = manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
     
-    # EXPERIMENT 008: Collect component values for all feasible candidates
+    # FAST PATH: When no normalization or diagnostics needed
+    # Uses original single-pass algorithm for maximum performance
+    if not normalize_scores and diagnostic_tracker is None:
+        best_worker, best_score = None, float("-inf")
+        
+        for worker in nearest_workers:
+            # Check feasibility constraints
+            d_pick = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
+            total_km_tmp = d_pick + drop_distance_const
+            finish_eta = now + pd.to_timedelta(total_km_tmp / AVG_SPEED_KMH, unit="h")
+            
+            if finish_eta > worker.deadline or finish_eta > task.expire_time:
+                continue
+            
+            # Score inline using original score() function
+            s = score(task, worker, fairness_weight, starvation_weight, utility_weight, now)
+            
+            if s > best_score:
+                best_score, best_worker = s, worker
+        
+        return best_worker, best_score, None
+    
+    # SLOW PATH: With normalization or diagnostics
+    # Collects all candidate data for normalization and/or diagnostic tracking
     candidate_data = []
     
     for worker in nearest_workers:
@@ -191,7 +226,7 @@ def _find_best_assignment_for_task(
     if not candidate_data:
         return None, float("-inf"), None
     
-    # EXPERIMENT 008: Apply normalization if requested
+    # Apply normalization if requested
     if normalize_scores:
         # Extract component values
         fairness_values = [c['fairness_raw'] for c in candidate_data]
