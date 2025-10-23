@@ -181,12 +181,13 @@ def _find_best_assignment_for_task(
         best_worker, best_score = None, float("-inf")
         
         for worker in nearest_workers:
-            # Check feasibility constraints
+            # Check feasibility constraints: pickup before expiry, finish before worker shift ends
             d_pick = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
             total_km_tmp = d_pick + drop_distance_const
+            pickup_eta = now + pd.to_timedelta(d_pick / AVG_SPEED_KMH, unit="h")
             finish_eta = now + pd.to_timedelta(total_km_tmp / AVG_SPEED_KMH, unit="h")
             
-            if finish_eta > worker.deadline or finish_eta > task.expire_time:
+            if pickup_eta > task.expire_time or finish_eta > worker.deadline:
                 continue
             
             # Score inline using original score() function
@@ -202,12 +203,13 @@ def _find_best_assignment_for_task(
     candidate_data = []
     
     for worker in nearest_workers:
-        # Check feasibility constraints
+        # Check feasibility constraints: pickup before expiry, finish before worker shift ends
         d_pick = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
         total_km_tmp = d_pick + drop_distance_const
+        pickup_eta = now + pd.to_timedelta(d_pick / AVG_SPEED_KMH, unit="h")
         finish_eta = now + pd.to_timedelta(total_km_tmp / AVG_SPEED_KMH, unit="h")
         
-        if finish_eta > worker.deadline or finish_eta > task.expire_time:
+        if pickup_eta > task.expire_time or finish_eta > worker.deadline:
             continue
         
         # Calculate raw component values
@@ -430,9 +432,10 @@ def match_worker_composite(
         drop_distance_const = manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
         d_pick = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
         total_km_tmp = d_pick + drop_distance_const
+        pickup_eta = now + pd.to_timedelta(d_pick / AVG_SPEED_KMH, unit="h")
         finish_eta = now + pd.to_timedelta(total_km_tmp / AVG_SPEED_KMH, unit="h")
         
-        if finish_eta > worker.deadline or finish_eta > task.expire_time:
+        if pickup_eta > task.expire_time or finish_eta > worker.deadline:
             continue
 
         # Calculate raw component values

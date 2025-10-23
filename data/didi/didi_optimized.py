@@ -95,8 +95,8 @@ class OptimizedDidiAdapter:
         df["start_billing"] = pd.to_datetime(df["start_billing"], unit="s", utc=True)
         df["end_billing"] = pd.to_datetime(df["end_billing"], unit="s", utc=True)
         
-        # Create simulation format
-        df["expire_time"] = df["start_billing"] + pd.Timedelta("2h")
+        # Create simulation format - realistic 15-minute pickup expiry
+        df["expire_time"] = df["start_billing"] + pd.Timedelta("15min")
         df = df.rename(columns={
             "order_id": "task_id",
             "start_billing": "release_time"

@@ -74,10 +74,10 @@ class Adapter:
         ]]
 
         # Tasks – directly from orders table
-        # Use a more reasonable expiration time: start_billing + 2 hours
-        # The original end_billing represents actual trip completion, not task expiration
+        # Realistic ride-sharing expiration: 15 minutes for customer pickup
+        # Customers typically cancel if not picked up within 15 minutes
         tasks_df = self.orders_df.copy()
-        tasks_df["expire_time"] = tasks_df["start_billing"] + pd.Timedelta("2h")
+        tasks_df["expire_time"] = tasks_df["start_billing"] + pd.Timedelta("15min")
         
         tasks_df = tasks_df.rename(columns={
             "order_id": "task_id",

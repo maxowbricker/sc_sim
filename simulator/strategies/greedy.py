@@ -43,9 +43,10 @@ def assign_new_tasks_greedy(state, now, tasks_to_assign, **_):
         for worker in state.available_workers:
             pickup_dist = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
             
-            # Feasibility check
+            # Feasibility check: pickup before expiry, finish before worker shift ends
+            pickup_eta = now + pd.to_timedelta(pickup_dist / AVG_SPEED_KMH, unit="h")
             finish_eta = now + pd.to_timedelta((pickup_dist + drop_dist) / AVG_SPEED_KMH, unit="h")
-            if finish_eta > worker.deadline or finish_eta > task.expire_time:
+            if pickup_eta > task.expire_time or finish_eta > worker.deadline:
                 continue
 
             if pickup_dist < best_dist:
@@ -75,10 +76,11 @@ def match_worker_greedy(state, now, worker, **_):
     for task in list(state.active_tasks): # Iterate over a copy
         pickup_dist = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
         
-        # Feasibility check
+        # Feasibility check: pickup before expiry, finish before worker shift ends
         drop_dist = manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
+        pickup_eta = now + pd.to_timedelta(pickup_dist / AVG_SPEED_KMH, unit="h")
         finish_eta = now + pd.to_timedelta((pickup_dist + drop_dist) / AVG_SPEED_KMH, unit="h")
-        if finish_eta > worker.deadline or finish_eta > task.expire_time:
+        if pickup_eta > task.expire_time or finish_eta > worker.deadline:
             continue
 
         if pickup_dist < best_dist:
