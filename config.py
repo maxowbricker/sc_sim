@@ -62,6 +62,11 @@ STRATEGY_PARAMS = {
         # No additional parameters - uses pure distance
     },
     
+    "laf": {
+        # No tunable parameters - pure fairness baseline
+        # Uses worker.completed_tasks as the fairness metric
+    },
+    
     "fatp": {
         # Fair and efficient baseline parameters (if implemented)
     }
