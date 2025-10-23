@@ -67,6 +67,13 @@ STRATEGY_PARAMS = {
         # Uses worker.completed_tasks as the fairness metric
     },
     
+    "ewma_only": {
+        # Advanced fairness baseline using EWMA metric
+        "gamma": 0.3,  # EWMA smoothing factor (same as composite default)
+        # Higher gamma = smoother (more historical weight)
+        # Lower gamma = more responsive (more recent idle time weight)
+    },
+    
     "fatp": {
         # Fair and efficient baseline parameters (if implemented)
     }

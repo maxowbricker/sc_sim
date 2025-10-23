@@ -43,7 +43,7 @@ def get_strategy(name):
 def _auto_import_builtins():
     """Dynamically import packaged strategy modules so they self-register."""
 
-    for mod in ("greedy", "composite", "fatp", "laf"):
+    for mod in ("greedy", "composite", "fatp", "laf", "ewma_only"):
         try:
             import_module(f"{__name__}.{mod}")
         except ModuleNotFoundError:
