@@ -67,6 +67,11 @@ def run_simulation(
         'pickup_distances': [], 'assignment_delays': [],
     }
 
+    # Temporal EWMA tracking (for Exp 015)
+    ewma_temporal_history = []
+    temporal_log_interval = 50  # Log every 50 completed tasks
+    next_log_checkpoint = temporal_log_interval
+
     # Safety counters to prevent infinite loops
     max_events = len(tasks) * 10  # Reasonable upper bound
     event_count = 0
@@ -169,6 +174,20 @@ def run_simulation(
             summary['wait_times'].append(wait_min)
             service_min = (task.drop_km / 30 * 60) if task.drop_km is not None else 0
             summary['service_times'].append(service_min)
+            
+            # Log EWMA temporal data at checkpoints (Exp 015)
+            if summary['completed_tasks'] >= next_log_checkpoint:
+                ewma_values = [w.fairness_ewma for w in state.all_workers_map.values()]
+                ewma_temporal_history.append({
+                    'timestamp': current_time.isoformat(),
+                    'completed_tasks': summary['completed_tasks'],
+                    'ewma_mean': float(np.mean(ewma_values)),
+                    'ewma_std': float(np.std(ewma_values)),
+                    'ewma_p10': float(np.percentile(ewma_values, 10)),
+                    'ewma_p50': float(np.percentile(ewma_values, 50)),
+                    'ewma_p90': float(np.percentile(ewma_values, 90))
+                })
+                next_log_checkpoint += temporal_log_interval
         
         current_backlog = len(state.active_tasks) + len(state.deferred_tasks)
         summary['backlog_peak'] = max(summary['backlog_peak'], current_backlog)
@@ -343,6 +362,11 @@ def run_simulation(
     if diagnostic_tracker:
         summary['diagnostic_tracker'] = diagnostic_tracker
         summary['diagnostic_summary'] = diagnostic_tracker.get_summary_stats()
+    
+    # EXPERIMENT 015: Add temporal EWMA history
+    if ewma_temporal_history:
+        summary['ewma_temporal_history'] = ewma_temporal_history
+        summary['ewma_final_mean'] = ewma_temporal_history[-1]['ewma_mean']
     
     return summary
 

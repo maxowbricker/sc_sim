@@ -76,6 +76,12 @@ STRATEGY_PARAMS = {
     
     "fatp": {
         # Fair and efficient baseline parameters (if implemented)
+    },
+    
+    "random_assign": {
+        # Random assignment baseline for RQ4.2
+        # Randomly selects from k nearest feasible workers
+        "k": 15,  # Number of nearest workers to consider for random selection
     }
 }
 
