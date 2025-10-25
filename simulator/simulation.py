@@ -44,6 +44,13 @@ def run_simulation(
     if strategy_name == "composite" and strategy_params.get('enable_diagnostics', False):
         diagnostic_tracker = DiagnosticTracker()
         strategy_params['diagnostic_tracker'] = diagnostic_tracker
+    
+    # Fairness cap tracker for FATP-ANN strategy
+    if strategy_name == "fatp_ann":
+        from simulator.strategies.fatp_ann import FairnessCapTracker
+        fairness_cap_tracker = FairnessCapTracker()
+        fairness_cap_tracker.initialize(workers)
+        strategy_params['fairness_cap_tracker'] = fairness_cap_tracker
 
     if start_time is None:
         releases = [w.release_time for w in workers] + [t.release_time for t in tasks]
@@ -61,6 +68,7 @@ def run_simulation(
     print(f"Starting event-driven simulation with '{strategy_name}' strategy...")
 
     summary = {
+        'total_tasks': len(tasks),  # Total tasks in simulation
         'completed_tasks': 0, 'total_travel_km': 0.0, 'empty_km': 0.0,
         'passenger_km': 0.0, 'total_wait_min': 0.0, 'wait_times': [],
         'service_times': [], 'backlog_peak': 0,
@@ -449,19 +457,26 @@ class Simulation:
         self.metric_tracker = results.get('metric_tracker')
         
         # Standardize results for notebook analysis
+        total_tasks = len(tasks)
+        completed_tasks = results.get('completed_tasks', 0)
+        assigned_tasks = results.get('total_task_assignments_tracked', 0)
+        
         standardized_results = {
             'jfi': results.get('final_jains_fairness_index', 0.0),
-            'task_assignment_ratio': results.get('completed_tasks', 0) / len(tasks) if len(tasks) > 0 else 0.0,
-            'avg_wait_time_minutes': results.get('total_wait_min', 0) / results.get('completed_tasks', 1) if results.get('completed_tasks', 0) > 0 else 0.0,
-            'avg_pickup_distance_km': results.get('empty_km', 0) / results.get('completed_tasks', 1) if results.get('completed_tasks', 0) > 0 else 0.0,
+            # TAR: Percentage of tasks that were assigned to a worker
+            'task_assignment_ratio': assigned_tasks / total_tasks if total_tasks > 0 else 0.0,
+            # Throughput: Percentage of tasks that completed full service cycle
+            'task_completion_rate': completed_tasks / total_tasks if total_tasks > 0 else 0.0,
+            'avg_wait_time_minutes': results.get('total_wait_min', 0) / completed_tasks if completed_tasks > 0 else 0.0,
+            'avg_pickup_distance_km': results.get('empty_km', 0) / completed_tasks if completed_tasks > 0 else 0.0,
             'total_travel_distance_km': results.get('total_travel_km', 0),
             'empty_km_ratio': results.get('empty_km', 0) / results.get('total_travel_km', 1) if results.get('total_travel_km', 0) > 0 else 0.0,
             'ewma_cv': results.get('final_ewma_cv', 1.0),
             'utility_difference': results.get('final_utility_difference_tasks', 0.0),
             'fairness_loss': results.get('final_fairness_loss', 0.0),
-            'total_tasks': len(tasks),
-            'assigned_tasks': results.get('completed_tasks', 0),
-            'completed_tasks': results.get('completed_tasks', 0),  # Added for experiment scripts
+            'total_tasks': total_tasks,
+            'assigned_tasks': assigned_tasks,  # Number of tasks assigned to workers
+            'completed_tasks': completed_tasks,  # Number of tasks that finished service
             'max_wait_time': max(results.get('wait_times', [0])) if results.get('wait_times') else 0.0,
             'backlog_peak': results.get('backlog_peak', 0),
             

@@ -82,6 +82,16 @@ STRATEGY_PARAMS = {
         # Random assignment baseline for RQ4.2
         # Randomly selects from k nearest feasible workers
         "k": 15,  # Number of nearest workers to consider for random selection
+    },
+    
+    "fatp_ann": {
+        # FATP-ANN (Fairness-Aware Task Planning with Approximate Nearest Neighbor)
+        # Optimal parameters from Experiment 017 tuning results
+        "mu": 0.5,              # Decay factor for utility calculation (0.5 = best throughput)
+        "alpha_scale": 0.5,     # Scaling factor for base utility (task distance)
+        "use_k_nearest": False, # Use full worker scan (k-NN optimization disabled)
+        "k": 15,                # Number of nearest workers (only used if use_k_nearest=True)
+        # Performance: 64.21% throughput, JFI 0.6812, 5.49 min wait time
     }
 }
 
