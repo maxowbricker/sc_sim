@@ -25,6 +25,19 @@ SIMULATION_CONFIG = {
 }
 
 # ============================================================================
+# DATA SAMPLING PARAMETERS
+# ============================================================================
+
+DATA_SAMPLING = {
+    # Stratified temporal sampling configuration
+    "stratified_sampling_bins": 12,         # Number of time bins for stratified sampling
+                                            # 12 bins = 15-minute bins for 3-hour window
+                                            # CRITICAL: Keep consistent across experiments!
+                                            # Different bins = different samples = incomparable results
+    "random_state": 42,                     # Random seed for reproducibility
+}
+
+# ============================================================================
 # STRATEGY-SPECIFIC PARAMETERS
 # ============================================================================
 
@@ -55,6 +68,15 @@ STRATEGY_PARAMS = {
                                                 # Set to True to test if threshold delays cause the paradox
         "enable_diagnostics": False,            # Enable detailed diagnostic tracking (component dominance, deferrals)
                                                 # WARNING: Has performance impact, only enable when needed
+        
+        # EXPERIMENT 019: Task-Level Deferral Tracking (RQ3.3)
+        "enable_deferral_tracking": False,      # Track individual task deferral lifecycle
+                                                # Answers: "What % of tasks benefit from starvation prevention?"
+                                                # Slight performance impact (~5%), only enable when needed
+        
+        # DIAGNOSTIC: Linear Starvation Signal
+        "use_linear_starvation": False,         # Use linear idle time instead of logarithmic
+                                                # For testing: Does simpler starvation signal work better?
     },
     
     # === OTHER STRATEGIES ===

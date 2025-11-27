@@ -367,6 +367,16 @@ def assign_new_tasks_composite(
                     was_deferred_before=False,
                     timestamp=now
                 )
+            
+            # EXPERIMENT 019: Record assignment to deferral tracker (RQ3.3)
+            deferral_tracker = _.get('deferral_tracker') if _ else None
+            if deferral_tracker:
+                deferral_tracker.record_assignment(
+                    task_id=task.id,
+                    timestamp=now,
+                    was_deferred=(task.deferral_count > 0),
+                    deferral_count=task.deferral_count
+                )
         else:
             state.defer_task(task)
             
@@ -380,6 +390,17 @@ def assign_new_tasks_composite(
                     reason=reason,
                     timestamp=now,
                     best_worker_id=best_worker.id if best_worker else None
+                )
+            
+            # EXPERIMENT 019: Record deferral to deferral tracker (RQ3.3)
+            deferral_tracker = _.get('deferral_tracker') if _ else None
+            if deferral_tracker:
+                reason = "no_candidates" if not best_worker else "below_threshold"
+                deferral_tracker.record_deferral(
+                    task_id=task.id,
+                    timestamp=now,
+                    score=best_score,
+                    reason=reason
                 )
             
             # Monitor deferred task behavior (if monitoring enabled)
@@ -513,6 +534,17 @@ def match_worker_composite(
                 final_score=best_score,
                 was_deferred_before=True,
                 timestamp=now
+            )
+        
+        # EXPERIMENT 019: Record assignment to deferral tracker (RQ3.3)
+        # Note: Need to get deferral_tracker from strategy_params (passed via _)
+        deferral_tracker = _.get('deferral_tracker') if _ else None
+        if deferral_tracker:
+            deferral_tracker.record_assignment(
+                task_id=best_task.id,
+                timestamp=now,
+                was_deferred=True,  # Always true in match_worker path
+                deferral_count=best_task.deferral_count
             )
         
         # Monitor successful assignment from deferred state (if monitoring enabled)

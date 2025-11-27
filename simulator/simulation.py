@@ -45,6 +45,13 @@ def run_simulation(
         diagnostic_tracker = DiagnosticTracker()
         strategy_params['diagnostic_tracker'] = diagnostic_tracker
     
+    # Deferral tracker (opt-in, for RQ3.3 analysis)
+    deferral_tracker = None
+    if strategy_name == "composite" and strategy_params.get('enable_deferral_tracking', False):
+        from metrics.deferral_tracker import DeferralTracker
+        deferral_tracker = DeferralTracker()
+        strategy_params['deferral_tracker'] = deferral_tracker
+    
     # Fairness cap tracker for FATP-ANN strategy
     if strategy_name == "fatp_ann":
         from simulator.strategies.fatp_ann import FairnessCapTracker
@@ -371,6 +378,10 @@ def run_simulation(
         summary['diagnostic_tracker'] = diagnostic_tracker
         summary['diagnostic_summary'] = diagnostic_tracker.get_summary_stats()
     
+    # EXPERIMENT 019: Include deferral tracker if available (RQ3.3)
+    if deferral_tracker:
+        summary['deferral_stats'] = deferral_tracker.get_summary()
+    
     # EXPERIMENT 015: Add temporal EWMA history
     if ewma_temporal_history:
         summary['ewma_temporal_history'] = ewma_temporal_history
@@ -421,6 +432,14 @@ class Simulation:
             workers.append(worker)
         
         print(f"   ✅ Converted {len(workers):,} workers")
+        
+        # CRITICAL: Update worker gamma if specified in config (Exp 019 fix)
+        strategy_params = self.config.get('strategy_params', {})
+        if 'gamma' in strategy_params:
+            gamma_value = strategy_params['gamma']
+            print(f"   🔧 Updating worker gamma to {gamma_value}...")
+            for worker in workers:
+                worker.gamma = gamma_value
         
         # Convert tasks DataFrame to Task objects (FAST vectorized approach)
         tasks = []
@@ -492,6 +511,9 @@ class Simulation:
             # EXPERIMENT 008: Pass through diagnostic tracker and summary
             'diagnostic_tracker': results.get('diagnostic_tracker'),
             'diagnostic_summary': results.get('diagnostic_summary'),
+            
+            # EXPERIMENT 019: Pass through deferral tracker stats (RQ3.3)
+            'deferral_stats': results.get('deferral_stats'),
         }
         
         return standardized_results
