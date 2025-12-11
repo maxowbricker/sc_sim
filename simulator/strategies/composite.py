@@ -378,7 +378,12 @@ def assign_new_tasks_composite(
                     deferral_count=task.deferral_count
                 )
         else:
-            state.defer_task(task)
+            # Defer task and schedule expiry event if not already expired
+            if state.defer_task(task, now):
+                # Schedule expiry event if callback provided (from simulation)
+                expiry_scheduler = _.get('expiry_scheduler')
+                if expiry_scheduler:
+                    expiry_scheduler(task)
             
             # EXPERIMENT 008: Record deferral to diagnostic tracker
             if diagnostic_tracker:
@@ -449,7 +454,8 @@ def match_worker_composite(
     candidate_data = []
     
     # Iterate over deferred tasks directly (sets are iterable)
-    for task in state.deferred_tasks.copy():  # copy() to avoid modification during iteration
+    # No copy() needed: expired tasks are removed via TASK_EXPIRE events before matching
+    for task in state.deferred_tasks:
         drop_distance_const = manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
         d_pick = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
         total_km_tmp = d_pick + drop_distance_const

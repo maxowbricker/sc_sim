@@ -116,6 +116,7 @@ class EventSimulator:
             'passenger_km': 0.0, 'total_wait_min': 0.0, 'wait_times': [],
             'service_times': [], 'backlog_peak': 0,
             'pickup_distances': [], 'assignment_delays': [],
+            'expired_tasks': [],  # Track expired task IDs
         }
         
         self.event_count = 0
@@ -225,7 +226,12 @@ class EventSimulator:
             self.fairness_tracker.record_task_release(task, list(self.state.available_workers), self.current_time)
             
             if self.state.available_workers:
-                assignments = self.new_task_handler(self.state, self.current_time, [task], **self.strategy_params)
+                # Add expiry scheduler callback to strategy params for tasks deferred in handler
+                strategy_params_with_scheduler = {
+                    **self.strategy_params,
+                    'expiry_scheduler': lambda t: heappush(self.event_queue, (t.expire_time, "TASK_EXPIRE", t.id)) if self.current_time < t.expire_time else None
+                }
+                assignments = self.new_task_handler(self.state, self.current_time, [task], **strategy_params_with_scheduler)
                 if assignments:
                     assigned_task, assigned_worker, _ = assignments[0]
                     self.fairness_tracker.record_task_assignment(assigned_task, assigned_worker, self.current_time)
@@ -235,7 +241,9 @@ class EventSimulator:
                         self.summary['assignment_delays'].append(assignment_delay)
             else:
                 if self.strategy_name == "composite":
-                    self.state.defer_task(task)
+                    # Defer task and schedule expiry event if not already expired
+                    if self.state.defer_task(task, self.current_time):
+                        heappush(self.event_queue, (task.expire_time, "TASK_EXPIRE", task.id))
 
         elif event_type == "TASK_COMPLETE":
             task = self.state.get_task(event_id)
@@ -253,6 +261,16 @@ class EventSimulator:
                         self.summary['assignment_delays'].append(assignment_delay)
 
                 self._update_completion_stats(task)
+
+        elif event_type == "TASK_EXPIRE":
+            # Remove expired task from deferred_tasks if still present
+            # (may have already been assigned, in which case discard() is safe no-op)
+            task = self.state.get_task(event_id)
+            if task:
+                self.state.deferred_tasks.discard(task)
+                # Track expired tasks for metrics (only if not completed)
+                if task not in self.state.completed_tasks and not task.is_completed:
+                    self.summary['expired_tasks'].append(task.id)
 
     def _update_completion_stats(self, task):
         """Update summary stats after task completion."""

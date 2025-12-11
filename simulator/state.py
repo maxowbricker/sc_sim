@@ -49,11 +49,26 @@ class StateManager:
         self.assigned_tasks.add(task)
         self.assigned_workers.add(worker)
 
-    def defer_task(self, task):
+    def defer_task(self, task, current_time=None):
+        """
+        Defer a task to the deferred pool.
+        
+        Args:
+            task: Task to defer
+            current_time: Current simulation time (optional, for expiry check)
+        
+        Returns:
+            bool: True if task was deferred, False if already expired
+        """
+        # Check if task is already expired (if current_time provided)
+        if current_time is not None and current_time > task.expire_time:
+            return False  # Don't defer already-expired tasks
+        
         # Move from active to deferred (O(1) operations)
         self.active_tasks.discard(task)
         self.deferred_tasks.add(task)
         task.deferral_count += 1  # Track number of times this task was deferred
+        return True
 
     def complete_task(self, task, worker, current_time):
         # Remove from assigned pools (O(1) operations with sets)
