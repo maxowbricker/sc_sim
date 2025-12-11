@@ -122,6 +122,9 @@ class EventSimulator:
         self.ewma_temporal_history = []
         self.next_log_checkpoint = self.temporal_log_interval
         
+        # RL tracking: total tasks released into the system
+        self.total_tasks_released = 0
+        
         return self.get_state()
 
     def update_weights(self, lambda1, lambda2, lambda3):
@@ -218,6 +221,7 @@ class EventSimulator:
         elif event_type == "TASK_RELEASE":
             task = self.state.get_task(event_id)
             self.state.release_task(task)
+            self.total_tasks_released += 1  # Track total tasks released for RL
             self.fairness_tracker.record_task_release(task, list(self.state.available_workers), self.current_time)
             
             if self.state.available_workers:
@@ -291,19 +295,59 @@ class EventSimulator:
         step_avg_wait = 0.0
         if hasattr(self, 'step_summary') and self.step_summary['wait_times']:
             step_avg_wait = np.mean(self.step_summary['wait_times'])
-            
+        
+        # Worker idle time statistics
+        workers = list(self.state.all_workers_map.values())
+        if workers:
+            idle_times_min = [w.total_idle_time.total_seconds() / 60.0 for w in workers]
+            mean_idle = float(np.mean(idle_times_min))
+            std_idle = float(np.std(idle_times_min)) if len(idle_times_min) > 1 else 0.0
+            cv_idle = std_idle / mean_idle if mean_idle > 0 else 0.0  # Coefficient of variation
+        else:
+            mean_idle = 0.0
+            cv_idle = 0.0
+        
+        # Deferral reason breakdown
+        if self.deferral_tracker:
+            reason_breakdown = self.deferral_tracker.get_deferral_reason_breakdown()
+            pct_below_threshold = reason_breakdown.get('pct_below_threshold', 0.0) / 100.0  # Convert to 0-1
+            pct_no_candidates = reason_breakdown.get('pct_no_candidates', 0.0) / 100.0
+        else:
+            pct_below_threshold = 0.0
+            pct_no_candidates = 0.0
+        
+        # Task release rate calculation
+        step_duration = (self.current_time - self.step_start_time).total_seconds() if hasattr(self, 'step_start_time') and self.step_start_time else 1.0
+        tasks_released = getattr(self, 'step_tasks_released', 0)
+        assigned_workers_count = len(self.state.assigned_workers)
+        total_active_workers = len(self.state.available_workers) + assigned_workers_count
+        
+        if step_duration > 0 and total_active_workers > 0:
+            task_release_rate_per_min = (tasks_released / step_duration) * 60
+            task_worker_ratio = task_release_rate_per_min / total_active_workers
+        else:
+            task_worker_ratio = 0.0
+
         return {
             'active_tasks': len(self.state.active_tasks),
             'deferred_tasks': len(self.state.deferred_tasks),
             'available_workers': len(self.state.available_workers),
+            'assigned_workers': assigned_workers_count,  # NEW: For task-worker ratio
             'total_workers': len(self.state.all_workers_map),
             'completed_tasks': self.summary['completed_tasks'],
             'current_time': self.current_time,
             'workers': list(self.state.all_workers_map.values()),
             'backlog_peak': self.summary['backlog_peak'],
+            'total_tasks_released': self.total_tasks_released,  # For RL deferred ratio calculation
             # Windowed stats
             'step_avg_wait': step_avg_wait,
-            'step_completed_tasks': self.step_summary['completed_tasks'] if hasattr(self, 'step_summary') else 0
+            'step_completed_tasks': self.step_summary['completed_tasks'] if hasattr(self, 'step_summary') else 0,
+            # NEW: Enhanced metrics for RL
+            'task_worker_ratio': task_worker_ratio,  # Tasks per minute per worker
+            'mean_worker_idle_min': mean_idle,
+            'cv_worker_idle': cv_idle,  # Worker inequality (lower = more fair)
+            'pct_deferrals_below_threshold': pct_below_threshold,
+            'pct_deferrals_no_candidates': pct_no_candidates,
         }
 
     def get_final_results(self):
