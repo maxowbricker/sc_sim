@@ -52,21 +52,24 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         
         # Define Observation Space
         # Features:
-        # 0. Active Task Ratio (active / total_possible)
-        # 1. Deferred Task Ratio
-        # 2. Worker Availability Ratio
-        # 3. Current JFI (Fairness)
-        # 4. Step Average Wait Time (Normalized)
-        # 5. Peak Backlog (Normalized)
-        # 6. Time of Day (Sine)
-        # 7. Time of Day (Cosine)
-        # 8. Previous λ1
-        # 9. Previous λ2
-        # 10. Previous λ3
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(11,), dtype=np.float32)
+        # 0. Deferred Tasks Ratio (deferred / total_tasks_released)
+        # 1. Worker Availability Ratio
+        # 2. Current JFI (Fairness)
+        # 3. Step Average Wait Time (Normalized)
+        # 4. Peak Backlog (Normalized)
+        # 5. Task Release Rate per Worker (tasks/min/worker)
+        # 6. Mean Worker Idle Time (normalized)
+        # 7. Worker Idle Time Inequality (CV)
+        # 8. % Deferrals due to Low Score (below_threshold)
+        # 9. % Deferrals due to No Candidates
+        # 10. Time of Day (Sine)
+        # 11. Time of Day (Cosine)
+        # 12. Previous λ1
+        # 13. Previous λ2
+        # 14. Previous λ3
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(15,), dtype=np.float32)
         
         self.simulator = None
-        self.last_state = None
         self.current_step_idx = 0
         self.last_action = np.array([1.0, 1.0, 1.0], dtype=np.float32)
         
@@ -138,8 +141,8 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         """
         sim_state = self.simulator.get_state()
         
-        active_tasks = sim_state['active_tasks']
         deferred_tasks = sim_state['deferred_tasks']
+        total_tasks_released = sim_state['total_tasks_released']
         available_workers = sim_state['available_workers']
         total_workers = max(1, sim_state['total_workers'])
         
@@ -161,19 +164,36 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
             
         # Windowed Wait time
         step_avg_wait = sim_state.get('step_avg_wait', 0.0)
+        
+        # Deferred tasks ratio: deferred / total_tasks_released
+        deferred_ratio = deferred_tasks / max(1, total_tasks_released)
+        
+        # NEW: Enhanced metrics
+        task_worker_ratio = sim_state.get('task_worker_ratio', 0.0)
+        mean_worker_idle = sim_state.get('mean_worker_idle_min', 0.0)
+        cv_worker_idle = sim_state.get('cv_worker_idle', 0.0)
+        pct_deferrals_below_threshold = sim_state.get('pct_deferrals_below_threshold', 0.0)
+        pct_deferrals_no_candidates = sim_state.get('pct_deferrals_no_candidates', 0.0)
+        
+        # Normalize worker idle time
+        normalized_idle = mean_worker_idle / self.baseline_worker_idle
             
         obs = np.array([
-            active_tasks / 100.0, # Approximate normalization
-            deferred_tasks / 100.0,
-            available_workers / total_workers,
-            jfi,
-            step_avg_wait / self.baseline_wait_time,
-            sim_state['backlog_peak'] / self.baseline_backlog,
-            time_sin,
-            time_cos,
-            self.last_action[0],
-            self.last_action[1],
-            self.last_action[2]
+            deferred_ratio,  # 0. Deferred Tasks Ratio
+            available_workers / total_workers,  # 1. Worker Availability Ratio
+            jfi,  # 2. Current JFI (Fairness)
+            step_avg_wait / self.baseline_wait_time,  # 3. Step Average Wait Time (Normalized)
+            sim_state['backlog_peak'] / self.baseline_backlog,  # 4. Peak Backlog (Normalized)
+            task_worker_ratio,  # 5. Task Release Rate per Worker (tasks/min/worker)
+            normalized_idle,  # 6. Mean Worker Idle Time (normalized)
+            cv_worker_idle,  # 7. Worker Idle Time Inequality (CV)
+            pct_deferrals_below_threshold,  # 8. % Deferrals due to Low Score
+            pct_deferrals_no_candidates,  # 9. % Deferrals due to No Candidates
+            time_sin,  # 10. Time of Day (Sine)
+            time_cos,  # 11. Time of Day (Cosine)
+            self.last_action[0],  # 12. Previous λ1
+            self.last_action[1],  # 13. Previous λ2
+            self.last_action[2]  # 14. Previous λ3
         ], dtype=np.float32)
         
         return obs
