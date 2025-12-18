@@ -1,6 +1,5 @@
 from simulator.strategies import register
 from math import log, fabs, cos, radians
-import random
 import pandas as pd
 from typing import Optional, Tuple, List, Dict
 
@@ -26,13 +25,8 @@ def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_
         # Update worker's stored EWMA for next calculation
         worker.fairness_ewma = current_ewma
         
-        # Convert to hours for more reasonable scale and add small differentiation
-        # to prevent identical values when all workers have similar idle times
-        import random
-        random.seed(hash(worker.id) % 2**31)  # Deterministic per worker
-        worker_bias = random.uniform(0.95, 1.05)  # Small 5% variation per worker
-        
-        return (current_ewma / 3600.0) * worker_bias
+        # Return EWMA
+        return current_ewma
         
     elif fairness_metric == 'idle_time':
         # Direct idle time approach (simpler alternative)
@@ -40,30 +34,17 @@ def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_
             idle_seconds = (current_time - worker.release_time).total_seconds()
         else:
             idle_seconds = (current_time - worker.last_active_ts).total_seconds()
-        return idle_seconds / 3600.0  # Convert to hours
+        return idle_seconds
         
     elif fairness_metric == 'task_count':
         # Inverse of completed tasks (higher signal = fewer tasks completed)
         return 1.0 / (1.0 + worker.completed_tasks)
         
     else:
-        # Default to EWMA as per research proposal
-        gamma = getattr(worker, 'gamma', 0.3)
-        
-        if worker.last_active_ts is None:
-            T_idle_seconds = (current_time - worker.release_time).total_seconds()
-        else:
-            T_idle_seconds = (current_time - worker.last_active_ts).total_seconds()
-        
-        current_ewma = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
-        worker.fairness_ewma = current_ewma
-        
-        # Add small differentiation
-        import random
-        random.seed(hash(worker.id) % 2**31)
-        worker_bias = random.uniform(0.95, 1.05)
-        
-        return (current_ewma / 3600.0) * worker_bias
+        raise ValueError(
+            f"Invalid fairness_metric: '{fairness_metric}'. "
+            f"Must be one of: 'ewma', 'idle_time', 'task_count'"
+        )
 
 AVG_SPEED_KMH = 30
 
@@ -430,13 +411,13 @@ def match_worker_composite(
 ):
     """Match a free worker to deferred tasks.
     
-    OPTIMIZED: Improved by avoiding list() conversion.
-    EXPERIMENT 008: Enhanced with score normalization and threshold ablation.
+    OPTIMIZED: Fairness is not calculated unless Assignment occurs.
+    Ranking uses only starvation + utility (fairness is constant as the worker stays the same)..
     
     Parameters
     ----------
     normalize_scores : bool
-        If True, normalize F, S, U components before scoring (default: False)
+        If True, normalize S, U components before scoring (default: False)
     disable_soft_threshold : bool
         If True, bypass threshold check and assign immediately (default: False)
     diagnostic_tracker : DiagnosticTracker, optional
@@ -450,7 +431,7 @@ def match_worker_composite(
     if hasattr(state, 'deferred_monitor') and state.deferred_monitor:
         state.deferred_monitor.record_deferred_iteration(deferred_count)
 
-    # Collect component values for normalization if needed
+    # Collect candidate data
     candidate_data = []
     
     # Iterate over deferred tasks directly (sets are iterable)
@@ -465,15 +446,12 @@ def match_worker_composite(
         if pickup_eta > task.expire_time or finish_eta > worker.deadline:
             continue
 
-        # Calculate raw component values
-        distance = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
-        fairness_raw = calculate_fairness_signal(worker, now)
+        # Calculate Utility and Starvation metrics
         starvation_raw = log(1 + (now - task.release_time).total_seconds())
-        utility_raw = 1.0 / (1.0 + distance)
+        utility_raw = 1.0 / (1.0 + d_pick)
         
         candidate_data.append({
             'task': task,
-            'fairness_raw': fairness_raw,
             'starvation_raw': starvation_raw,
             'utility_raw': utility_raw
         })
@@ -481,45 +459,56 @@ def match_worker_composite(
     if not candidate_data:
         return None
     
-    # EXPERIMENT 008: Apply normalization if requested
+    # Apply normalization if requested
     if normalize_scores:
-        fairness_values = [c['fairness_raw'] for c in candidate_data]
         starvation_values = [c['starvation_raw'] for c in candidate_data]
         utility_values = [c['utility_raw'] for c in candidate_data]
         
-        fairness_norm = _normalize_components(fairness_values)
         starvation_norm = _normalize_components(starvation_values)
         utility_norm = _normalize_components(utility_values)
         
         for i, candidate in enumerate(candidate_data):
-            candidate['fairness_norm'] = fairness_norm[i]
             candidate['starvation_norm'] = starvation_norm[i]
             candidate['utility_norm'] = utility_norm[i]
-            candidate['score'] = (
-                fairness_weight * fairness_norm[i] +
+            # Ranking score
+            candidate['ranking_score'] = (
                 starvation_weight * starvation_norm[i] +
                 utility_weight * utility_norm[i]
             )
     else:
         for candidate in candidate_data:
-            candidate['score'] = (
-                fairness_weight * candidate['fairness_raw'] +
+            # Ranking score
+            candidate['ranking_score'] = (
                 starvation_weight * candidate['starvation_raw'] +
                 utility_weight * candidate['utility_raw']
             )
-            candidate['fairness_norm'] = None
             candidate['starvation_norm'] = None
             candidate['utility_norm'] = None
     
-    # Find best candidate
-    best_candidate = max(candidate_data, key=lambda c: c['score'])
+    # Find best candidate using ranking score
+    best_candidate = max(candidate_data, key=lambda c: c['ranking_score'])
     best_task = best_candidate['task']
-    best_score = best_candidate['score']
     
-    # EXPERIMENT 008: Optionally disable threshold check
+    # Calculate updated EWMA but don't mutate worker state yet
+    gamma = getattr(worker, 'gamma', 0.3)
+    if worker.last_active_ts is None:
+        T_idle_seconds = (now - worker.release_time).total_seconds()
+    else:
+        T_idle_seconds = (now - worker.last_active_ts).total_seconds()
+    
+    updated_ewma = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
+    fairness_contribution = fairness_weight * updated_ewma
+    
+    # Calculate full score with updated fairness for threshold check
+    best_score = best_candidate['ranking_score'] + fairness_contribution
+    
+    # Optionally disable threshold check
     threshold_passed = disable_soft_threshold or (best_score >= soft_threshold)
             
     if best_task and threshold_passed:
+        # ASSIGNMENT CONFIRMED: Update worker's EWMA state
+        worker.fairness_ewma = updated_ewma
+        
         assigned_task = _commit_assignment(best_task, worker, now)
         state.assign_task(assigned_task, worker)
         
@@ -528,10 +517,10 @@ def match_worker_composite(
             diagnostic_tracker.record_assignment(
                 task_id=best_task.id,
                 worker_id=worker.id,
-                fairness_raw=best_candidate['fairness_raw'],
+                fairness_raw=updated_ewma,
                 starvation_raw=best_candidate['starvation_raw'],
                 utility_raw=best_candidate['utility_raw'],
-                fairness_norm=best_candidate.get('fairness_norm'),
+                fairness_norm=None,
                 starvation_norm=best_candidate.get('starvation_norm'),
                 utility_norm=best_candidate.get('utility_norm'),
                 fairness_weight=fairness_weight,
@@ -559,6 +548,7 @@ def match_worker_composite(
             
         return (assigned_task, worker, best_score)
         
+    # Threshold not met: do nothing, worker keeps current EWMA, task stays deferred
     return None
 
 @register("composite")
