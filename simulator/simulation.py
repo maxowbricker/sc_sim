@@ -263,8 +263,8 @@ class EventSimulator:
                 self._update_completion_stats(task)
 
         elif event_type == "TASK_EXPIRE":
-            # Remove expired task from deferred_tasks if still present
-            # (may have already been assigned, in which case discard() is safe no-op)
+            # Remove expired task from both active_tasks and deferred_tasks
+            # (may have already been assigned/completed, in which case discard() is safe no-op)
             task = self.state.get_task(event_id)
             if task:
                 self.state.deferred_tasks.discard(task)
@@ -384,6 +384,10 @@ class EventSimulator:
         def safe_std(arr): return float(np.std(arr)) if arr else 0.0
         def safe_percentile(arr, p): return float(np.percentile(arr, p)) if arr else 0.0
         def safe_max(arr): return float(np.max(arr)) if arr else 0.0
+        
+        # Task completion metrics
+        summary['task_assignment_ratio'] = tar
+        summary['total_tasks'] = total_tasks_count
         
         # Wait times
         summary['avg_wait_time_minutes'] = avg_wait_min
