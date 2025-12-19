@@ -111,17 +111,24 @@ def _find_best_assignment_for_task(
     This reduces complexity from O(|W|) to O(k) where k=15 << |W|=38,000.
     Massive performance improvement: 38,000 -> 15 workers checked per task!
     
-    Performance Optimization: Fast/Slow Path
-    -----------------------------------------
+    Performance Optimization: Three Execution Paths
+    -----------------------------------------------
     FAST PATH: When normalize_scores=False and diagnostic_tracker=None
         - Uses single-pass algorithm (like Experiments 006/007)
         - Scores candidates inline, no data collection overhead
         - Typical performance: 3-4 hours for 20k tasks
     
-    SLOW PATH: When normalize_scores=True or diagnostic_tracker provided
+    MIDDLE PATH: When normalize_scores=True and diagnostic_tracker=None
+        - Collects candidate data for normalization only
+        - Applies normalization, scores with normalized values
+        - Skips diagnostic info preparation (reduces overhead)
+        - Performance: ~1.5-2x slower than fast path
+    
+    SLOW PATH: When diagnostic_tracker is provided
         - Collects all candidate data for normalization and/or diagnostics
+        - Prepares diagnostic_info for tracking
         - Multiple passes through candidate list
-        - Performance: 2-3x slower but enables advanced features
+        - Performance: 2-3x slower than fast path, enables advanced features
     
     Parameters
     ----------
@@ -159,16 +166,23 @@ def _find_best_assignment_for_task(
     # FAST PATH: When no normalization or diagnostics needed
     # Uses original single-pass algorithm for maximum performance
     if not normalize_scores and diagnostic_tracker is None:
+        # OPTIMIZED: Pre-calculate timestamps once (avoid Pandas Timedelta in loop)
+        now_ts = now.timestamp()
+        task_expire_ts = task.expire_time.timestamp()
+        
         best_worker, best_score = None, float("-inf")
         
         for worker in nearest_workers:
             # Check feasibility constraints: pickup before expiry, finish before worker shift ends
             d_pick = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
             total_km_tmp = d_pick + drop_distance_const
-            pickup_eta = now + pd.to_timedelta(d_pick / AVG_SPEED_KMH, unit="h")
-            finish_eta = now + pd.to_timedelta(total_km_tmp / AVG_SPEED_KMH, unit="h")
             
-            if pickup_eta > task.expire_time or finish_eta > worker.deadline:
+            # Use float math instead of Timedelta (much faster)
+            pickup_eta_seconds = (d_pick / AVG_SPEED_KMH) * 3600
+            finish_eta_seconds = (total_km_tmp / AVG_SPEED_KMH) * 3600
+            
+            # Compare timestamps (floats) - avoids Pandas object creation
+            if (now_ts + pickup_eta_seconds) > task_expire_ts or (now_ts + finish_eta_seconds) > worker.deadline.timestamp():
                 continue
             
             # Score inline using original score() function
@@ -179,18 +193,97 @@ def _find_best_assignment_for_task(
         
         return best_worker, best_score, None
     
-    # SLOW PATH: With normalization or diagnostics
+    # MIDDLE PATH: Normalization only (no diagnostics)
+    # OPTIMIZED FOR RL: Lazy EWMA calculation, minimal state mutation
+    # Collects candidate data for normalization, but skips diagnostic info preparation
+    if normalize_scores and diagnostic_tracker is None:
+        # Pre-calculate gamma once (assumes all workers have same gamma)
+        gamma = getattr(nearest_workers[0], 'gamma', 0.3) if nearest_workers else 0.3
+        
+        now_ts = now.timestamp()
+        task_expire_ts = task.expire_time.timestamp()
+        
+        candidate_data = []
+        
+        for worker in nearest_workers:
+            # Check feasibility constraints
+            d_pick = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
+            total_km_tmp = d_pick + drop_distance_const
+            pickup_eta_seconds = (d_pick / AVG_SPEED_KMH) * 3600
+            finish_eta_seconds = (total_km_tmp / AVG_SPEED_KMH) * 3600
+            if (now_ts + pickup_eta_seconds) > task_expire_ts or (now_ts + finish_eta_seconds) > worker.deadline.timestamp():
+                continue
+            
+            # LAZY EWMA: Calculate without mutating worker state
+            if worker.last_active_ts is None:
+                T_idle_seconds = (now - worker.release_time).total_seconds()
+            else:
+                T_idle_seconds = (now - worker.last_active_ts).total_seconds()
+            
+            fairness_raw = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
+            utility_raw = 1.0 / (1.0 + d_pick)
+            
+            candidate_data.append({
+                'worker': worker,
+                'fairness_raw': fairness_raw,
+                'utility_raw': utility_raw
+            })
+        
+        if not candidate_data:
+            return None, float("-inf"), None
+        
+        # Extract component values for normalization
+        fairness_values = [c['fairness_raw'] for c in candidate_data]
+        utility_values = [c['utility_raw'] for c in candidate_data]
+        
+        fairness_norm = _normalize_components(fairness_values)
+        utility_norm = _normalize_components(utility_values)
+        
+        # Find best candidate using ranking score (fairness + utility only)
+        best_worker, best_index, best_ranking_score = None, -1, float("-inf")
+        for i, candidate in enumerate(candidate_data):
+            ranking_score = (
+                fairness_weight * fairness_norm[i] +
+                utility_weight * utility_norm[i]
+            )
+            
+            if ranking_score > best_ranking_score:
+                best_ranking_score = ranking_score
+                best_index = i
+                best_worker = candidate['worker']
+        
+        # ASSIGNMENT CONFIRMED: Update only the assigned worker's EWMA
+        if best_worker is not None:
+            best_candidate = candidate_data[best_index]
+            # Update EWMA state for assigned worker only
+            best_worker.fairness_ewma = best_candidate['fairness_raw']
+            
+            # Calculate full score with starvation (for return value)
+            starvation_raw = log(1 + (now - task.release_time).total_seconds())
+            starvation_contribution = starvation_weight * starvation_raw
+            best_score = best_ranking_score + starvation_contribution
+        else:
+            best_score = float("-inf")
+        
+        return best_worker, best_score, None
+    
+    # SLOW PATH: Diagnostics enabled (with or without normalization)
     # Collects all candidate data for normalization and/or diagnostic tracking
+    now_ts = now.timestamp()
+    task_expire_ts = task.expire_time.timestamp()
+    
     candidate_data = []
     
     for worker in nearest_workers:
         # Check feasibility constraints: pickup before expiry, finish before worker shift ends
         d_pick = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
         total_km_tmp = d_pick + drop_distance_const
-        pickup_eta = now + pd.to_timedelta(d_pick / AVG_SPEED_KMH, unit="h")
-        finish_eta = now + pd.to_timedelta(total_km_tmp / AVG_SPEED_KMH, unit="h")
         
-        if pickup_eta > task.expire_time or finish_eta > worker.deadline:
+        pickup_eta_seconds = (d_pick / AVG_SPEED_KMH) * 3600
+        finish_eta_seconds = (total_km_tmp / AVG_SPEED_KMH) * 3600
+        
+        # Compare timestamps (floats) - avoids Pandas object creation
+        if (now_ts + pickup_eta_seconds) > task_expire_ts or (now_ts + finish_eta_seconds) > worker.deadline.timestamp():
             continue
         
         # Calculate raw component values
@@ -432,6 +525,9 @@ def match_worker_composite(
         state.deferred_monitor.record_deferred_iteration(deferred_count)
 
     # Collect candidate data
+    now_ts = now.timestamp()
+    worker_deadline_ts = worker.deadline.timestamp()
+    
     candidate_data = []
     
     # Iterate over deferred tasks directly (sets are iterable)
@@ -440,10 +536,11 @@ def match_worker_composite(
         drop_distance_const = manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
         d_pick = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
         total_km_tmp = d_pick + drop_distance_const
-        pickup_eta = now + pd.to_timedelta(d_pick / AVG_SPEED_KMH, unit="h")
-        finish_eta = now + pd.to_timedelta(total_km_tmp / AVG_SPEED_KMH, unit="h")
+
+        pickup_eta_seconds = (d_pick / AVG_SPEED_KMH) * 3600
+        finish_eta_seconds = (total_km_tmp / AVG_SPEED_KMH) * 3600
         
-        if pickup_eta > task.expire_time or finish_eta > worker.deadline:
+        if (now_ts + pickup_eta_seconds) > task.expire_time.timestamp() or (now_ts + finish_eta_seconds) > worker_deadline_ts:
             continue
 
         # Calculate Utility and Starvation metrics
