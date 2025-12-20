@@ -100,66 +100,85 @@ class GridSpatialIndex:
     """
     Grid-based spatial index for efficient nearest neighbor search.
     Divides the map into cells (buckets) for O(1) cell lookup and O(k) candidate search.
+    
+    Supports any object type by specifying which attributes to use for coordinates.
     """
     
-    def __init__(self, resolution=GRID_RESOLUTION):
+    def __init__(self, lat_attr='start_lat', lon_attr='start_lon', resolution=GRID_RESOLUTION):
         """
-        Initialize grid spatial index.
+        Initialize grid spatial index with attribute names to read coordinates from.
         
         Parameters
         ----------
+        lat_attr : str
+            Attribute name for latitude (default: 'start_lat' for workers)
+        lon_attr : str
+            Attribute name for longitude (default: 'start_lon' for workers)
         resolution : float
             Grid cell size in degrees (default: 0.01 degrees ≈ 1km)
+        
+        Examples
+        --------
+        For Workers: lat_attr='start_lat', lon_attr='start_lon'
+        For Tasks:   lat_attr='pickup_lat', lon_attr='pickup_lon'
         """
+        self.lat_attr = lat_attr
+        self.lon_attr = lon_attr
         self.resolution = resolution
-        # Map (grid_x, grid_y) -> set of workers
+        # Map (grid_x, grid_y) -> set of items
         self.grid = defaultdict(set)
-        # Keep track of worker count for validation
+        # Keep track of item count for validation
         self.count = 0
 
     def _get_cell_coords(self, lat, lon):
         """Convert lat/lon to grid cell coordinates."""
         return (int(lat / self.resolution), int(lon / self.resolution))
 
-    def add(self, worker):
-        """Add a worker to the spatial index."""
-        cell = self._get_cell_coords(worker.start_lat, worker.start_lon)
-        self.grid[cell].add(worker)
+    def add(self, item):
+        """Add an item to the spatial index."""
+        lat = getattr(item, self.lat_attr)
+        lon = getattr(item, self.lon_attr)
+        cell = self._get_cell_coords(lat, lon)
+        self.grid[cell].add(item)
         self.count += 1
 
-    def remove(self, worker):
+    def remove(self, item):
         """
-        Remove a worker from the spatial index.
+        Remove an item from the spatial index.
         
-        Note: Assumes worker hasn't moved since being added.
-        If they have, this will fail. Workers only move when *assigned* (removed from index).
+        Note: Assumes item hasn't moved since being added.
+        If it has, this will fail. Items only move when *assigned* (removed from index).
         """
-        cell = self._get_cell_coords(worker.start_lat, worker.start_lon)
-        if worker in self.grid[cell]:
-            self.grid[cell].remove(worker)
+        lat = getattr(item, self.lat_attr)
+        lon = getattr(item, self.lon_attr)
+        cell = self._get_cell_coords(lat, lon)
+        if item in self.grid[cell]:
+            self.grid[cell].remove(item)
             self.count -= 1
             # Cleanup empty cells to save memory
             if not self.grid[cell]:
                 del self.grid[cell]
 
-    def query_k_nearest(self, task, k=15):
+    def query_k_nearest(self, center_lat, center_lon, k=15):
         """
-        Find k nearest workers by spiraling out from task location.
-        Stops early once enough workers are found to guarantee top-k.
+        Find k nearest items to a specific coordinate.
+        Spirals out from center location and stops early once enough items are found.
         
         Parameters
         ----------
-        task : Task
-            Task object with pickup_lat, pickup_lon attributes
+        center_lat : float
+            Latitude of the center point
+        center_lon : float
+            Longitude of the center point
         k : int
-            Number of nearest workers to return (default: 15)
+            Number of nearest items to return (default: 15)
             
         Returns
         -------
-        List[Worker]
-            List of up to k nearest workers, sorted by distance
+        List
+            List of up to k nearest items, sorted by distance
         """
-        center_cell = self._get_cell_coords(task.pickup_lat, task.pickup_lon)
+        center_cell = self._get_cell_coords(center_lat, center_lon)
         candidates = []
         
         # Search radius (in cells)
@@ -169,17 +188,22 @@ class GridSpatialIndex:
         
         while radius < max_radius:
             cells_to_check = self._get_cells_in_ring(center_cell, radius)
+            found_in_ring = False
             
             for cell in cells_to_check:
-                workers_in_cell = self.grid.get(cell)
-                if workers_in_cell:
-                    for worker in workers_in_cell:
-                        dist = manhattan_km(task.pickup_lat, task.pickup_lon, 
-                                            worker.start_lat, worker.start_lon)
-                        candidates.append((dist, worker))
+                items_in_cell = self.grid.get(cell)
+                if items_in_cell:
+                    found_in_ring = True
+                    for item in items_in_cell:
+                        # Get item coordinates using configured attributes
+                        i_lat = getattr(item, self.lat_attr)
+                        i_lon = getattr(item, self.lon_attr)
+                        
+                        dist = manhattan_km(center_lat, center_lon, i_lat, i_lon)
+                        candidates.append((dist, item))
             
             # Optimization: Stop if we have enough candidates and 
-            # the closest possible worker in the NEXT ring is further than our kth best candidate.
+            # the closest possible item in the NEXT ring is further than our kth best candidate.
             if len(candidates) >= k:
                 candidates.sort(key=lambda x: x[0])
                 # K-th best distance currently found
@@ -198,7 +222,7 @@ class GridSpatialIndex:
                  # Logic to jump radius could go here, but simple increment is safe
                  pass
 
-        # Final sort and return top k workers
+        # Final sort and return top k items
         candidates.sort(key=lambda x: x[0])
         return [c[1] for c in candidates[:k]]
 

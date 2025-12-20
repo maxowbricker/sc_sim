@@ -22,8 +22,11 @@ class StateManager:
         self.assigned_workers = set()
         self.completed_tasks = set()
         
-        # Initialize the Spatial Index for efficient nearest neighbor search
-        self.spatial_index = GridSpatialIndex()
+        # INDEX 1: Available Workers (uses start_lat/lon)
+        self.spatial_index = GridSpatialIndex(lat_attr='start_lat', lon_attr='start_lon')
+        
+        # INDEX 2: Deferred Tasks (uses pickup_lat/lon)
+        self.deferred_task_index = GridSpatialIndex(lat_attr='pickup_lat', lon_attr='pickup_lon')
         
         # PERFORMANCE FIX: Assignment logging removed - was causing memory bloat without any benefit
         # Real statistics are collected via simulation summary and fairness tracker
@@ -48,7 +51,11 @@ class StateManager:
     def assign_task(self, task, worker):
         # Remove from active/deferred pools (O(1) operations with sets)
         self.active_tasks.discard(task)      # discard() won't raise error if not present
-        self.deferred_tasks.discard(task)
+        
+        # Handle deferred task removal (Set + Index)
+        if task in self.deferred_tasks:
+            self.deferred_tasks.remove(task)
+            self.deferred_task_index.remove(task)  # Remove from task index
         
         # Move worker from available to assigned
         self.available_workers.discard(worker)
@@ -77,9 +84,25 @@ class StateManager:
         
         # Move from active to deferred (O(1) operations)
         self.active_tasks.discard(task)
+        
+        # Add to deferred set AND index
         self.deferred_tasks.add(task)
+        self.deferred_task_index.add(task)
+        
         task.deferral_count += 1  # Track number of times this task was deferred
         return True
+    
+    def remove_deferred_task(self, task):
+        """
+        Helper to cleanly remove a task from deferred state (e.g. on expiry).
+        Removes from both the deferred_tasks set and the deferred_task_index.
+        
+        Args:
+            task: Task to remove from deferred state
+        """
+        if task in self.deferred_tasks:
+            self.deferred_tasks.remove(task)
+            self.deferred_task_index.remove(task)
 
     def complete_task(self, task, worker, current_time):
         # Remove from assigned pools (O(1) operations with sets)

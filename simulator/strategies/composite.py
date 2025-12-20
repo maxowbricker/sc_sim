@@ -155,7 +155,7 @@ def _find_best_assignment_for_task(
 
     # OPTIMIZATION 1: Use Spatial Index for efficient nearest neighbor search
     # This reduces from 38,000 workers to 15 workers checked per task!
-    nearest_workers = spatial_index.query_k_nearest(task, k)
+    nearest_workers = spatial_index.query_k_nearest(task.pickup_lat, task.pickup_lon, k)
     
     if not nearest_workers:
         return None, float("-inf"), None
@@ -507,10 +507,14 @@ def match_worker_composite(
     diagnostic_tracker=None,
     **_
 ):
-    """Match a free worker to deferred tasks.
+    """Match a free worker to nearby deferred tasks using spatial index.
     
-    OPTIMIZED: Fairness is not calculated unless Assignment occurs.
-    Ranking uses only starvation + utility (fairness is constant as the worker stays the same)..
+    OPTIMIZED: Uses spatial index to find only k nearest deferred tasks instead of
+    checking all deferred tasks. This reduces complexity from O(|D|) to O(k) where
+    k=15 << |D| (number of deferred tasks).
+    
+    Fairness is not calculated unless Assignment occurs.
+    Ranking uses only starvation + utility (fairness is constant as the worker stays the same).
     
     Parameters
     ----------
@@ -529,15 +533,27 @@ def match_worker_composite(
     if hasattr(state, 'deferred_monitor') and state.deferred_monitor:
         state.deferred_monitor.record_deferred_iteration(deferred_count)
 
+    # OPTIMIZATION: Use spatial index to find nearby deferred tasks
+    # instead of iterating through ALL deferred tasks.
+    # Query the task index using the WORKER'S location
+    nearby_tasks = state.deferred_task_index.query_k_nearest(
+        worker.start_lat, 
+        worker.start_lon, 
+        k=k
+    )
+    
+    if not nearby_tasks:
+        return None
+
     # Collect candidate data
     now_ts = now.timestamp()
     worker_deadline_ts = worker.deadline.timestamp()
     
     candidate_data = []
     
-    # Iterate over deferred tasks directly (sets are iterable)
-    # No copy() needed: expired tasks are removed via TASK_EXPIRE events before matching
-    for task in state.deferred_tasks:
+    # Iterate over nearby_tasks instead of state.deferred_tasks
+    # Expired tasks are removed via TASK_EXPIRE events before matching
+    for task in nearby_tasks:
         drop_distance_const = manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
         d_pick = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
         total_km_tmp = d_pick + drop_distance_const

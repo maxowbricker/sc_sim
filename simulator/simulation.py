@@ -263,13 +263,20 @@ class EventSimulator:
                 self._update_completion_stats(task)
 
         elif event_type == "TASK_EXPIRE":
-            # Remove expired task from both active_tasks and deferred_tasks
-            # (may have already been assigned/completed, in which case discard() is safe no-op)
+            # Remove expired task from deferred state (set + index)
+            # (may have already been assigned/completed, in which case remove_deferred_task is safe no-op)
             task = self.state.get_task(event_id)
             if task:
-                self.state.deferred_tasks.discard(task)
-                # Track expired tasks for metrics (only if not completed)
-                if task not in self.state.completed_tasks and not task.is_completed:
+                self.state.remove_deferred_task(task)
+                
+                # Check if the task is currently assigned (running).
+                # If it's assigned, it shouldn't count as expired, even if the expire event fires.
+                # This prevents "zombie events" where TASK_EXPIRE fires for tasks that were
+                # assigned before expiry but complete after expiry.
+                is_assigned = task in self.state.assigned_tasks
+                
+                # Track expired tasks for metrics (only if not completed AND not assigned)
+                if not is_assigned and task not in self.state.completed_tasks and not task.is_completed:
                     self.summary['expired_tasks'].append(task.id)
 
     def _update_completion_stats(self, task):
