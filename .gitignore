@@ -2,6 +2,7 @@
 .DS_Store
 data/tasks.txt
 data/workers.txt
+rl_logs_sb3/
 
 # Didi dataset files (all variations) - Keep in Google Drive only
 data/didi/gps.txt
