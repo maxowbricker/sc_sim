@@ -1,4 +1,5 @@
 from datetime import datetime
+from simulator.spatial_index import GridSpatialIndex
 
 
 class StateManager:
@@ -21,6 +22,9 @@ class StateManager:
         self.assigned_workers = set()
         self.completed_tasks = set()
         
+        # Initialize the Spatial Index for efficient nearest neighbor search
+        self.spatial_index = GridSpatialIndex()
+        
         # PERFORMANCE FIX: Assignment logging removed - was causing memory bloat without any benefit
         # Real statistics are collected via simulation summary and fairness tracker
         
@@ -35,6 +39,8 @@ class StateManager:
 
     def release_worker(self, worker):
         self.available_workers.add(worker)
+        # ADD TO INDEX
+        self.spatial_index.add(worker)
 
     def release_task(self, task):
         self.active_tasks.add(task)
@@ -46,6 +52,11 @@ class StateManager:
         
         # Move worker from available to assigned
         self.available_workers.discard(worker)
+        
+        # REMOVE FROM INDEX
+        # Note: Worker must be at the same location as when they were added
+        self.spatial_index.remove(worker)
+        
         self.assigned_tasks.add(task)
         self.assigned_workers.add(worker)
 
@@ -86,3 +97,6 @@ class StateManager:
             
         # Worker becomes available again
         self.available_workers.add(worker)
+        
+        # ADD TO INDEX (at new location)
+        self.spatial_index.add(worker)

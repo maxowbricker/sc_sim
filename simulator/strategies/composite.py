@@ -99,7 +99,9 @@ def _find_best_assignment_for_task(
     utility_weight, 
     k,
     normalize_scores=False,
-    diagnostic_tracker=None
+    diagnostic_tracker=None,
+    *,
+    spatial_index
 ) -> Tuple[Optional[object], float, Optional[Dict]]:
     """
     OPTIMIZED: Advanced Nearest Neighbor (ANN) approach from FATP paper.
@@ -148,14 +150,12 @@ def _find_best_assignment_for_task(
     diagnostic_info : dict or None
         Component values for diagnostic tracking (None for fast path)
     """
-    from simulator.spatial_index import find_k_nearest_workers
-    
     if not workers:
         return None, float("-inf"), None
 
-    # OPTIMIZATION 1: Find only k nearest workers instead of checking all workers
+    # OPTIMIZATION 1: Use Spatial Index for efficient nearest neighbor search
     # This reduces from 38,000 workers to 15 workers checked per task!
-    nearest_workers = find_k_nearest_workers(task, workers, k)
+    nearest_workers = spatial_index.query_k_nearest(task, k)
     
     if not nearest_workers:
         return None, float("-inf"), None
@@ -412,11 +412,16 @@ def assign_new_tasks_composite(
             utility_weight, 
             k,
             normalize_scores=normalize_scores,
-            diagnostic_tracker=diagnostic_tracker
+            diagnostic_tracker=diagnostic_tracker,
+            spatial_index=state.spatial_index  # Spatial index is always initialized in StateManager
         )
         
-        # EXPERIMENT 008: Optionally disable threshold check
-        threshold_passed = disable_soft_threshold or (best_score >= soft_threshold)
+        # OPTIMIZATION: Skip threshold check if disabled or threshold is 0
+        # This avoids unnecessary comparison when threshold check always passes
+        if disable_soft_threshold or soft_threshold == 0:
+            threshold_passed = True
+        else:
+            threshold_passed = best_score >= soft_threshold
         
         if best_worker and threshold_passed:
             assigned_task = _commit_assignment(task, best_worker, now)
@@ -586,25 +591,50 @@ def match_worker_composite(
     best_candidate = max(candidate_data, key=lambda c: c['ranking_score'])
     best_task = best_candidate['task']
     
-    # Calculate updated EWMA but don't mutate worker state yet
-    gamma = getattr(worker, 'gamma', 0.3)
-    if worker.last_active_ts is None:
-        T_idle_seconds = (now - worker.release_time).total_seconds()
-    else:
-        T_idle_seconds = (now - worker.last_active_ts).total_seconds()
-    
-    updated_ewma = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
-    fairness_contribution = fairness_weight * updated_ewma
-    
-    # Calculate full score with updated fairness for threshold check
-    best_score = best_candidate['ranking_score'] + fairness_contribution
-    
-    # Optionally disable threshold check
-    threshold_passed = disable_soft_threshold or (best_score >= soft_threshold)
-            
-    if best_task and threshold_passed:
+    # OPTIMIZATION: Skip threshold check if disabled or threshold is 0
+    # This avoids unnecessary EWMA calculation when threshold check always passes
+    if disable_soft_threshold or soft_threshold == 0:
+        # Threshold check always passes - assign immediately
+        # Calculate EWMA only when assignment is confirmed (lazy evaluation)
+        gamma = getattr(worker, 'gamma', 0.3)
+        if worker.last_active_ts is None:
+            T_idle_seconds = (now - worker.release_time).total_seconds()
+        else:
+            T_idle_seconds = (now - worker.last_active_ts).total_seconds()
+        
+        updated_ewma = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
+        fairness_contribution = fairness_weight * updated_ewma
+        
+        # Calculate full score for return value and diagnostics
+        best_score = best_candidate['ranking_score'] + fairness_contribution
+        
         # ASSIGNMENT CONFIRMED: Update worker's EWMA state
         worker.fairness_ewma = updated_ewma
+    else:
+        # Threshold check required - calculate EWMA for threshold evaluation
+        gamma = getattr(worker, 'gamma', 0.3)
+        if worker.last_active_ts is None:
+            T_idle_seconds = (now - worker.release_time).total_seconds()
+        else:
+            T_idle_seconds = (now - worker.last_active_ts).total_seconds()
+        
+        updated_ewma = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
+        fairness_contribution = fairness_weight * updated_ewma
+        
+        # Calculate full score with updated fairness for threshold check
+        best_score = best_candidate['ranking_score'] + fairness_contribution
+        
+        # Check threshold
+        threshold_passed = best_score >= soft_threshold
+        
+        if not threshold_passed:
+            # Threshold not met: do nothing, worker keeps current EWMA, task stays deferred
+            return None
+        
+        # ASSIGNMENT CONFIRMED: Update worker's EWMA state
+        worker.fairness_ewma = updated_ewma
+            
+    if best_task:
         
         assigned_task = _commit_assignment(best_task, worker, now)
         state.assign_task(assigned_task, worker)
@@ -644,8 +674,7 @@ def match_worker_composite(
             state.deferred_monitor.record_task_assigned_from_deferred(best_task.id, now)
             
         return (assigned_task, worker, best_score)
-        
-    # Threshold not met: do nothing, worker keeps current EWMA, task stays deferred
+    
     return None
 
 @register("composite")

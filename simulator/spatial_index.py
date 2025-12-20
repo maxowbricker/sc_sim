@@ -5,7 +5,11 @@ Implements Advanced Nearest Neighbor (ANN) approach from FATP paper.
 
 import math
 from typing import List, Set, Tuple
+from collections import defaultdict
 import heapq
+
+# Tuning parameter: 0.01 degrees is roughly 1km
+GRID_RESOLUTION = 0.01
 
 def manhattan_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calculate Manhattan distance in kilometers."""
@@ -91,6 +95,144 @@ def find_nearest_available_worker(task, available_workers: Set) -> Tuple:
             nearest_worker = worker
     
     return nearest_worker, min_distance
+
+class GridSpatialIndex:
+    """
+    Grid-based spatial index for efficient nearest neighbor search.
+    Divides the map into cells (buckets) for O(1) cell lookup and O(k) candidate search.
+    """
+    
+    def __init__(self, resolution=GRID_RESOLUTION):
+        """
+        Initialize grid spatial index.
+        
+        Parameters
+        ----------
+        resolution : float
+            Grid cell size in degrees (default: 0.01 degrees ≈ 1km)
+        """
+        self.resolution = resolution
+        # Map (grid_x, grid_y) -> set of workers
+        self.grid = defaultdict(set)
+        # Keep track of worker count for validation
+        self.count = 0
+
+    def _get_cell_coords(self, lat, lon):
+        """Convert lat/lon to grid cell coordinates."""
+        return (int(lat / self.resolution), int(lon / self.resolution))
+
+    def add(self, worker):
+        """Add a worker to the spatial index."""
+        cell = self._get_cell_coords(worker.start_lat, worker.start_lon)
+        self.grid[cell].add(worker)
+        self.count += 1
+
+    def remove(self, worker):
+        """
+        Remove a worker from the spatial index.
+        
+        Note: Assumes worker hasn't moved since being added.
+        If they have, this will fail. Workers only move when *assigned* (removed from index).
+        """
+        cell = self._get_cell_coords(worker.start_lat, worker.start_lon)
+        if worker in self.grid[cell]:
+            self.grid[cell].remove(worker)
+            self.count -= 1
+            # Cleanup empty cells to save memory
+            if not self.grid[cell]:
+                del self.grid[cell]
+
+    def query_k_nearest(self, task, k=15):
+        """
+        Find k nearest workers by spiraling out from task location.
+        Stops early once enough workers are found to guarantee top-k.
+        
+        Parameters
+        ----------
+        task : Task
+            Task object with pickup_lat, pickup_lon attributes
+        k : int
+            Number of nearest workers to return (default: 15)
+            
+        Returns
+        -------
+        List[Worker]
+            List of up to k nearest workers, sorted by distance
+        """
+        center_cell = self._get_cell_coords(task.pickup_lat, task.pickup_lon)
+        candidates = []
+        
+        # Search radius (in cells)
+        radius = 0
+        # Sanity limit: don't search whole world if map is empty
+        max_radius = 50 
+        
+        while radius < max_radius:
+            cells_to_check = self._get_cells_in_ring(center_cell, radius)
+            
+            for cell in cells_to_check:
+                workers_in_cell = self.grid.get(cell)
+                if workers_in_cell:
+                    for worker in workers_in_cell:
+                        dist = manhattan_km(task.pickup_lat, task.pickup_lon, 
+                                            worker.start_lat, worker.start_lon)
+                        candidates.append((dist, worker))
+            
+            # Optimization: Stop if we have enough candidates and 
+            # the closest possible worker in the NEXT ring is further than our kth best candidate.
+            if len(candidates) >= k:
+                candidates.sort(key=lambda x: x[0])
+                # K-th best distance currently found
+                kth_dist = candidates[k-1][0]
+                
+                # Minimum distance to the NEXT ring (approximate lower bound)
+                # 1 cell distance approx 111km * resolution
+                min_dist_next_ring = (radius + 1) * self.resolution * 111 * 0.7 
+                
+                if min_dist_next_ring > kth_dist:
+                    break
+            
+            # If we've searched a lot and found nothing, expand
+            radius += 1
+            if not candidates and radius > 5:
+                 # Logic to jump radius could go here, but simple increment is safe
+                 pass
+
+        # Final sort and return top k workers
+        candidates.sort(key=lambda x: x[0])
+        return [c[1] for c in candidates[:k]]
+
+    def _get_cells_in_ring(self, center, radius):
+        """
+        Generator for grid coordinates in a square ring.
+        
+        Parameters
+        ----------
+        center : Tuple[int, int]
+            Center cell coordinates (grid_x, grid_y)
+        radius : int
+            Ring radius in cells
+            
+        Yields
+        ------
+        Tuple[int, int]
+            Cell coordinates in the ring
+        """
+        cx, cy = center
+        if radius == 0:
+            yield (cx, cy)
+            return
+
+        # Top and Bottom rows
+        for dx in range(-radius, radius + 1):
+            yield (cx + dx, cy - radius)
+            yield (cx + dx, cy + radius)
+        
+        # Left and Right columns (excluding corners already covered)
+        for dy in range(-radius + 1, radius):
+            yield (cx - radius, cy + dy)
+            yield (cx + radius, cy + dy)
+
 
 class SpatialIndex:
     """
