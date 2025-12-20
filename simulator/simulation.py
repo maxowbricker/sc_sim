@@ -180,10 +180,6 @@ class EventSimulator:
             self.current_time = event_time
             
             self._process_event(event_type, event_id)
-            
-            # Periodic updates (less frequent now, snapshot_step handles most)
-            if len(self.event_queue) % 100 == 0:
-                self.metrics.fairness_tracker.update_worker_stats(self.state.all_workers_map.values())
         
         # Snapshot metrics at end of simulation
         if self.step_start_time:

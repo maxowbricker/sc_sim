@@ -195,25 +195,23 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
 
     def _calculate_reward(self):
         """
-        Calculate reward based on recent performance.
+        Calculate reward using the standardized MetricsManager.
         
-        Now uses MetricsManager for unified metric calculation - no more duplicate JFI calculation!
+        The manager already calculated JFI, Backlog, and AvgWait at the end of the step.
+        We just normalize and combine them with reward weights.
         """
-        # Get reward stats from MetricsManager (single source of truth)
-        reward_stats = self.simulator.metrics.get_reward_stats()
-        
-        fairness = reward_stats['fairness']  # JFI
-        throughput = reward_stats['throughput']  # Negative backlog
-        latency = reward_stats['latency']  # Negative wait time
+        # Get pre-calculated stats from MetricsManager (single source of truth)
+        stats = self.simulator.metrics.get_reward_stats()
+        # stats = {'fairness': JFI, 'throughput': -Backlog, 'latency': -AvgWait}
         
         # Normalize components to be roughly in same magnitude
         # JFI is [0, 1]. Target is to boost it.
-        # Backlog is [0, 500+].
-        # Wait time is [0, 30+].
+        # Backlog is [0, 500+]. Throughput is already negative.
+        # Wait time is [0, 30+]. Latency is already negative.
         
-        r_fairness = (fairness - 0.5) * 10.0  # Range [-5, 5]
-        r_throughput = throughput / 100.0  # Range [-5, 0] (throughput is already negative)
-        r_latency = latency / 5.0  # Range [-6, 0] (latency is already negative)
+        r_fairness = (stats['fairness'] - 0.5) * 10.0  # Range [-5, 5]
+        r_throughput = stats['throughput'] / 100.0  # Range [-5, 0] (throughput is already negative)
+        r_latency = stats['latency'] / 5.0  # Range [-6, 0] (latency is already negative)
         
         reward = (self.reward_weights[0] * r_fairness + 
                   self.reward_weights[1] * r_throughput + 
