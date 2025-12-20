@@ -71,18 +71,11 @@ class Worker:
         return self.available and self.release_time <= current_time <= self.deadline
 
     def update_idle_time(self, time_delta_seconds: float):
-        """Update idle time by a fixed duration and recalculate EWMA fairness."""
+        """Update cumulative idle time for reporting purposes.
+        """
         if not self.available:
             return
 
-        # Update cumulative idle duration
+        # Update cumulative idle duration (for reporting only)
         self.total_idle_time += pd.to_timedelta(time_delta_seconds, unit='s')
-
-        # NOTE: EWMA fairness calculation moved to composite strategy
-        # This ensures fairness calculation follows research proposal methodology
-        # and prevents competing updates from different parts of the code
-
-        # EWMA update using the time delta (not cumulative)
-        # This follows the methodology: (1-γ)*T_idle(w_i) + γ*Previous_EWMA
-        self.fairness_ewma = (1 - self.gamma) * time_delta_seconds + self.gamma * self.fairness_ewma
 
