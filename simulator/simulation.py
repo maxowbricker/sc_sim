@@ -11,9 +11,7 @@ from typing import Dict, Optional, List, Tuple, Any
 from config import get_simulation_config
 from simulator.state import StateManager
 from simulator.strategies import get_strategy
-from metrics.fairness import FairnessMetricsTracker
-from metrics.tracker import MetricTracker
-from metrics.diagnostic_tracker import DiagnosticTracker
+from metrics.manager import MetricsManager
 
 class EventSimulator:
     """
@@ -48,11 +46,14 @@ class EventSimulator:
         self.event_queue = []
         self.current_time = None
         self.end_time = None
-        self.summary = {}
-        self.fairness_tracker = None
-        self.metric_tracker = None
-        self.diagnostic_tracker = None
-        self.deferral_tracker = None
+        
+        # Metrics manager
+        metrics_config = {
+            'enable_diagnostics': self.strategy_params.get('enable_diagnostics', False),
+            'enable_deferral_tracking': self.strategy_params.get('enable_deferral_tracking', False),
+            'strategy_params': self.strategy_params  # Pass through for tracker injection
+        }
+        self.metrics = MetricsManager(metrics_config)
         
         # Logging/Tracking
         self.total_tasks_count = len(tasks)
@@ -75,19 +76,16 @@ class EventSimulator:
         
         self.state = StateManager(current_workers, current_tasks)
         self.event_queue = []
-        self.fairness_tracker = FairnessMetricsTracker()
-        self.metric_tracker = MetricTracker()
         
-        # Optional trackers
-        if self.strategy_name == "composite" and self.strategy_params.get('enable_diagnostics', False):
-            self.diagnostic_tracker = DiagnosticTracker()
-            self.strategy_params['diagnostic_tracker'] = self.diagnostic_tracker
-            
-        if self.strategy_name == "composite" and self.strategy_params.get('enable_deferral_tracking', False):
-            from metrics.deferral_tracker import DeferralTracker
-            self.deferral_tracker = DeferralTracker()
-            self.strategy_params['deferral_tracker'] = self.deferral_tracker
-            
+        # Reset metrics manager (it will reinitialize trackers)
+        metrics_config = {
+            'enable_diagnostics': self.strategy_params.get('enable_diagnostics', False),
+            'enable_deferral_tracking': self.strategy_params.get('enable_deferral_tracking', False),
+            'strategy_params': self.strategy_params
+        }
+        self.metrics = MetricsManager(metrics_config)
+        
+        # Special trackers for other strategies
         if self.strategy_name == "fatp_ann":
             from simulator.strategies.fatp_ann import FairnessCapTracker
             fairness_cap_tracker = FairnessCapTracker()
@@ -109,22 +107,12 @@ class EventSimulator:
         for t in current_tasks:
             heappush(self.event_queue, (t.release_time, "TASK_RELEASE", t.id))
             
-        # Reset summary
-        self.summary = {
-            'total_tasks': len(current_tasks),
-            'completed_tasks': 0, 'total_travel_km': 0.0, 'empty_km': 0.0,
-            'passenger_km': 0.0, 'total_wait_min': 0.0, 'wait_times': [],
-            'service_times': [], 'backlog_peak': 0,
-            'pickup_distances': [], 'assignment_delays': [],
-            'expired_tasks': [],  # Track expired task IDs
-        }
-        
         self.event_count = 0
         self.ewma_temporal_history = []
         self.next_log_checkpoint = self.temporal_log_interval
         
-        # RL tracking: total tasks released into the system
-        self.total_tasks_released = 0
+        # Track step start time for RL
+        self.step_start_time = None
         
         return self.get_state()
 
@@ -150,13 +138,9 @@ class EventSimulator:
         if self.state is None:
             raise RuntimeError("Simulator not reset. Call reset() first.")
             
-        # Initialize windowed stats for this step
-        self.step_summary = {
-            'completed_tasks': 0,
-            'wait_times': [],
-            'total_travel_km': 0.0,
-            'empty_km': 0.0
-        }
+        # Track step start time for metrics
+        if self.step_start_time is None:
+            self.step_start_time = self.current_time
             
         target_time = self.current_time + pd.Timedelta(seconds=duration_seconds) if duration_seconds else None
         
@@ -172,6 +156,9 @@ class EventSimulator:
                     for w in self.state.available_workers:
                         w.update_idle_time(time_delta)
                 self.current_time = target_time
+                # Snapshot metrics at end of step
+                self.metrics.snapshot_step(self.state, self.current_time, self.step_start_time)
+                self.step_start_time = None  # Reset for next step
                 return False # Not done
             
             # Process event
@@ -194,14 +181,13 @@ class EventSimulator:
             
             self._process_event(event_type, event_id)
             
-            # Periodic updates
-            current_backlog = len(self.state.active_tasks) + len(self.state.deferred_tasks)
-            self.summary['backlog_peak'] = max(self.summary['backlog_peak'], current_backlog)
-            
+            # Periodic updates (less frequent now, snapshot_step handles most)
             if len(self.event_queue) % 100 == 0:
-                self.fairness_tracker.update_worker_stats(self.state.all_workers_map.values())
-                self.fairness_tracker.record_snapshot(self.current_time)
-                self.metric_tracker.snapshot(self.state, self.current_time)
+                self.metrics.fairness_tracker.update_worker_stats(self.state.all_workers_map.values())
+        
+        # Snapshot metrics at end of simulation
+        if self.step_start_time:
+            self.metrics.snapshot_step(self.state, self.current_time, self.step_start_time)
         
         return True # Done (queue empty)
 
@@ -213,17 +199,15 @@ class EventSimulator:
             assignment = self.free_worker_handler(self.state, self.current_time, worker, **self.strategy_params)
             if assignment:
                 assigned_task, assigned_worker, _ = assignment
-                self.fairness_tracker.record_task_assignment(assigned_task, assigned_worker, self.current_time)
+                # Metrics manager handles assignment tracking
+                self.metrics.on_task_assigned(assigned_task, assigned_worker, self.current_time)
                 heappush(self.event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
-                if assigned_task.start_time:
-                    assignment_delay = (self.current_time - assigned_task.release_time).total_seconds()
-                    self.summary['assignment_delays'].append(assignment_delay)
 
         elif event_type == "TASK_RELEASE":
             task = self.state.get_task(event_id)
             self.state.release_task(task)
-            self.total_tasks_released += 1  # Track total tasks released for RL
-            self.fairness_tracker.record_task_release(task, list(self.state.available_workers), self.current_time)
+            # Metrics manager tracks task release
+            self.metrics.on_task_released(task, list(self.state.available_workers), self.current_time)
             
             if self.state.available_workers:
                 # Add expiry scheduler callback to strategy params for tasks deferred in handler
@@ -234,16 +218,16 @@ class EventSimulator:
                 assignments = self.new_task_handler(self.state, self.current_time, [task], **strategy_params_with_scheduler)
                 if assignments:
                     assigned_task, assigned_worker, _ = assignments[0]
-                    self.fairness_tracker.record_task_assignment(assigned_task, assigned_worker, self.current_time)
+                    # Metrics manager handles assignment tracking
+                    self.metrics.on_task_assigned(assigned_task, assigned_worker, self.current_time)
                     heappush(self.event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
-                    if assigned_task.start_time:
-                        assignment_delay = (self.current_time - assigned_task.release_time).total_seconds()
-                        self.summary['assignment_delays'].append(assignment_delay)
             else:
                 if self.strategy_name == "composite":
                     # Defer task and schedule expiry event if not already expired
                     if self.state.defer_task(task, self.current_time):
                         heappush(self.event_queue, (task.expire_time, "TASK_EXPIRE", task.id))
+                        # Track deferral (score and reason will be tracked by strategy if deferral_tracker is enabled)
+                        self.metrics.on_task_deferred(task, 0.0, "no_candidates", self.current_time)
 
         elif event_type == "TASK_COMPLETE":
             task = self.state.get_task(event_id)
@@ -254,13 +238,12 @@ class EventSimulator:
                 assignment = self.free_worker_handler(self.state, self.current_time, worker, **self.strategy_params)
                 if assignment:
                     assigned_task, assigned_worker, _ = assignment
-                    self.fairness_tracker.record_task_assignment(assigned_task, assigned_worker, self.current_time)
+                    # Metrics manager handles assignment tracking
+                    self.metrics.on_task_assigned(assigned_task, assigned_worker, self.current_time)
                     heappush(self.event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
-                    if assigned_task.start_time:
-                        assignment_delay = (self.current_time - assigned_task.release_time).total_seconds()
-                        self.summary['assignment_delays'].append(assignment_delay)
 
-                self._update_completion_stats(task)
+                # Metrics manager handles completion tracking
+                self.metrics.on_task_completed(task, worker, self.current_time)
 
         elif event_type == "TASK_EXPIRE":
             # Remove expired task from deferred state (set + index)
@@ -277,36 +260,20 @@ class EventSimulator:
                 
                 # Track expired tasks for metrics (only if not completed AND not assigned)
                 if not is_assigned and task not in self.state.completed_tasks and not task.is_completed:
-                    self.summary['expired_tasks'].append(task.id)
+                    self.metrics.summary['expired_tasks'].append(task.id)
 
     def _update_completion_stats(self, task):
-        """Update summary stats after task completion."""
-        # Update global summary
-        self.summary['completed_tasks'] += 1
-        self.summary['total_travel_km'] += (task.pickup_km or 0) + (task.drop_km or 0)
-        self.summary['empty_km'] += task.pickup_km or 0
-        if task.pickup_km is not None:
-            self.summary['pickup_distances'].append(task.pickup_km)
-        self.summary['passenger_km'] += task.drop_km or 0
-        wait_min = (task.start_time - task.release_time).total_seconds()/60 if task.start_time else 0
-        self.summary['total_wait_min'] += wait_min
-        self.summary['wait_times'].append(wait_min)
-        service_min = (task.drop_km / 30 * 60) if task.drop_km is not None else 0
-        self.summary['service_times'].append(service_min)
+        """DEPRECATED: Use metrics.on_task_completed() instead.
         
-        # Update windowed step summary
-        if hasattr(self, 'step_summary'):
-            self.step_summary['completed_tasks'] += 1
-            self.step_summary['wait_times'].append(wait_min)
-            self.step_summary['total_travel_km'] += (task.pickup_km or 0) + (task.drop_km or 0)
-            self.step_summary['empty_km'] += task.pickup_km or 0
-        
-        # Log EWMA temporal data
-        if self.summary['completed_tasks'] >= self.next_log_checkpoint:
+        This method is kept for backward compatibility but is no longer used.
+        All completion stats are now handled by MetricsManager.
+        """
+        # Log EWMA temporal data (still needed for final results)
+        if self.metrics.summary['completed_tasks'] >= self.next_log_checkpoint:
             ewma_values = [w.fairness_ewma for w in self.state.all_workers_map.values()]
             self.ewma_temporal_history.append({
                 'timestamp': self.current_time.isoformat(),
-                'completed_tasks': self.summary['completed_tasks'],
+                'completed_tasks': self.metrics.summary['completed_tasks'],
                 'ewma_mean': float(np.mean(ewma_values)),
                 'ewma_std': float(np.std(ewma_values))
             })
@@ -315,72 +282,32 @@ class EventSimulator:
     def get_state(self):
         """
         Return the current state of the simulation for RL observation.
+        
+        Now delegates to MetricsManager for clean, unified data.
         """
-        # Calculate windowed metrics
-        step_avg_wait = 0.0
-        if hasattr(self, 'step_summary') and self.step_summary['wait_times']:
-            step_avg_wait = np.mean(self.step_summary['wait_times'])
+        # Get observation data from metrics manager
+        obs_data = self.metrics.get_observation_data(self.state, self.current_time)
         
-        # Worker idle time statistics
-        workers = list(self.state.all_workers_map.values())
-        if workers:
-            idle_times_min = [w.total_idle_time.total_seconds() / 60.0 for w in workers]
-            mean_idle = float(np.mean(idle_times_min))
-            std_idle = float(np.std(idle_times_min)) if len(idle_times_min) > 1 else 0.0
-            cv_idle = std_idle / mean_idle if mean_idle > 0 else 0.0  # Coefficient of variation
-        else:
-            mean_idle = 0.0
-            cv_idle = 0.0
-        
-        # Deferral reason breakdown
-        if self.deferral_tracker:
-            reason_breakdown = self.deferral_tracker.get_deferral_reason_breakdown()
-            pct_below_threshold = reason_breakdown.get('pct_below_threshold', 0.0) / 100.0  # Convert to 0-1
-            pct_no_candidates = reason_breakdown.get('pct_no_candidates', 0.0) / 100.0
-        else:
-            pct_below_threshold = 0.0
-            pct_no_candidates = 0.0
-        
-        # Task release rate calculation
-        step_duration = (self.current_time - self.step_start_time).total_seconds() if hasattr(self, 'step_start_time') and self.step_start_time else 1.0
-        tasks_released = getattr(self, 'step_tasks_released', 0)
-        assigned_workers_count = len(self.state.assigned_workers)
-        total_active_workers = len(self.state.available_workers) + assigned_workers_count
-        
-        if step_duration > 0 and total_active_workers > 0:
-            task_release_rate_per_min = (tasks_released / step_duration) * 60
-            task_worker_ratio = task_release_rate_per_min / total_active_workers
-        else:
-            task_worker_ratio = 0.0
-
-        return {
+        # Add state-specific data
+        obs_data.update({
             'active_tasks': len(self.state.active_tasks),
-            'deferred_tasks': len(self.state.deferred_tasks),
-            'available_workers': len(self.state.available_workers),
-            'assigned_workers': assigned_workers_count,  # NEW: For task-worker ratio
-            'total_workers': len(self.state.all_workers_map),
-            'completed_tasks': self.summary['completed_tasks'],
-            'current_time': self.current_time,
-            'workers': list(self.state.all_workers_map.values()),
-            'backlog_peak': self.summary['backlog_peak'],
-            'total_tasks_released': self.total_tasks_released,  # For RL deferred ratio calculation
-            # Windowed stats
-            'step_avg_wait': step_avg_wait,
-            'step_completed_tasks': self.step_summary['completed_tasks'] if hasattr(self, 'step_summary') else 0,
-            # NEW: Enhanced metrics for RL
-            'task_worker_ratio': task_worker_ratio,  # Tasks per minute per worker
-            'mean_worker_idle_min': mean_idle,
-            'cv_worker_idle': cv_idle,  # Worker inequality (lower = more fair)
-            'pct_deferrals_below_threshold': pct_below_threshold,
-            'pct_deferrals_no_candidates': pct_no_candidates,
-        }
+            'assigned_workers': len(self.state.assigned_workers),
+        })
+        
+        return obs_data
 
     def get_final_results(self):
         """
         Calculate and return final simulation statistics.
+        
+        Now delegates to MetricsManager for unified results.
         """
+        # Get results from metrics manager
+        results = self.metrics.get_final_results()
+        
+        # Add simulation-specific calculations
         total_tasks_count = self.total_tasks_count
-        summary = self.summary
+        summary = self.metrics.summary
         
         tar = summary['completed_tasks'] / total_tasks_count if total_tasks_count else 0
         avg_travel_km = summary['total_travel_km'] / summary['completed_tasks'] if summary['completed_tasks'] else 0
@@ -406,26 +333,15 @@ class EventSimulator:
         worker_idle_times = [w.total_idle_time.total_seconds() / 60.0 for w in self.state.all_workers_map.values()]
         summary['mean_worker_idle_time_min'] = safe_mean(worker_idle_times)
         
-        # Final fairness metrics calculation
-        self.fairness_tracker.update_worker_stats(self.state.all_workers_map.values())
-        fairness_summary = self.fairness_tracker.get_fairness_summary()
+        # Update results with summary
+        results.update(summary)
         
-        # Combine all metrics
-        summary.update(fairness_summary)
-        summary['metric_tracker'] = self.metric_tracker
-        
-        if self.diagnostic_tracker:
-            summary['diagnostic_tracker'] = self.diagnostic_tracker
-            summary['diagnostic_summary'] = self.diagnostic_tracker.get_summary_stats()
-            
-        if self.deferral_tracker:
-            summary['deferral_stats'] = self.deferral_tracker.get_summary()
-            
+        # Add EWMA temporal history if available
         if self.ewma_temporal_history:
-            summary['ewma_temporal_history'] = self.ewma_temporal_history
-            summary['ewma_final_mean'] = self.ewma_temporal_history[-1]['ewma_mean'] if self.ewma_temporal_history else 0
+            results['ewma_temporal_history'] = self.ewma_temporal_history
+            results['ewma_final_mean'] = self.ewma_temporal_history[-1]['ewma_mean'] if self.ewma_temporal_history else 0
             
-        return summary
+        return results
 
 
 def run_simulation(workers, tasks, start_time=None, end_time=None, sim_config: Optional[Dict] = None):
