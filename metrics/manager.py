@@ -276,6 +276,20 @@ class MetricsManager:
         if step_start_time:
             self.step_start_time = step_start_time
         
+        # Sync all workers' idle time stats before reporting
+        # Needed for accurate total_idle_time reporting in final metrics.
+        for w in state.all_workers_map.values():
+            if w.available:
+                # Calculate pending idle time since last sync
+                if w.last_state_ts and w.last_state_ts < current_time:
+                    time_delta = (current_time - w.last_state_ts).total_seconds()
+                    if time_delta > 0:
+                        w.update_idle_time(time_delta)
+                        w.last_state_ts = current_time
+                elif not w.last_state_ts:
+                    # Initialize last_state_ts if not set
+                    w.last_state_ts = current_time
+        
         # Update worker stats for fairness calculation
         self.fairness_tracker.update_worker_stats(state.all_workers_map.values())
         self.fairness_tracker.record_snapshot(current_time)

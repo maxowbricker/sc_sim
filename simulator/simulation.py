@@ -106,7 +106,7 @@ class EventSimulator:
             heappush(self.event_queue, (w.release_time, "WORKER_RELEASE", w.id))
         for t in current_tasks:
             heappush(self.event_queue, (t.release_time, "TASK_RELEASE", t.id))
-            
+        
         self.event_count = 0
         self.ewma_temporal_history = []
         self.next_log_checkpoint = self.temporal_log_interval
@@ -151,10 +151,6 @@ class EventSimulator:
             # If we have a target time and next event is beyond it, stop here
             if target_time and next_event_time > target_time:
                 # Advance current time to target time (simulating passage of time without events)
-                time_delta = (target_time - self.current_time).total_seconds()
-                if time_delta > 0:
-                    for w in self.state.available_workers:
-                        w.update_idle_time(time_delta)
                 self.current_time = target_time
                 # Snapshot metrics at end of step
                 self.metrics.snapshot_step(self.state, self.current_time, self.step_start_time)
@@ -171,16 +167,11 @@ class EventSimulator:
             
             if self.end_time and event_time > self.end_time:
                 return True
-
-            time_delta_seconds = (event_time - self.current_time).total_seconds()
-            if time_delta_seconds > 0:
-                for w in self.state.available_workers:
-                    w.update_idle_time(time_delta_seconds)
             
             self.current_time = event_time
             
             self._process_event(event_type, event_id)
-        
+            
         # Snapshot metrics at end of simulation
         if self.step_start_time:
             self.metrics.snapshot_step(self.state, self.current_time, self.step_start_time)

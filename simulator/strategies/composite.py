@@ -3,30 +3,44 @@ from math import log, fabs, cos, radians
 import pandas as pd
 from typing import Optional, Tuple, List, Dict
 
-def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_workers=None):
-    """Calculate fairness signal for a worker based on research proposal methodology."""
+def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_workers=None, mutate_state=False):
+    """
+    Calculate fairness signal for a worker based on research proposal methodology.
+    
+    OPTIMIZED: On-demand calculation - only calculates when needed, doesn't mutate state
+    unless explicitly requested. This allows scoring multiple candidates without side effects.
+    
+    Args:
+        worker: Worker object
+        current_time: Current simulation time
+        fairness_metric: Type of fairness metric ('ewma', 'idle_time', 'task_count')
+        all_workers: Optional list of all workers (not used in current implementation)
+        mutate_state: If True, update worker.fairness_ewma. If False, calculate without mutation.
+    
+    Returns:
+        float: Fairness signal value
+    """
     if fairness_metric == 'ewma':
         # RESEARCH PROPOSAL: Implement EWMA as described
         # Fairness(w_i) = (1 - γ) · T_idle(w_i) + γ · Previous EWMA
         
         gamma = getattr(worker, 'gamma', 0.3)
         
-        # Calculate current idle time in seconds
-        if worker.last_active_ts is None:
-            # Worker has never been active - use time since release
-            T_idle_seconds = (current_time - worker.release_time).total_seconds()
-        else:
-            # Time since last task completion
-            T_idle_seconds = (current_time - worker.last_active_ts).total_seconds()
+        # Determine reference time (when did they last finish a task?)
+        # If last_active_ts is None, they are fresh -> use release_time
+        ref_time = worker.last_active_ts if worker.last_active_ts is not None else worker.release_time
         
-        # Apply EWMA formula from research proposal
-        current_ewma = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
+        # Calculate continuous idle duration (on-demand, no state mutation)
+        current_idle_seconds = (current_time - ref_time).total_seconds()
         
-        # Update worker's stored EWMA for next calculation
-        worker.fairness_ewma = current_ewma
+        # Calculate POTENTIAL EWMA (without mutating state), for fair score comparison between candidate workers
+        potential_ewma = (1 - gamma) * current_idle_seconds + gamma * worker.fairness_ewma
         
-        # Return EWMA
-        return current_ewma
+        # Only update worker state if explicitly requested (e.g., after assignment)
+        if mutate_state:
+            worker.fairness_ewma = potential_ewma
+        
+        return potential_ewma
         
     elif fairness_metric == 'idle_time':
         # Direct idle time approach (simpler alternative)
@@ -54,15 +68,6 @@ def manhattan_km(lat1, lon1, lat2, lon2):
     avg_lat = (lat1 + lat2) / 2
     d_lon = fabs(lon1 - lon2) * km_per_deg * cos(radians(avg_lat))
     return d_lat + d_lon
-
-def score(task, worker, fairness_weight, starvation_weight, utility_weight, now, fairness_metric='ewma', all_workers=None):
-    distance = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
-    fairness = calculate_fairness_signal(worker, now, fairness_metric, all_workers)
-    starvation = log(1 + (now - task.release_time).total_seconds())
-    utility = 1.0 / (1.0 + distance)
-    score_val = fairness_weight * fairness + starvation_weight * starvation + utility_weight * utility
-    
-    return score_val
 
 def _normalize_components(components: List[float]) -> List[float]:
     """Apply min-max normalization to component values.
@@ -164,13 +169,16 @@ def _find_best_assignment_for_task(
     drop_distance_const = manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
     
     # FAST PATH: When no normalization or diagnostics needed
-    # Uses original single-pass algorithm for maximum performance
+    # OPTIMIZED: On-demand EWMA calculation - only for k=15 candidates, only update winner
     if not normalize_scores and diagnostic_tracker is None:
         # OPTIMIZED: Pre-calculate timestamps once (avoid Pandas Timedelta in loop)
         now_ts = now.timestamp()
         task_expire_ts = task.expire_time.timestamp()
         
-        best_worker, best_score = None, float("-inf")
+        # Pre-calculate gamma once (assumes constant gamma across workers for speed)
+        gamma = getattr(nearest_workers[0], 'gamma', 0.3) if nearest_workers else 0.3
+        
+        best_worker, best_score, best_fairness_val = None, float("-inf"), None
         
         for worker in nearest_workers:
             # Check feasibility constraints: pickup before expiry, finish before worker shift ends
@@ -185,11 +193,30 @@ def _find_best_assignment_for_task(
             if (now_ts + pickup_eta_seconds) > task_expire_ts or (now_ts + finish_eta_seconds) > worker.deadline.timestamp():
                 continue
             
-            # Score inline using original score() function
-            s = score(task, worker, fairness_weight, starvation_weight, utility_weight, now)
+            # --- ON-DEMAND FAIRNESS CALCULATION ---
+            # 1. Determine reference time (when did they last finish?)
+            ref_time = worker.last_active_ts if worker.last_active_ts is not None else worker.release_time
+            
+            # 2. Calculate continuous idle duration (on-demand, no state mutation)
+            current_idle_seconds = (now - ref_time).total_seconds()
+            
+            # 3. Calculate POTENTIAL EWMA (without mutating state)
+            #    Formula: (1-gamma) * NewIdle + gamma * OldEWMA
+            potential_fairness = (1 - gamma) * current_idle_seconds + gamma * worker.fairness_ewma
+            
+            # 4. Score using this potential fairness
+            starvation = log(1 + (now - task.release_time).total_seconds())
+            utility = 1.0 / (1.0 + d_pick)
+            
+            s = fairness_weight * potential_fairness + starvation_weight * starvation + utility_weight * utility
             
             if s > best_score:
                 best_score, best_worker = s, worker
+                best_fairness_val = potential_fairness  # Store for winner update
+        
+        # UPDATE WINNER STATE (only the selected worker)
+        if best_worker is not None:
+            best_worker.fairness_ewma = best_fairness_val
         
         return best_worker, best_score, None
     
@@ -287,8 +314,9 @@ def _find_best_assignment_for_task(
             continue
         
         # Calculate raw component values
+        # OPTIMIZED: On-demand EWMA calculation (non-mutating)
         distance = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
-        fairness_raw = calculate_fairness_signal(worker, now)
+        fairness_raw = calculate_fairness_signal(worker, now, mutate_state=False)
         starvation_raw = log(1 + (now - task.release_time).total_seconds())
         utility_raw = 1.0 / (1.0 + distance)
         
@@ -342,6 +370,11 @@ def _find_best_assignment_for_task(
     best_candidate = max(candidate_data, key=lambda c: c['score'])
     best_worker = best_candidate['worker']
     best_score = best_candidate['score']
+    
+    # UPDATE WINNER STATE (only the selected worker gets EWMA updated)
+    # This ensures state is only mutated for the worker that actually gets the task
+    if best_worker is not None:
+        best_worker.fairness_ewma = best_candidate['fairness_raw']
     
     # Prepare diagnostic info for the best candidate
     diagnostic_info = {

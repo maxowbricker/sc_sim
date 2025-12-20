@@ -44,6 +44,8 @@ class StateManager:
         self.available_workers.add(worker)
         # ADD TO INDEX
         self.spatial_index.add(worker)
+        # Note: last_state_ts is already initialized to release_time in Worker.__init__
+        # and updated in worker.record_completion() when worker becomes available after task completion
 
     def release_task(self, task):
         self.active_tasks.add(task)
@@ -52,10 +54,8 @@ class StateManager:
         # Remove from active/deferred pools (O(1) operations with sets)
         self.active_tasks.discard(task)      # discard() won't raise error if not present
         
-        # Handle deferred task removal (Set + Index)
-        if task in self.deferred_tasks:
-            self.deferred_tasks.remove(task)
-            self.deferred_task_index.remove(task)  # Remove from task index
+        # Remove from deferred state if present (handles both set and index)
+        self.remove_deferred_task(task)
         
         # Move worker from available to assigned
         self.available_workers.discard(worker)

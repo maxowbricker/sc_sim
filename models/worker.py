@@ -56,6 +56,9 @@ class Worker:
         self.completed_tasks += 1
         self.revenue += float(task_revenue)
         self.last_active_ts = now
+        
+        # Update last_state_ts for idle time tracking
+        self.last_state_ts = now
 
         # Worker becomes available again; `StateManager` will also toggle pools.
         self.available = True
