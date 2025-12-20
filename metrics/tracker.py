@@ -128,9 +128,17 @@ class MetricTracker:
         # Overall travel distance statistics
         overall_avg_travel = sum(self._travel_distance_samples) / len(self._travel_distance_samples) if self._travel_distance_samples else 0.0
 
+        # Enhanced backlog tracking: total backlog (active + deferred)
+        active_backlog = len(state.active_tasks)
+        deferred_backlog = len(state.deferred_tasks)
+        total_backlog = active_backlog + deferred_backlog
+        
         record = {
             "time": now,
-            "backlog": len(state.active_tasks),
+            "backlog": active_backlog,  # Legacy: keep for backward compatibility
+            "backlog_active": active_backlog,  # Explicit active backlog
+            "backlog_deferred": deferred_backlog,  # Deferred backlog
+            "backlog_total": total_backlog,  # Total backlog (active + deferred)
             "assigned": len(state.assigned_tasks),
             "completed_total": len(state.completed_tasks),
             "jfi": jfi,

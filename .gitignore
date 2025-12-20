@@ -30,6 +30,9 @@ metrics_snapshot.csv
 # Results directory and experimental data
 results/
 
+# RL baseline metrics data
+rl/baseline_metrics_data/
+
 # Experimental result files (specific patterns to avoid catching .ipynb)
 rq*_results_*.json
 *_experiments_*.json

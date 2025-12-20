@@ -22,7 +22,8 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     Gymnasium environment for RL-based control of spatial crowdsourcing strategy weights.
     
     The agent observes the system state (backlog, fairness, etc.) and outputs
-    continuous weights (λ1, λ2, λ3) for the composite scoring function.
+    continuous weights (λ1, λ3) for the composite scoring function.
+    λ2 is fixed at 0.5 based on empirical findings, reducing action space to 2D.
     """
     
     metadata = {"render_modes": ["human"]}
@@ -46,9 +47,11 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.workers, self.tasks = load_workers_tasks(dataset)
         print(f"Loaded {len(self.workers)} workers, {len(self.tasks)} tasks")
         
-        # Define Action Space: Continuous [λ1, λ2, λ3]
+        # Define Action Space: Continuous [λ1, λ3]
+        # λ2 is fixed at 0.5 based on empirical findings
         # We limit the range to reasonable values, e.g., [0, 5.0]
-        self.action_space = spaces.Box(low=0.0, high=5.0, shape=(3,), dtype=np.float32)
+        self.action_space = spaces.Box(low=0.0, high=5.0, shape=(2,), dtype=np.float32)
+        self.lambda2_fixed = 0.5  # Fixed value for λ2
         
         # Define Observation Space
         # Features:
@@ -65,17 +68,20 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         # 10. Time of Day (Sine)
         # 11. Time of Day (Cosine)
         # 12. Previous λ1
-        # 13. Previous λ2
-        # 14. Previous λ3
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(15,), dtype=np.float32)
+        # 13. Previous λ3
+        # (λ2 is fixed at 0.5, so not included in observation)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(14,), dtype=np.float32)
         
         self.simulator = None
         self.current_step_idx = 0
-        self.last_action = np.array([1.0, 1.0, 1.0], dtype=np.float32)
+        self.last_action = np.array([1.0, 1.0], dtype=np.float32)  # [λ1, λ3] only
         
-        # Baseline for normalization (approximate)
-        self.baseline_wait_time = 10.0 # minutes
-        self.baseline_backlog = 100
+        # Baseline for normalization (from baseline_metrics_summary_20251211_165426.json)
+        # Values averaged from two configs: λ1=4.0,λ3=4.0 and λ1=5.0,λ3=3.0
+        # Both used same sampling: 4000 workers, 20000 tasks, stratified temporal (12 bins, seed=42)
+        self.baseline_wait_time = 3.82  # minutes (avg from baseline simulations)
+        self.baseline_backlog = 1285    # tasks (avg peak backlog from baseline simulations)
+        self.baseline_worker_idle = 146.07  # minutes (avg worker idle time from baseline simulations)
         
     def reset(self, seed=None, options=None):
         """
@@ -96,7 +102,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.simulator.reset()
         
         self.current_step_idx = 0
-        self.last_action = np.array([1.0, 1.0, 1.0], dtype=np.float32)
+        self.last_action = np.array([1.0, 1.0], dtype=np.float32)  # [λ1, λ3] only
         
         # Get initial observation
         obs = self._get_observation()
@@ -106,11 +112,16 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     def step(self, action):
         """
         Run one timestep of the environment's dynamics.
+        
+        Args:
+            action: Array of shape (2,) containing [λ1, λ3]. λ2 is fixed at 0.5.
         """
         # 1. Apply action (update weights)
-        lambda1, lambda2, lambda3 = action
+        # Action is [λ1, λ3], we fix λ2 at 0.5
+        lambda1, lambda3 = action
+        lambda2 = self.lambda2_fixed
         self.simulator.update_weights(lambda1, lambda2, lambda3)
-        self.last_action = action
+        self.last_action = action  # Store [λ1, λ3] for observation
         
         # 2. Run simulation for fixed duration
         done = self.simulator.step(duration_seconds=self.step_duration)
@@ -128,7 +139,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         
         info = {
             'step': self.current_step_idx,
-            'lambdas': action,
+            'lambdas': [lambda1, lambda2, lambda3],  # Full [λ1, λ2, λ3] for logging
             'backlog': self.simulator.summary.get('backlog_peak', 0),
             'completed': self.simulator.summary.get('completed_tasks', 0)
         }
@@ -192,8 +203,8 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
             time_sin,  # 10. Time of Day (Sine)
             time_cos,  # 11. Time of Day (Cosine)
             self.last_action[0],  # 12. Previous λ1
-            self.last_action[1],  # 13. Previous λ2
-            self.last_action[2]  # 14. Previous λ3
+            self.last_action[1]  # 13. Previous λ3
+            # (λ2 is fixed at 0.5, so not included in observation)
         ], dtype=np.float32)
         
         return obs
