@@ -1,5 +1,5 @@
 import pandas as pd
-from math import fabs, cos, radians
+from simulator.spatial_index import fast_manhattan_km
 
 class Task:
     def __init__(self, task_dict):
@@ -28,15 +28,16 @@ class Task:
         """
         Calculate base utility for FATP-ANN strategy.
         Base utility is proportional to task distance (pickup to dropoff).
+        
+        OPTIMIZED: Uses fast_manhattan_km (Flat Earth) for consistency and speed.
+        Requires set_city_constants() to be called before Task objects are created.
         """
         if self.pickup_lat and self.dropoff_lat:
-            # Use manhattan distance
-            km_per_deg = 111
-            d_lat = fabs(self.pickup_lat - self.dropoff_lat) * km_per_deg
-            avg_lat = (self.pickup_lat + self.dropoff_lat) / 2
-            d_lon = fabs(self.pickup_lon - self.dropoff_lon) * km_per_deg * cos(radians(avg_lat))
-            distance_km = d_lat + d_lon
-            return distance_km
+            # Use the global optimized function (no trig calls)
+            return fast_manhattan_km(
+                self.pickup_lat, self.pickup_lon,
+                self.dropoff_lat, self.dropoff_lon
+            )
         return 1.0  # Default if coordinates are invalid
     
     def is_available(self, current_time):

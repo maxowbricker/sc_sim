@@ -1,7 +1,8 @@
 from simulator.strategies import register
-from math import log, fabs, cos, radians
+from math import log
 import pandas as pd
 from typing import Optional, Tuple, List, Dict
+from simulator.spatial_index import fast_manhattan_km
 
 def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_workers=None, mutate_state=False):
     """
@@ -61,13 +62,6 @@ def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_
         )
 
 AVG_SPEED_KMH = 30
-
-def manhattan_km(lat1, lon1, lat2, lon2):
-    km_per_deg = 111
-    d_lat = fabs(lat1 - lat2) * km_per_deg
-    avg_lat = (lat1 + lat2) / 2
-    d_lon = fabs(lon1 - lon2) * km_per_deg * cos(radians(avg_lat))
-    return d_lat + d_lon
 
 def _normalize_components(components: List[float]) -> List[float]:
     """Apply min-max normalization to component values.
@@ -166,7 +160,7 @@ def _find_best_assignment_for_task(
         return None, float("-inf"), None
     
     # OPTIMIZATION 2: Pre-calculate task drop distance (constant for all workers)
-    drop_distance_const = manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
+    drop_distance_const = fast_manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
     
     # FAST PATH: When no normalization or diagnostics needed
     # OPTIMIZED: On-demand EWMA calculation - only for k=15 candidates, only update winner
@@ -178,7 +172,7 @@ def _find_best_assignment_for_task(
         
         for worker in nearest_workers:
             # Check feasibility constraints: pickup before expiry, finish before worker shift ends
-            d_pick = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
+            d_pick = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
             total_km_tmp = d_pick + drop_distance_const
             
             # Use float math instead of Timedelta (much faster)
@@ -227,7 +221,7 @@ def _find_best_assignment_for_task(
         
         for worker in nearest_workers:
             # Check feasibility constraints
-            d_pick = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
+            d_pick = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
             total_km_tmp = d_pick + drop_distance_const
             pickup_eta_seconds = (d_pick / AVG_SPEED_KMH) * 3600
             finish_eta_seconds = (total_km_tmp / AVG_SPEED_KMH) * 3600
@@ -293,7 +287,7 @@ def _find_best_assignment_for_task(
     
     for worker in nearest_workers:
         # Check feasibility constraints: pickup before expiry, finish before worker shift ends
-        d_pick = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
+        d_pick = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
         total_km_tmp = d_pick + drop_distance_const
         
         pickup_eta_seconds = (d_pick / AVG_SPEED_KMH) * 3600
@@ -304,7 +298,7 @@ def _find_best_assignment_for_task(
             continue
         
         # Calculate raw component values
-        distance = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
+        distance = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
         fairness_raw = calculate_fairness_signal(worker, now, mutate_state=False)
         starvation_raw = log(1 + (now - task.release_time))
         utility_raw = 1.0 / (1.0 + distance)
@@ -378,8 +372,8 @@ def _find_best_assignment_for_task(
     return best_worker, best_score, diagnostic_info
 
 def _commit_assignment(task, worker, now):
-    pickup_distance = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
-    drop_distance = manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
+    pickup_distance = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
+    drop_distance = fast_manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
     
     task.pickup_km = pickup_distance
     task.drop_km = drop_distance
@@ -574,8 +568,8 @@ def match_worker_composite(
     # Iterate over nearby_tasks instead of state.deferred_tasks
     # Expired tasks are removed via TASK_EXPIRE events before matching
     for task in nearby_tasks:
-        drop_distance_const = manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
-        d_pick = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
+        drop_distance_const = fast_manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
+        d_pick = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
         total_km_tmp = d_pick + drop_distance_const
 
         pickup_eta_seconds = (d_pick / AVG_SPEED_KMH) * 3600

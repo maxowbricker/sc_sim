@@ -12,6 +12,7 @@ from config import get_simulation_config
 from simulator.state import StateManager
 from simulator.strategies import get_strategy
 from metrics.manager import MetricsManager
+from simulator.spatial_index import set_city_constants
 
 class EventSimulator:
     """
@@ -68,6 +69,14 @@ class EventSimulator:
         # Deep copy workers and tasks to ensure fresh state
         current_workers = copy.deepcopy(self.initial_workers)
         current_tasks = copy.deepcopy(self.initial_tasks)
+        
+        # --- FLAT EARTH SETUP ---
+        # Calculate mean latitude once per episode for optimized distance calculations
+        # This pre-calculates cos(lat) to avoid expensive trig calls in hot loops
+        all_lats = [w.start_lat for w in current_workers] + [t.pickup_lat for t in current_tasks]
+        if all_lats:
+            mean_lat = float(np.mean(all_lats))
+            set_city_constants(mean_lat)
         
         # Ensure dynamic attributes are initialized correctly and timestamps are floats for fresh episode
         for worker in current_workers:
@@ -338,6 +347,18 @@ class Simulation:
         from models.task import Task
         
         print("🚀 Converting DataFrames to objects...")
+        
+        # --- FLAT EARTH SETUP ---
+        # Calculate mean latitude from the raw DataFrames FIRST
+        # This ensures constants are set before Worker/Task __init__ runs
+        # (Task.__init__ calls _calculate_base_utility() which uses fast_manhattan_km)
+        print("   🌍 Configuring Flat-Earth Projection...")
+        mean_worker_lat = self.workers_df['start_lat'].mean()
+        mean_task_lat = self.tasks_df['pickup_lat'].mean()
+        # Weighted average or simple mean is fine for this scale
+        mean_lat = (mean_worker_lat + mean_task_lat) / 2
+        set_city_constants(mean_lat)
+        print(f"   ✅ Mean latitude: {mean_lat:.4f}°")
         
         # Convert workers DataFrame to Worker objects (FAST vectorized approach)
         workers = []

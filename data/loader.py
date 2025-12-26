@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import os
 import pandas as pd
+import numpy as np
 
 # Domain models
 from models.worker import Worker
 from models.task import Task
+from simulator.spatial_index import set_city_constants
 
 # Dataset-specific adapters
 from data.checkins import checkin  # Gowalla / Weeplaces
@@ -26,6 +28,14 @@ def load_tasks(file_path):
     Loads tasks from a .txt (CSV‑formatted) file and returns a list of Task objects.
     """
     df = pd.read_csv(file_path)
+    
+    # FIX: Set constants before creating Tasks
+    # Task.__init__ calls _calculate_base_utility() which uses fast_manhattan_km
+    # This requires KM_PER_DEG_LON to be set first
+    if not df.empty and 'pickup_lat' in df.columns:
+        mean_lat = float(df['pickup_lat'].mean())
+        set_city_constants(mean_lat)
+    
     tasks = [Task(row.to_dict()) for _, row in df.iterrows()]
     return tasks
 
@@ -73,7 +83,23 @@ def load_workers_tasks(dataset: str, root_path: str | None = None, **adapter_kwa
         workers_df = pd.read_csv(workers_path)
         tasks_df = pd.read_csv(tasks_path)
 
-    # Convert rows → domain objects
+    # --- FLAT EARTH SETUP ---
+    # Configure Flat Earth projection before instantiating objects
+    # This prevents Task.__init__ from failing when it calculates base_utility
+    # Task.__init__ calls _calculate_base_utility() which uses fast_manhattan_km
+    # This requires KM_PER_DEG_LON to be set first
+    all_lats = []
+    if not workers_df.empty and 'start_lat' in workers_df.columns:
+        all_lats.append(float(workers_df['start_lat'].mean()))
+    if not tasks_df.empty and 'pickup_lat' in tasks_df.columns:
+        all_lats.append(float(tasks_df['pickup_lat'].mean()))
+    
+    if all_lats:
+        # Average the means (good enough estimation for Flat Earth projection)
+        mean_lat = float(np.mean(all_lats))
+        set_city_constants(mean_lat)
+
+    # Convert rows → domain objects (Now Safe!)
     workers = [Worker(row._asdict()) for row in workers_df.itertuples(index=False)]
     tasks = [Task(row._asdict()) for row in tasks_df.itertuples(index=False)]
 

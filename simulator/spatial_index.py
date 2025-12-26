@@ -11,8 +11,51 @@ import heapq
 # Tuning parameter: 0.01 degrees is roughly 1km
 GRID_RESOLUTION = 0.01
 
+# --- FLAT EARTH OPTIMIZATION ---
+# Pre-calculated constants to avoid calling trig functions inside loops
+KM_PER_DEG_LAT = 111.32
+KM_PER_DEG_LON = None  # Will be set by set_city_constants()
+
+def set_city_constants(mean_latitude: float):
+    """
+    Call this once at simulation start to configure the 'Flat Earth' projection.
+    Calculates the longitude scaling factor for the specific city.
+    
+    Args:
+        mean_latitude: Mean latitude of the city/region (in degrees)
+    """
+    global KM_PER_DEG_LON
+    # Calculate cos(lat) once. Latitude must be in radians.
+    KM_PER_DEG_LON = 111.32 * math.cos(math.radians(mean_latitude))
+
+def fast_manhattan_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Calculate Manhattan distance using pre-calculated scalars.
+    O(1) simple float math - no trigonometry.
+    
+    This is much faster than manhattan_km() because it avoids calling
+    math.cos(math.radians()) for every distance calculation.
+    
+    Args:
+        lat1, lon1: Coordinates of first point
+        lat2, lon2: Coordinates of second point
+        
+    Returns:
+        Manhattan distance in kilometers
+    """
+    if KM_PER_DEG_LON is None:
+        # Fallback to slow version if constants not set
+        return manhattan_km(lat1, lon1, lat2, lon2)
+        
+    d_lat = abs(lat1 - lat2) * KM_PER_DEG_LAT
+    d_lon = abs(lon1 - lon2) * KM_PER_DEG_LON
+    return d_lat + d_lon
+
 def manhattan_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Calculate Manhattan distance in kilometers."""
+    """
+    Original slow implementation for fallback.
+    Calculates cosine of average latitude for each distance check.
+    """
     km_per_deg = 111
     d_lat = abs(lat1 - lat2) * km_per_deg
     avg_lat = (lat1 + lat2) / 2
@@ -46,7 +89,7 @@ def find_k_nearest_workers(task, available_workers: Set, k: int = 15) -> List:
         # if hasattr(worker, 'is_available') and not worker.is_available:
         #     continuefysp
             
-        distance = manhattan_km(
+        distance = fast_manhattan_km(
             task.pickup_lat, task.pickup_lon,
             worker.start_lat, worker.start_lon
         )
@@ -85,7 +128,7 @@ def find_nearest_available_worker(task, available_workers: Set) -> Tuple:
         # if hasattr(worker, 'is_available') and not worker.is_available:
         #     continue
             
-        distance = manhattan_km(
+        distance = fast_manhattan_km(
             task.pickup_lat, task.pickup_lon,
             worker.start_lat, worker.start_lon
         )
@@ -199,7 +242,7 @@ class GridSpatialIndex:
                         i_lat = getattr(item, self.lat_attr)
                         i_lon = getattr(item, self.lon_attr)
                         
-                        dist = manhattan_km(center_lat, center_lon, i_lat, i_lon)
+                        dist = fast_manhattan_km(center_lat, center_lon, i_lat, i_lon)
                         candidates.append((dist, item))
             
             # Optimization: Stop if we have enough candidates and 
@@ -279,7 +322,7 @@ class SpatialIndex:
         nearby = []
         
         for worker in self.workers:
-            distance = manhattan_km(lat, lon, worker.start_lat, worker.start_lon)
+            distance = fast_manhattan_km(lat, lon, worker.start_lat, worker.start_lon)
             if distance <= radius_km:
                 nearby.append((distance, worker))
         
