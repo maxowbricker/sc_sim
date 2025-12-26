@@ -80,7 +80,7 @@ class MetricTracker:
 
         # Enhanced task age metrics
         task_pool = list(state.active_tasks) + list(state.assigned_tasks)
-        ages = [(now - t.release_time).total_seconds() / 60.0 for t in task_pool]
+        ages = [(now - t.release_time) / 60.0 for t in task_pool]  # Already in seconds, convert to minutes
         avg_age = sum(ages) / len(ages) if ages else 0.0
         max_age = max(ages) if ages else 0.0
 
@@ -88,7 +88,7 @@ class MetricTracker:
         current_wait_times = []
         for task in list(state.completed_tasks):
             if hasattr(task, 'start_time') and task.start_time and task.release_time:
-                wait_time_min = (task.start_time - task.release_time).total_seconds() / 60.0
+                wait_time_min = (task.start_time - task.release_time) / 60.0  # Already in seconds
                 current_wait_times.append(wait_time_min)
                 if wait_time_min not in self._wait_time_samples:  # Avoid duplicates
                     self._wait_time_samples.append(wait_time_min)
@@ -105,7 +105,7 @@ class MetricTracker:
         current_completion_times = []
         for task in list(state.completed_tasks):
             if hasattr(task, 'finish_time') and hasattr(task, 'start_time') and task.finish_time and task.start_time:
-                completion_time_min = (task.finish_time - task.start_time).total_seconds() / 60.0
+                completion_time_min = (task.finish_time - task.start_time) / 60.0  # Already in seconds
                 current_completion_times.append(completion_time_min)
                 if completion_time_min not in self._completion_time_samples:  # Avoid duplicates
                     self._completion_time_samples.append(completion_time_min)

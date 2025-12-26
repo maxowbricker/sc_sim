@@ -125,14 +125,14 @@ class MetricsManager:
     
     # --- EVENT HANDLERS (Fast, O(1) updates) ---
     
-    def on_task_completed(self, task, worker, current_time: pd.Timestamp):
+    def on_task_completed(self, task, worker, current_time):
         """
         Called when a task is completed.
         
         Args:
             task: Completed task object
             worker: Worker who completed the task
-            current_time: Current simulation time
+            current_time: Current simulation time (pd.Timestamp or float Unix timestamp)
         """
         # Update global summary
         self.summary['completed_tasks'] += 1
@@ -147,7 +147,7 @@ class MetricsManager:
         
         # Calculate wait time
         if task.start_time and task.release_time:
-            wait_min = (task.start_time - task.release_time).total_seconds() / 60.0
+            wait_min = (task.start_time - task.release_time) / 60.0  # Already in seconds
             self.summary['total_wait_min'] += wait_min
             self.summary['wait_times'].append(wait_min)
             
@@ -166,7 +166,7 @@ class MetricsManager:
         # Update fairness tracker
         self.fairness_tracker.record_task_assignment(task, worker, current_time)
     
-    def on_task_assigned(self, task, worker, current_time: pd.Timestamp,
+    def on_task_assigned(self, task, worker, current_time,
                         score_components: Optional[Dict] = None,
                         final_score: Optional[float] = None):
         """
@@ -175,13 +175,13 @@ class MetricsManager:
         Args:
             task: Assigned task object
             worker: Worker assigned to the task
-            current_time: Current simulation time
+            current_time: Current simulation time (pd.Timestamp or float Unix timestamp)
             score_components: Optional dict with 'fairness', 'starvation', 'utility' components
             final_score: Optional final composite score
         """
         # Update assignment delay
         if task.start_time and task.release_time:
-            assignment_delay = (current_time - task.release_time).total_seconds()
+            assignment_delay = current_time - task.release_time  # Already in seconds
             self.summary['assignment_delays'].append(assignment_delay)
         
         # Update diagnostic tracker if enabled
@@ -214,7 +214,7 @@ class MetricsManager:
                 deferral_count=deferral_count
             )
     
-    def on_task_released(self, task, available_workers: List, current_time: pd.Timestamp):
+    def on_task_released(self, task, available_workers: List, current_time):
         """
         Called when a task is released into the system.
         
@@ -229,7 +229,7 @@ class MetricsManager:
         # Update fairness tracker for eligibility tracking
         self.fairness_tracker.record_task_release(task, available_workers, current_time)
     
-    def on_task_deferred(self, task, score: float, reason: str, current_time: pd.Timestamp,
+    def on_task_deferred(self, task, score: float, reason: str, current_time,
                          threshold: Optional[float] = None, best_worker_id: Optional[str] = None):
         """
         Called when a task is deferred.
@@ -262,14 +262,14 @@ class MetricsManager:
     
     # --- STEP SNAPSHOT (Expensive, runs once per step) ---
     
-    def snapshot_step(self, state, current_time: pd.Timestamp, step_start_time: Optional[pd.Timestamp] = None):
+    def snapshot_step(self, state, current_time, step_start_time=None):
         """
         Calculate expensive metrics at the end of a step.
         This updates the data the RL agent will see.
         
         Args:
             state: StateManager instance with current simulation state
-            current_time: Current simulation time
+            current_time: Current simulation time (pd.Timestamp or float Unix timestamp)
             step_start_time: Optional start time of the step (for calculating step duration)
         """
         # Update step start time if provided
@@ -281,12 +281,12 @@ class MetricsManager:
         for w in state.all_workers_map.values():
             if w.available:
                 # Calculate pending idle time since last sync
-                if w.last_state_ts and w.last_state_ts < current_time:
-                    time_delta = (current_time - w.last_state_ts).total_seconds()
+                if w.last_state_ts is not None and w.last_state_ts < current_time:
+                    time_delta = current_time - w.last_state_ts  # Already in seconds
                     if time_delta > 0:
                         w.update_idle_time(time_delta)
                         w.last_state_ts = current_time
-                elif not w.last_state_ts:
+                elif w.last_state_ts is None:
                     # Initialize last_state_ts if not set
                     w.last_state_ts = current_time
         
@@ -320,7 +320,7 @@ class MetricsManager:
         
         # Calculate task-worker ratio (tasks per minute per worker)
         if step_start_time and self.step_start_time:
-            step_duration_sec = (current_time - self.step_start_time).total_seconds()
+            step_duration_sec = current_time - self.step_start_time  # Already in seconds
             assigned_workers_count = len(state.assigned_workers)
             total_active_workers = available_workers + assigned_workers_count
             
@@ -335,7 +335,7 @@ class MetricsManager:
         # Calculate worker idle time statistics
         workers = list(state.all_workers_map.values())
         if workers:
-            idle_times_min = [w.total_idle_time.total_seconds() / 60.0 for w in workers]
+            idle_times_min = [w.total_idle_time / 60.0 for w in workers]  # Convert seconds to minutes
             mean_idle = float(np.mean(idle_times_min))
             std_idle = float(np.std(idle_times_min)) if len(idle_times_min) > 1 else 0.0
             cv_idle = std_idle / mean_idle if mean_idle > 0 else 0.0
@@ -392,7 +392,7 @@ class MetricsManager:
             'latency': -self.current_step_stats['avg_wait']
         }
     
-    def get_observation_data(self, state, current_time: pd.Timestamp) -> Dict[str, Any]:
+    def get_observation_data(self, state, current_time) -> Dict[str, Any]:
         """
         Get all data needed for RL observation space.
         
@@ -401,7 +401,7 @@ class MetricsManager:
         
         Args:
             state: StateManager instance
-            current_time: Current simulation time
+            current_time: Current simulation time (pd.Timestamp or float Unix timestamp)
             
         Returns:
             Dict with all observation features
@@ -409,8 +409,15 @@ class MetricsManager:
         # Get current step stats
         stats = self.current_step_stats
         
-        # Time encoding
-        hour = current_time.hour + current_time.minute / 60.0
+        # Time encoding - handle both float and pd.Timestamp
+        # OPTIMIZATION: Extract hour from float Unix timestamp
+        if isinstance(current_time, (int, float)):
+            # Convert Unix timestamp to datetime for hour extraction
+            dt = pd.Timestamp.fromtimestamp(current_time)
+            hour = dt.hour + dt.minute / 60.0
+        else:
+            # Fallback for pd.Timestamp (backward compatibility)
+            hour = current_time.hour + current_time.minute / 60.0
         time_sin = np.sin(2 * np.pi * hour / 24.0)
         time_cos = np.cos(2 * np.pi * hour / 24.0)
         

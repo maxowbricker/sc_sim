@@ -21,8 +21,8 @@ class Worker:
         self.id = worker_dict["worker_id"]
         self.start_lat = float(worker_dict["start_lat"])
         self.start_lon = float(worker_dict["start_lon"])
-        self.release_time = pd.to_datetime(worker_dict["release_time"])
-        self.deadline = pd.to_datetime(worker_dict["deadline"])
+        self.release_time = float(worker_dict["release_time"])
+        self.deadline = float(worker_dict["deadline"])
 
         # Dynamic state
         self.assigned_task = None
@@ -31,8 +31,8 @@ class Worker:
         # ------------------------------------------------------------------ #
         # Metrics-related counters
         # ------------------------------------------------------------------ #
-        self.total_idle_time = pd.Timedelta(0)  # cumulative idle duration
-        self.last_state_ts: pd.Timestamp | None = self.release_time  # last time idle counter updated
+        self.total_idle_time = 0.0  # cumulative idle duration in seconds
+        self.last_state_ts: float | None = self.release_time
 
         # EWMA fairness tracking
         self.gamma: float = get_strategy_params("composite").get("gamma", 0.3)
@@ -40,7 +40,7 @@ class Worker:
 
         self.completed_tasks: int = 0
         self.revenue: float = 0.0  # placeholder – will depend on task info
-        self.last_active_ts: pd.Timestamp | None = None  # when last task finished
+        self.last_active_ts: float | None = None  # when last task finished
 
     # ------------------------------------------------------------------ #
     # State transitions
@@ -51,8 +51,13 @@ class Worker:
         self.assigned_task = task
         self.available = False
 
-    def record_completion(self, now: pd.Timestamp, task_revenue: float = 0.0):
-        """Update counters when a task is completed."""
+    def record_completion(self, now, task_revenue: float = 0.0):
+        """Update counters when a task is completed.
+        
+        Args:
+            now: Current time (pd.Timestamp or float Unix timestamp)
+            task_revenue: Revenue from completed task
+        """
         self.completed_tasks += 1
         self.revenue += float(task_revenue)
         self.last_active_ts = now
@@ -72,10 +77,14 @@ class Worker:
 
     def update_idle_time(self, time_delta_seconds: float):
         """Update cumulative idle time for reporting purposes.
+        
+        Args:
+            time_delta_seconds: Time delta in seconds (float)
         """
         if not self.available:
             return
 
         # Update cumulative idle duration (for reporting only)
-        self.total_idle_time += pd.to_timedelta(time_delta_seconds, unit='s')
+        # Now using float math for maximum performance
+        self.total_idle_time += time_delta_seconds
 

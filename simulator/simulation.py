@@ -61,11 +61,6 @@ class EventSimulator:
         self.last_progress_report = 0
         self.max_events = len(tasks) * 10
         
-        # Temporal tracking
-        self.ewma_temporal_history = []
-        self.temporal_log_interval = 50
-        self.next_log_checkpoint = self.temporal_log_interval
-        
     def reset(self, start_time=None, end_time=None):
         """
         Reset the simulation to initial state.
@@ -73,6 +68,15 @@ class EventSimulator:
         # Deep copy workers and tasks to ensure fresh state
         current_workers = copy.deepcopy(self.initial_workers)
         current_tasks = copy.deepcopy(self.initial_tasks)
+        
+        # Ensure dynamic attributes are initialized correctly and timestamps are floats for fresh episode
+        for worker in current_workers:
+            # Reset total_idle_time to 0.0 (float) for fresh episode
+            worker.total_idle_time = 0.0
+            # Ensure last_state_ts is initialized to release_time (which is now float)
+            worker.last_state_ts = worker.release_time
+            # Reset last_active_ts (will be set when worker completes tasks)
+            worker.last_active_ts = None
         
         self.state = StateManager(current_workers, current_tasks)
         self.event_queue = []
@@ -92,14 +96,14 @@ class EventSimulator:
             fairness_cap_tracker.initialize(current_workers)
             self.strategy_params['fairness_cap_tracker'] = fairness_cap_tracker
 
-        # Determine start time
+        # Determine start time (timestamps are already floats from data loader)
         if start_time is None:
             releases = [w.release_time for w in current_workers] + [t.release_time for t in current_tasks]
             if not releases: raise ValueError("Cannot infer start_time")
             start_time = min(releases)
 
-        self.current_time = pd.to_datetime(start_time)
-        self.end_time = pd.to_datetime(end_time) if end_time is not None else None
+        self.current_time = start_time
+        self.end_time = end_time
         
         # Populate event queue
         for w in current_workers:
@@ -108,8 +112,6 @@ class EventSimulator:
             heappush(self.event_queue, (t.release_time, "TASK_RELEASE", t.id))
         
         self.event_count = 0
-        self.ewma_temporal_history = []
-        self.next_log_checkpoint = self.temporal_log_interval
         
         # Track step start time for RL
         self.step_start_time = None
@@ -142,7 +144,7 @@ class EventSimulator:
         if self.step_start_time is None:
             self.step_start_time = self.current_time
             
-        target_time = self.current_time + pd.Timedelta(seconds=duration_seconds) if duration_seconds else None
+        target_time = self.current_time + duration_seconds if duration_seconds else None
         
         while self.event_queue:
             # Peek at next event time
@@ -249,23 +251,6 @@ class EventSimulator:
                 if not is_assigned and task not in self.state.completed_tasks and not task.is_completed:
                     self.metrics.summary['expired_tasks'].append(task.id)
 
-    def _update_completion_stats(self, task):
-        """DEPRECATED: Use metrics.on_task_completed() instead.
-        
-        This method is kept for backward compatibility but is no longer used.
-        All completion stats are now handled by MetricsManager.
-        """
-        # Log EWMA temporal data (still needed for final results)
-        if self.metrics.summary['completed_tasks'] >= self.next_log_checkpoint:
-            ewma_values = [w.fairness_ewma for w in self.state.all_workers_map.values()]
-            self.ewma_temporal_history.append({
-                'timestamp': self.current_time.isoformat(),
-                'completed_tasks': self.metrics.summary['completed_tasks'],
-                'ewma_mean': float(np.mean(ewma_values)),
-                'ewma_std': float(np.std(ewma_values))
-            })
-            self.next_log_checkpoint += self.temporal_log_interval
-
     def get_state(self):
         """
         Return the current state of the simulation for RL observation.
@@ -317,17 +302,12 @@ class EventSimulator:
         summary['max_wait_time_minutes'] = safe_max(summary['wait_times'])
         
         # Worker idle times
-        worker_idle_times = [w.total_idle_time.total_seconds() / 60.0 for w in self.state.all_workers_map.values()]
+        worker_idle_times = [w.total_idle_time / 60.0 for w in self.state.all_workers_map.values()]
         summary['mean_worker_idle_time_min'] = safe_mean(worker_idle_times)
         
         # Update results with summary
         results.update(summary)
         
-        # Add EWMA temporal history if available
-        if self.ewma_temporal_history:
-            results['ewma_temporal_history'] = self.ewma_temporal_history
-            results['ewma_final_mean'] = self.ewma_temporal_history[-1]['ewma_mean'] if self.ewma_temporal_history else 0
-            
         return results
 
 

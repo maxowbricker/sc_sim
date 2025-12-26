@@ -63,7 +63,8 @@ class Adapter:
             })
         )
         first_gps = first_gps.merge(last_gps, on="worker_id")
-        first_gps["deadline"] = first_gps["last_seen"] + pd.Timedelta("4h")
+        # 4 hours = 4 * 3600 = 14400 seconds
+        first_gps["deadline"] = first_gps["last_seen"] + 14400
 
         workers_df = first_gps[[
             "worker_id",
@@ -77,7 +78,7 @@ class Adapter:
         # Realistic ride-sharing expiration: 15 minutes for customer pickup
         # Customers typically cancel if not picked up within 15 minutes
         tasks_df = self.orders_df.copy()
-        tasks_df["expire_time"] = tasks_df["start_billing"] + pd.Timedelta("15min")
+        tasks_df["expire_time"] = tasks_df["start_billing"] + 900
         
         tasks_df = tasks_df.rename(columns={
             "order_id": "task_id",
@@ -137,7 +138,6 @@ class Adapter:
         print(f"📊 Loading GPS data from: {path.name} ({path.stat().st_size / 1024 / 1024:.1f} MB)")
         df = pd.read_csv(path, header=None)
         df.columns = ["driver_id", "order_id", "timestamp", "lon", "lat"]
-        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
         return df.sort_values("timestamp")
 
     def _load_orders(self) -> pd.DataFrame:
@@ -167,8 +167,6 @@ class Adapter:
             "pickup_lon", "pickup_lat",
             "dropoff_lon", "dropoff_lat"
         ]
-        df["start_billing"] = pd.to_datetime(df["start_billing"], unit="s", utc=True)
-        df["end_billing"] = pd.to_datetime(df["end_billing"], unit="s", utc=True)
         return df.sort_values("start_billing")
 
     def _build_events(self) -> List[Event]:

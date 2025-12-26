@@ -8,15 +8,15 @@ class Task:
         self.pickup_lon = float(task_dict["pickup_lon"])
         self.dropoff_lat = float(task_dict["dropoff_lat"])
         self.dropoff_lon = float(task_dict["dropoff_lon"])
-        self.release_time = pd.to_datetime(task_dict["release_time"])
-        self.expire_time = pd.to_datetime(task_dict["expire_time"])
+        self.release_time = float(task_dict["release_time"])
+        self.expire_time = float(task_dict["expire_time"])
         self.assigned_worker = None
         self.assigned = False
         self.is_completed = False
 
         # Service-time bookkeeping
-        self.finish_time = None  # pd.Timestamp when task completes
-        self.start_time = None   # when service starts
+        self.finish_time = None  # float Unix timestamp when task completes
+        self.start_time = None   # float Unix timestamp when service starts
         self.pickup_km = None
         self.drop_km = None
         self.deferral_count = 0  # Number of times this task was deferred

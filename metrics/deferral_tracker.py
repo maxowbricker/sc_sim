@@ -80,7 +80,7 @@ class DeferralTracker:
         deferral_duration_sec = None
         if was_deferred and task_id in self.task_first_deferral:
             first_deferral = self.task_first_deferral[task_id]
-            deferral_duration_sec = (timestamp - first_deferral).total_seconds()
+            deferral_duration_sec = timestamp - first_deferral  # Already in seconds
         
         self.assignment_events.append({
             'task_id': task_id,

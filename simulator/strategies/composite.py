@@ -31,7 +31,7 @@ def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_
         ref_time = worker.last_active_ts if worker.last_active_ts is not None else worker.release_time
         
         # Calculate continuous idle duration (on-demand, no state mutation)
-        current_idle_seconds = (current_time - ref_time).total_seconds()
+        current_idle_seconds = current_time - ref_time
         
         # Calculate POTENTIAL EWMA (without mutating state), for fair score comparison between candidate workers
         potential_ewma = (1 - gamma) * current_idle_seconds + gamma * worker.fairness_ewma
@@ -43,11 +43,11 @@ def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_
         return potential_ewma
         
     elif fairness_metric == 'idle_time':
-        # Direct idle time approach (simpler alternative)
+        # Direct idle time approach
         if worker.last_active_ts is None:
-            idle_seconds = (current_time - worker.release_time).total_seconds()
+            idle_seconds = current_time - worker.release_time
         else:
-            idle_seconds = (current_time - worker.last_active_ts).total_seconds()
+            idle_seconds = current_time - worker.last_active_ts
         return idle_seconds
         
     elif fairness_metric == 'task_count':
@@ -171,10 +171,6 @@ def _find_best_assignment_for_task(
     # FAST PATH: When no normalization or diagnostics needed
     # OPTIMIZED: On-demand EWMA calculation - only for k=15 candidates, only update winner
     if not normalize_scores and diagnostic_tracker is None:
-        # OPTIMIZED: Pre-calculate timestamps once (avoid Pandas Timedelta in loop)
-        now_ts = now.timestamp()
-        task_expire_ts = task.expire_time.timestamp()
-        
         # Pre-calculate gamma once (assumes constant gamma across workers for speed)
         gamma = getattr(nearest_workers[0], 'gamma', 0.3) if nearest_workers else 0.3
         
@@ -189,23 +185,23 @@ def _find_best_assignment_for_task(
             pickup_eta_seconds = (d_pick / AVG_SPEED_KMH) * 3600
             finish_eta_seconds = (total_km_tmp / AVG_SPEED_KMH) * 3600
             
-            # Compare timestamps (floats) - avoids Pandas object creation
-            if (now_ts + pickup_eta_seconds) > task_expire_ts or (now_ts + finish_eta_seconds) > worker.deadline.timestamp():
+            # Compare timestamps
+            if (now + pickup_eta_seconds) > task.expire_time or (now + finish_eta_seconds) > worker.deadline:
                 continue
             
             # --- ON-DEMAND FAIRNESS CALCULATION ---
             # 1. Determine reference time (when did they last finish?)
             ref_time = worker.last_active_ts if worker.last_active_ts is not None else worker.release_time
             
-            # 2. Calculate continuous idle duration (on-demand, no state mutation)
-            current_idle_seconds = (now - ref_time).total_seconds()
+            # 2. Calculate continuous idle duration
+            current_idle_seconds = now - ref_time
             
             # 3. Calculate POTENTIAL EWMA (without mutating state)
             #    Formula: (1-gamma) * NewIdle + gamma * OldEWMA
             potential_fairness = (1 - gamma) * current_idle_seconds + gamma * worker.fairness_ewma
             
             # 4. Score using this potential fairness
-            starvation = log(1 + (now - task.release_time).total_seconds())
+            starvation = log(1 + (now - task.release_time))
             utility = 1.0 / (1.0 + d_pick)
             
             s = fairness_weight * potential_fairness + starvation_weight * starvation + utility_weight * utility
@@ -227,9 +223,6 @@ def _find_best_assignment_for_task(
         # Pre-calculate gamma once (assumes all workers have same gamma)
         gamma = getattr(nearest_workers[0], 'gamma', 0.3) if nearest_workers else 0.3
         
-        now_ts = now.timestamp()
-        task_expire_ts = task.expire_time.timestamp()
-        
         candidate_data = []
         
         for worker in nearest_workers:
@@ -238,14 +231,14 @@ def _find_best_assignment_for_task(
             total_km_tmp = d_pick + drop_distance_const
             pickup_eta_seconds = (d_pick / AVG_SPEED_KMH) * 3600
             finish_eta_seconds = (total_km_tmp / AVG_SPEED_KMH) * 3600
-            if (now_ts + pickup_eta_seconds) > task_expire_ts or (now_ts + finish_eta_seconds) > worker.deadline.timestamp():
+            if (now + pickup_eta_seconds) > task.expire_time or (now + finish_eta_seconds) > worker.deadline:
                 continue
             
             # LAZY EWMA: Calculate without mutating worker state
             if worker.last_active_ts is None:
-                T_idle_seconds = (now - worker.release_time).total_seconds()
+                T_idle_seconds = now - worker.release_time
             else:
-                T_idle_seconds = (now - worker.last_active_ts).total_seconds()
+                T_idle_seconds = now - worker.last_active_ts
             
             fairness_raw = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
             utility_raw = 1.0 / (1.0 + d_pick)
@@ -286,7 +279,7 @@ def _find_best_assignment_for_task(
             best_worker.fairness_ewma = best_candidate['fairness_raw']
             
             # Calculate full score with starvation (for return value)
-            starvation_raw = log(1 + (now - task.release_time).total_seconds())
+            starvation_raw = log(1 + (now - task.release_time))
             starvation_contribution = starvation_weight * starvation_raw
             best_score = best_ranking_score + starvation_contribution
         else:
@@ -296,9 +289,6 @@ def _find_best_assignment_for_task(
     
     # SLOW PATH: Diagnostics enabled (with or without normalization)
     # Collects all candidate data for normalization and/or diagnostic tracking
-    now_ts = now.timestamp()
-    task_expire_ts = task.expire_time.timestamp()
-    
     candidate_data = []
     
     for worker in nearest_workers:
@@ -309,15 +299,14 @@ def _find_best_assignment_for_task(
         pickup_eta_seconds = (d_pick / AVG_SPEED_KMH) * 3600
         finish_eta_seconds = (total_km_tmp / AVG_SPEED_KMH) * 3600
         
-        # Compare timestamps (floats) - avoids Pandas object creation
-        if (now_ts + pickup_eta_seconds) > task_expire_ts or (now_ts + finish_eta_seconds) > worker.deadline.timestamp():
+        # Compare timestamps
+        if (now + pickup_eta_seconds) > task.expire_time or (now + finish_eta_seconds) > worker.deadline:
             continue
         
         # Calculate raw component values
-        # OPTIMIZED: On-demand EWMA calculation (non-mutating)
         distance = manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
         fairness_raw = calculate_fairness_signal(worker, now, mutate_state=False)
-        starvation_raw = log(1 + (now - task.release_time).total_seconds())
+        starvation_raw = log(1 + (now - task.release_time))
         utility_raw = 1.0 / (1.0 + distance)
         
         candidate_data.append({
@@ -399,8 +388,9 @@ def _commit_assignment(task, worker, now):
     pickup_travel_hours = pickup_distance / AVG_SPEED_KMH
     service_travel_hours = drop_distance / AVG_SPEED_KMH
     
-    task.start_time = now + pd.to_timedelta(pickup_travel_hours, unit="h")  # When worker arrives at pickup
-    task.finish_time = task.start_time + pd.to_timedelta(service_travel_hours, unit="h")  # When task completes
+    # Convert hours to seconds and add to float timestamp
+    task.start_time = now + (pickup_travel_hours * 3600)  # When worker arrives at pickup
+    task.finish_time = task.start_time + (service_travel_hours * 3600)  # When task completes
     
     task.assign_to_worker(worker)
     worker.assign_task(task)
@@ -579,9 +569,6 @@ def match_worker_composite(
         return None
 
     # Collect candidate data
-    now_ts = now.timestamp()
-    worker_deadline_ts = worker.deadline.timestamp()
-    
     candidate_data = []
     
     # Iterate over nearby_tasks instead of state.deferred_tasks
@@ -593,12 +580,12 @@ def match_worker_composite(
 
         pickup_eta_seconds = (d_pick / AVG_SPEED_KMH) * 3600
         finish_eta_seconds = (total_km_tmp / AVG_SPEED_KMH) * 3600
-        
-        if (now_ts + pickup_eta_seconds) > task.expire_time.timestamp() or (now_ts + finish_eta_seconds) > worker_deadline_ts:
+
+        if (now + pickup_eta_seconds) > task.expire_time or (now + finish_eta_seconds) > worker.deadline:
             continue
 
         # Calculate Utility and Starvation metrics
-        starvation_raw = log(1 + (now - task.release_time).total_seconds())
+        starvation_raw = log(1 + (now - task.release_time))
         utility_raw = 1.0 / (1.0 + d_pick)
         
         candidate_data.append({
@@ -647,9 +634,9 @@ def match_worker_composite(
         # Calculate EWMA only when assignment is confirmed (lazy evaluation)
         gamma = getattr(worker, 'gamma', 0.3)
         if worker.last_active_ts is None:
-            T_idle_seconds = (now - worker.release_time).total_seconds()
+            T_idle_seconds = now - worker.release_time
         else:
-            T_idle_seconds = (now - worker.last_active_ts).total_seconds()
+            T_idle_seconds = now - worker.last_active_ts
         
         updated_ewma = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
         fairness_contribution = fairness_weight * updated_ewma
@@ -663,9 +650,9 @@ def match_worker_composite(
         # Threshold check required - calculate EWMA for threshold evaluation
         gamma = getattr(worker, 'gamma', 0.3)
         if worker.last_active_ts is None:
-            T_idle_seconds = (now - worker.release_time).total_seconds()
+            T_idle_seconds = now - worker.release_time
         else:
-            T_idle_seconds = (now - worker.last_active_ts).total_seconds()
+            T_idle_seconds = now - worker.last_active_ts
         
         updated_ewma = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
         fairness_contribution = fairness_weight * updated_ewma

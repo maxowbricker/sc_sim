@@ -175,7 +175,7 @@ class FairnessMetricsTracker:
             stats = self.worker_stats[worker_id]
             stats['completed_tasks'] = worker.completed_tasks
             stats['total_revenue'] = worker.revenue
-            stats['total_idle_time'] = worker.total_idle_time.total_seconds()
+            stats['total_idle_time'] = worker.total_idle_time
             stats['fairness_ewma'] = worker.fairness_ewma
             stats['last_active_time'] = worker.last_active_ts
     
