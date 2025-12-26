@@ -168,7 +168,8 @@ class GridSpatialIndex:
         self.lat_attr = lat_attr
         self.lon_attr = lon_attr
         self.resolution = resolution
-        # Map (grid_x, grid_y) -> set of items
+        # Map (grid_x, grid_y) -> set of (lat, lon, item) tuples
+        # OPTIMIZATION: Cache coordinates in tuple to avoid getattr() during queries
         self.grid = defaultdict(set)
         # Keep track of item count for validation
         self.count = 0
@@ -178,11 +179,18 @@ class GridSpatialIndex:
         return (int(lat / self.resolution), int(lon / self.resolution))
 
     def add(self, item):
-        """Add an item to the spatial index."""
+        """
+        Add an item to the spatial index.
+        
+        OPTIMIZATION: Cache coordinates in tuple (lat, lon, item) to avoid
+        getattr() overhead during query_k_nearest() hot loops.
+        """
+        # Pay getattr cost ONCE here (when adding)
         lat = getattr(item, self.lat_attr)
         lon = getattr(item, self.lon_attr)
         cell = self._get_cell_coords(lat, lon)
-        self.grid[cell].add(item)
+        # Store as tuple: (lat, lon, item_reference)
+        self.grid[cell].add((lat, lon, item))
         self.count += 1
 
     def remove(self, item):
@@ -191,12 +199,18 @@ class GridSpatialIndex:
         
         Note: Assumes item hasn't moved since being added.
         If it has, this will fail. Items only move when *assigned* (removed from index).
+        
+        OPTIMIZATION: Reconstructs the exact tuple (lat, lon, item) that was added
+        to remove it from the set.
         """
+        # Pay getattr cost ONCE here (when removing)
         lat = getattr(item, self.lat_attr)
         lon = getattr(item, self.lon_attr)
         cell = self._get_cell_coords(lat, lon)
-        if item in self.grid[cell]:
-            self.grid[cell].remove(item)
+        # Recreate the tuple exactly as it was added
+        target = (lat, lon, item)
+        if target in self.grid[cell]:
+            self.grid[cell].remove(target)
             self.count -= 1
             # Cleanup empty cells to save memory
             if not self.grid[cell]:
@@ -237,11 +251,10 @@ class GridSpatialIndex:
                 items_in_cell = self.grid.get(cell)
                 if items_in_cell:
                     found_in_ring = True
-                    for item in items_in_cell:
-                        # Get item coordinates using configured attributes
-                        i_lat = getattr(item, self.lat_attr)
-                        i_lon = getattr(item, self.lon_attr)
-                        
+                    # OPTIMIZATION: Unpack tuple directly - no getattr() needed!
+                    # Coordinates are cached from when item was added
+                    for i_lat, i_lon, item in items_in_cell:
+                        # Direct float usage - extremely fast (no attribute lookup)
                         dist = fast_manhattan_km(center_lat, center_lon, i_lat, i_lon)
                         candidates.append((dist, item))
             
