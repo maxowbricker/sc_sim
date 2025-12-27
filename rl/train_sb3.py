@@ -25,6 +25,7 @@ from sklearn.model_selection import train_test_split
 import argparse
 import os
 import sys
+import json
 from datetime import datetime
 
 # Ensure project root is in path
@@ -94,6 +95,8 @@ def main():
                        help="Number of days to use for training (default: 24)")
     parser.add_argument("--no-parallel", action="store_true",
                        help="Disable parallel environments (use single env)")
+    parser.add_argument("--hyperparams", type=str, default="best_hyperparameters.json",
+                       help="Path to JSON file with optimized hyperparameters (default: best_hyperparameters.json)")
     
     args = parser.parse_args()
     
@@ -228,9 +231,9 @@ def main():
         except Exception as e:
             print(f"❌ Failed to load model: {e}")
             print("   Starting fresh training instead...")
-            model = create_model(env, log_dir)
+            model = create_model(env, log_dir, hyperparams_file=args.hyperparams)
     else:
-        model = create_model(env, log_dir)
+        model = create_model(env, log_dir, hyperparams_file=args.hyperparams)
     
     # Setup callbacks
     print("\n[4/4] Setting up training callbacks...")
@@ -298,27 +301,84 @@ def main():
         except:
             print("   Failed to save model")
 
-def create_model(env, log_dir):
-    """Create a new PPO model with default hyperparameters."""
+def create_model(env, log_dir, hyperparams_file="best_hyperparameters.json"):
+    """
+    Create a new PPO model with hyperparameters.
+    
+    Args:
+        env: The training environment
+        log_dir: Directory for tensorboard logs
+        hyperparams_file: Path to JSON file with optimized hyperparameters (from tune_sb3.py)
+    
+    Returns:
+        PPO model instance
+    """
+    import json
+    import torch.nn as nn
+    from pathlib import Path
+    
+    # Default hyperparameters (fallback)
+    default_hyperparams = {
+        "learning_rate": 3e-4,
+        "n_steps": 2048,
+        "batch_size": 64,
+        "n_epochs": 10,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "clip_range": 0.2,
+        "ent_coef": 0.01,
+        "vf_coef": 0.5,
+        "max_grad_norm": 0.5,
+        "net_arch_type": "small"
+    }
+    
+    # Try to load optimized hyperparameters
+    hyperparams = default_hyperparams.copy()
+    policy_kwargs = dict(
+        net_arch=[dict(pi=[64, 64], vf=[64, 64])],
+        activation_fn=nn.Tanh
+    )
+    
+    if os.path.exists(hyperparams_file):
+        try:
+            with open(hyperparams_file, "r") as f:
+                optimized = json.load(f)
+            
+            print(f"📦 Loading optimized hyperparameters from: {hyperparams_file}")
+            
+            # Update hyperparams with optimized values
+            hyperparams.update(optimized)
+            
+            # Handle network architecture separately
+            net_arch_type = optimized.get("net_arch_type", "small")
+            if net_arch_type == "small":
+                policy_kwargs["net_arch"] = [dict(pi=[64, 64], vf=[64, 64])]
+            elif net_arch_type == "medium":
+                policy_kwargs["net_arch"] = [dict(pi=[128, 128], vf=[128, 128])]
+            elif net_arch_type == "large":
+                policy_kwargs["net_arch"] = [dict(pi=[256, 256], vf=[256, 256])]
+            
+            # Remove net_arch_type from hyperparams (not a PPO parameter)
+            hyperparams.pop("net_arch_type", None)
+            
+            print("   ✅ Using optimized hyperparameters")
+        except Exception as e:
+            print(f"   ⚠️  Failed to load optimized hyperparameters: {e}")
+            print("   Using default hyperparameters instead")
+    else:
+        print(f"📦 Using default hyperparameters (no {hyperparams_file} found)")
+        print("   Run 'python rl/tune_sb3.py' to find optimal hyperparameters")
+    
+    # Create model with hyperparameters
     model = PPO(
         "MlpPolicy",
         env,
         verbose=1,
         tensorboard_log=log_dir,
-        learning_rate=3e-4,
-        n_steps=2048,  # Steps per update
-        batch_size=64,
-        n_epochs=10,   # Optimization epochs per update
-        gamma=0.99,    # Discount factor
-        gae_lambda=0.95,  # GAE lambda
-        clip_range=0.2,   # PPO clip range
-        ent_coef=0.01,    # Entropy coefficient
-        vf_coef=0.5,      # Value function coefficient
-        max_grad_norm=0.5,  # Gradient clipping
-        policy_kwargs=dict(
-            net_arch=[dict(pi=[64, 64], vf=[64, 64])]  # Network architecture
-        )
+        policy_kwargs=policy_kwargs,
+        **{k: v for k, v in hyperparams.items() if k != "net_arch_type"}
     )
+    
     return model
 
 if __name__ == "__main__":
