@@ -29,19 +29,22 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     
     metadata = {"render_modes": ["human"]}
     
-    def __init__(self, dataset="didi", step_duration_minutes=15, reward_weights=None, 
-                 data_root=None, day_folders=None):
+    def __init__(self, dataset="didi", step_duration_minutes=5, reward_weights=None, 
+                 data_root=None, day_folders=None, warmup_duration_minutes=30, 
+                 episode_duration_hours=4):
         """
         Initialize the environment.
         
         Args:
             dataset: Name of the dataset to load (e.g., 'didi').
-            step_duration_minutes: Duration of each simulation step in minutes.
+            step_duration_minutes: Duration of each simulation step in minutes (default: 5).
             reward_weights: Weights for reward components [fairness, starvation, throughput].
             data_root: Base path to dataset folders (e.g., './data/didi/full_didi_gaia').
                       If None, uses default dataset path.
             day_folders: List of folder names to randomly select from on each reset.
                         If None, uses single default dataset path.
+            warmup_duration_minutes: Duration of warmup phase in minutes (default: 30).
+            episode_duration_hours: Duration of RL episode after warmup in hours (default: 4).
         """
         super().__init__()
         
@@ -50,6 +53,11 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.reward_weights = reward_weights or [1.0, 1.0, 1.0]
         self.data_root = data_root
         self.day_folders = day_folders
+        
+        # Warmup and episode configuration
+        self.warmup_duration_seconds = warmup_duration_minutes * 60  # 30 minutes warmup
+        self.episode_duration_seconds = episode_duration_hours * 60 * 60  # 4 hour episodes
+        self.episode_end_time = None  # Will be set in reset()
         
         # For dynamic loading: Load ONE day initially just to define observation space shape
         # (We don't keep this data, it's just for setup)
@@ -148,35 +156,87 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         
     def reset(self, seed=None, options=None):
         """
-        Reset the environment to initial state.
-        On each reset, randomly selects a day folder (if using dynamic loading).
+        Reset the environment to initial state with Random Drop-In + Warmup strategy.
+        
+        Process:
+        1. Load full day data (random day selection)
+        2. Pick random start time T
+        3. Run warmup phase (T -> T+30min) with Greedy strategy
+        4. Switch to Composite strategy for RL training (T+30min -> T+4.5h)
         """
         super().reset(seed=seed)
         
-        # Dynamic loading: Randomly select a day if using day_folders
+        # 1. Load Data (Random Day)
         if self.day_folders:
             selected_day = random.choice(self.day_folders)
-            # Debug: Show which day is being loaded (useful for verification)
+            # Optional: Uncomment for debugging
             # print(f"DEBUG: Resetting Env with Day {selected_day}")
             
             # Load data for the selected day (takes ~0.5s - 1s with optimizations)
             self.workers, self.tasks = self._load_day_data(selected_day)
+        else:
+            # Legacy mode: load data once
+            self.workers, self.tasks = load_workers_tasks(self.dataset)
         
-        # Initialize simulator with loaded data
-        # We use 'composite' strategy by default for RL control
-        config = get_simulation_config()
-        config['assignment_strategy'] = 'composite'
-        config['strategy_params'] = {
+        # 2. Determine Time Window (Random Drop-In)
+        # Find valid bounds from loaded data
+        if not self.tasks:
+            raise ValueError("No tasks loaded - cannot determine time window")
+        
+        earliest = min(t.release_time for t in self.tasks)
+        latest = max(t.release_time for t in self.tasks)
+        
+        # Ensure we have enough runway for warmup + episode
+        # Start time must be at least (Warmup + Episode) before the data ends
+        total_duration_needed = self.warmup_duration_seconds + self.episode_duration_seconds
+        max_start = latest - total_duration_needed
+        
+        if max_start < earliest:
+            # Fallback for short datasets: just start at beginning
+            start_time = earliest
+            # print(f"⚠️  Dataset too short, starting at beginning")
+        else:
+            # Random drop-in: pick a random start time
+            start_time = random.uniform(earliest, max_start)
+        
+        # Convert to datetime for display (if needed for debugging)
+        # start_dt = pd.Timestamp.fromtimestamp(start_time)
+        # print(f"🔥 Starting at: {start_dt} (Random Drop-In)")
+        
+        # 3. Initialize Simulator in 'GREEDY' mode for Warmup
+        # Greedy is fast and establishes realistic worker positions
+        warmup_config = get_simulation_config()
+        warmup_config['assignment_strategy'] = 'greedy'
+        warmup_config['strategy_params'] = {
+            'enable_deferral_tracking': False  # Not needed for warmup
+        }
+        
+        self.simulator = EventSimulator(self.workers, self.tasks, sim_config=warmup_config)
+        
+        # Reset to specific start time (Random Drop-In)
+        self.simulator.reset(start_time=start_time)
+        
+        # 4. Run Warmup (The "Heuristic Warmup")
+        # Greedy strategy moves workers around and assigns tasks
+        # This eliminates the "Artificial Idle" spike from cold start
+        # print(f"🔥 Warmup: {start_time} -> +{self.warmup_duration_seconds/60:.0f}m (Greedy)")
+        self.simulator.step(duration_seconds=self.warmup_duration_seconds)
+        
+        # 5. Handover to RL (Hot-Swap Strategy)
+        # Switch to composite strategy for the actual training
+        rl_params = {
             'λ1': 3.0, 'λ2': 0.5, 'λ3': 3.0,  # Initialize to middle of action space
             'enable_deferral_tracking': True  # Needed for state
         }
+        self.simulator.switch_strategy('composite', rl_params)
         
-        # Create NEW simulator instance with current data
-        self.simulator = EventSimulator(self.workers, self.tasks, sim_config=config)
-        self.simulator.reset()
-        
+        # Reset counters for the actual episode
         self.current_step_idx = 0
-        self.last_action = np.array([3.0, 3.0], dtype=np.float32)  # [λ1, λ3] only (initialized to middle of [2.5, 5.0])
+        self.last_action = np.array([3.0, 3.0], dtype=np.float32)  # [λ1, λ3] only
+        
+        # 6. Set Hard End Time for this episode
+        # This prevents the episode from running beyond the intended duration
+        self.episode_end_time = self.simulator.current_time + self.episode_duration_seconds
         
         # Get initial observation
         obs = self._get_observation()
@@ -201,21 +261,27 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         done = self.simulator.step(duration_seconds=self.step_duration)
         self.current_step_idx += 1
         
-        # 3. Get observation
+        # 3. Check explicit time termination (episode end time)
+        if self.episode_end_time and self.simulator.current_time >= self.episode_end_time:
+            done = True
+        
+        # 4. Get observation
         obs = self._get_observation()
         
-        # 4. Calculate reward
+        # 5. Calculate reward
         reward = self._calculate_reward()
         
-        # 5. Check termination
+        # 6. Check termination
         terminated = done
-        truncated = False # We rely on simulator completion
+        truncated = False  # We rely on simulator completion or episode end time
         
         info = {
             'step': self.current_step_idx,
             'lambdas': [lambda1, lambda2, lambda3],  # Full [λ1, λ2, λ3] for logging
             'backlog': self.simulator.metrics.summary.get('backlog_peak', 0),
-            'completed': self.simulator.metrics.summary.get('completed_tasks', 0)
+            'completed': self.simulator.metrics.summary.get('completed_tasks', 0),
+            'current_time': self.simulator.current_time,
+            'episode_end_time': self.episode_end_time
         }
         
         return obs, reward, terminated, truncated, info

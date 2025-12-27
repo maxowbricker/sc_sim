@@ -32,7 +32,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from rl.gym_environment import AdaptiveSpatialCrowdsourcingEnv
 
-def make_env(data_root, day_folders, rank=0, step_duration_minutes=15, reward_weights=None):
+def make_env(data_root, day_folders, rank=0, step_duration_minutes=5, reward_weights=None,
+             warmup_duration_minutes=30, episode_duration_hours=4):
     """
     Utility function for multiprocessed env.
     
@@ -40,8 +41,10 @@ def make_env(data_root, day_folders, rank=0, step_duration_minutes=15, reward_we
         data_root: Base path to dataset folders
         day_folders: List of folder names to randomly select from
         rank: Index of the subprocess (useful for seeding)
-        step_duration_minutes: Duration of each simulation step
+        step_duration_minutes: Duration of each simulation step (default: 5 minutes)
         reward_weights: Weights for reward components
+        warmup_duration_minutes: Duration of warmup phase (default: 30 minutes)
+        episode_duration_hours: Duration of RL episode after warmup (default: 4 hours)
     """
     def _init():
         env = AdaptiveSpatialCrowdsourcingEnv(
@@ -49,20 +52,25 @@ def make_env(data_root, day_folders, rank=0, step_duration_minutes=15, reward_we
             step_duration_minutes=step_duration_minutes,
             reward_weights=reward_weights or [1.0, 1.0, 1.0],
             data_root=data_root,
-            day_folders=day_folders
+            day_folders=day_folders,
+            warmup_duration_minutes=warmup_duration_minutes,
+            episode_duration_hours=episode_duration_hours
         )
         return env
     return _init
 
-def create_env(dataset="didi", step_duration_minutes=15, reward_weights=None, 
-               data_root=None, day_folders=None):
+def create_env(dataset="didi", step_duration_minutes=5, reward_weights=None, 
+               data_root=None, day_folders=None, warmup_duration_minutes=30,
+               episode_duration_hours=4):
     """Create and wrap environment for training (legacy single-env mode)."""
     env = AdaptiveSpatialCrowdsourcingEnv(
         dataset=dataset,
         step_duration_minutes=step_duration_minutes,
         reward_weights=reward_weights or [1.0, 1.0, 1.0],
         data_root=data_root,
-        day_folders=day_folders
+        day_folders=day_folders,
+        warmup_duration_minutes=warmup_duration_minutes,
+        episode_duration_hours=episode_duration_hours
     )
     return env
 
@@ -152,19 +160,23 @@ def main():
         print("   Using single environment (no parallelization)")
         env = create_env(
             dataset="didi", 
-            step_duration_minutes=15, 
+            step_duration_minutes=5,  # 5-minute steps for high-frequency decisions
             reward_weights=[1.0, 1.0, 1.0],
             data_root=data_root,
-            day_folders=train_days
+            day_folders=train_days,
+            warmup_duration_minutes=30,
+            episode_duration_hours=4
         )
-    env = Monitor(env, log_dir)
+        env = Monitor(env, log_dir)
     else:
         # Parallel environments mode
         num_cpu = args.num_cpu
         print(f"   Creating {num_cpu} parallel environments...")
         env = SubprocVecEnv([
-            make_env(data_root, train_days, i, step_duration_minutes=15, 
-                    reward_weights=[1.0, 1.0, 1.0]) 
+            make_env(data_root, train_days, i, step_duration_minutes=5, 
+                    reward_weights=[1.0, 1.0, 1.0],
+                    warmup_duration_minutes=30,
+                    episode_duration_hours=4) 
             for i in range(num_cpu)
         ])
         print(f"   ✅ Parallel environment created with {num_cpu} workers")
@@ -178,8 +190,8 @@ def main():
                 # Can't easily check SubprocVecEnv, skip for now
                 print("   Skipping check for parallel environments (SubprocVecEnv)")
             else:
-            check_env(env, warn=True)
-            print("✅ Environment check passed!")
+                check_env(env, warn=True)
+                print("✅ Environment check passed!")
         except Exception as e:
             print(f"⚠️  Environment check warning: {e}")
             print("   Continuing anyway...")
@@ -197,10 +209,12 @@ def main():
     
     eval_env = create_env(
         dataset="didi", 
-        step_duration_minutes=15, 
+        step_duration_minutes=5,  # 5-minute steps for consistency
         reward_weights=[1.0, 1.0, 1.0],
         data_root=data_root,
-        day_folders=test_days
+        day_folders=test_days,
+        warmup_duration_minutes=30,
+        episode_duration_hours=4
     )
     eval_env = Monitor(eval_env, os.path.join(log_dir, "eval"))
     

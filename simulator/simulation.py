@@ -136,6 +136,30 @@ class EventSimulator:
             self.strategy_params['λ2'] = lambda2
             self.strategy_params['λ3'] = lambda3
 
+    def switch_strategy(self, strategy_name: str, strategy_params: Optional[Dict] = None):
+        """
+        Hot-swap the assignment strategy.
+        Used to switch from 'greedy' (warmup) to 'composite' (RL training).
+        
+        Args:
+            strategy_name: Name of the new strategy (e.g., 'greedy', 'composite')
+            strategy_params: Optional dictionary of strategy parameters to update
+        """
+        self.strategy_name = strategy_name
+        if strategy_params:
+            self.strategy_params.update(strategy_params)
+        
+        # Re-initialize handlers for the new strategy
+        strategy_handler_factory = get_strategy(self.strategy_name)
+        strategy_handlers = strategy_handler_factory()
+        
+        self.new_task_handler = strategy_handlers["NEW_TASK"]
+        self.free_worker_handler = strategy_handlers["FREE_WORKER"]
+        
+        # Update metrics config to reflect new strategy
+        if hasattr(self, 'metrics'):
+            self.metrics.config['strategy_params'] = self.strategy_params
+
     def step(self, duration_seconds: float = None) -> bool:
         """
         Run simulation for a fixed duration or until completion.

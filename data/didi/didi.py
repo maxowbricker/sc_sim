@@ -120,20 +120,15 @@ class Adapter:
             yield bucket
 
     def _load_gps(self) -> pd.DataFrame:
-        # Prefer 3-hour peak window for guaranteed temporal overlap
-        peak_path = self.root / "gps_3hour_peak.txt"
-        fixed_path = self.root / "gps_quarter_fixed.txt"
-        quarter_path = self.root / "gps_quarter.txt"
-        full_path = self.root / "gps.txt"
+        # For RL training with Random Drop-In, we REQUIRE full day data
+        # Only load gps.txt - no fallbacks to peak/quarter files
+        path = self.root / "gps.txt"
         
-        if peak_path.exists():
-            path = peak_path
-        elif fixed_path.exists():
-            path = fixed_path
-        elif quarter_path.exists():
-            path = quarter_path
-        else:
-            path = full_path
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Full GPS file (gps.txt) not found in {self.root}. "
+                f"Random Drop-In strategy requires full day data."
+            )
             
         print(f"📊 Loading GPS data from: {path.name} ({path.stat().st_size / 1024 / 1024:.1f} MB)")
         df = pd.read_csv(path, header=None)
@@ -141,20 +136,15 @@ class Adapter:
         return df.sort_values("timestamp")
 
     def _load_orders(self) -> pd.DataFrame:
-        # Prefer 3-hour peak window for guaranteed temporal overlap
-        peak_path = self.root / "order_3hour_peak.txt"
-        fixed_path = self.root / "order_quarter_fixed.txt"
-        quarter_path = self.root / "order_quarter.txt"
-        full_path = self.root / "order.txt"
+        # For RL training with Random Drop-In, we REQUIRE full day data
+        # Only load order.txt - no fallbacks to peak/quarter files
+        path = self.root / "order.txt"
         
-        if peak_path.exists():
-            path = peak_path
-        elif fixed_path.exists():
-            path = fixed_path
-        elif quarter_path.exists():
-            path = quarter_path
-        else:
-            path = full_path
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Full order file (order.txt) not found in {self.root}. "
+                f"Random Drop-In strategy requires full day data."
+            )
             
         print(f"📊 Loading Orders data from: {path.name} ({path.stat().st_size / 1024 / 1024:.1f} MB)")
         df = pd.read_csv(path, header=None)
