@@ -574,7 +574,7 @@ def match_worker_composite(
 
         pickup_eta_seconds = (d_pick / AVG_SPEED_KMH) * 3600
         finish_eta_seconds = (total_km_tmp / AVG_SPEED_KMH) * 3600
-
+        
         if (now + pickup_eta_seconds) > task.expire_time or (now + finish_eta_seconds) > worker.deadline:
             continue
 

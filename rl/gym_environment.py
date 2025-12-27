@@ -9,6 +9,7 @@ import pandas as pd
 from typing import Dict, Tuple, Any, List, Optional
 import sys
 import os
+import random
 
 # Ensure project root is in path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -28,7 +29,8 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     
     metadata = {"render_modes": ["human"]}
     
-    def __init__(self, dataset="didi", step_duration_minutes=15, reward_weights=None):
+    def __init__(self, dataset="didi", step_duration_minutes=15, reward_weights=None, 
+                 data_root=None, day_folders=None):
         """
         Initialize the environment.
         
@@ -36,21 +38,39 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
             dataset: Name of the dataset to load (e.g., 'didi').
             step_duration_minutes: Duration of each simulation step in minutes.
             reward_weights: Weights for reward components [fairness, starvation, throughput].
+            data_root: Base path to dataset folders (e.g., './data/didi/full_didi_gaia').
+                      If None, uses default dataset path.
+            day_folders: List of folder names to randomly select from on each reset.
+                        If None, uses single default dataset path.
         """
         super().__init__()
         
         self.dataset = dataset
         self.step_duration = step_duration_minutes * 60  # seconds
         self.reward_weights = reward_weights or [1.0, 1.0, 1.0]
+        self.data_root = data_root
+        self.day_folders = day_folders
         
-        # Load data once
-        self.workers, self.tasks = load_workers_tasks(dataset)
-        print(f"Loaded {len(self.workers)} workers, {len(self.tasks)} tasks")
+        # For dynamic loading: Load ONE day initially just to define observation space shape
+        # (We don't keep this data, it's just for setup)
+        if self.day_folders:
+            # Use first day folder for initialization
+            dummy_day = self.day_folders[0]
+            workers, tasks = self._load_day_data(dummy_day)
+            print(f"Initialized with {len(workers)} workers, {len(tasks)} tasks (from {dummy_day})")
+        else:
+            # Legacy mode: load data once
+            workers, tasks = load_workers_tasks(dataset)
+            print(f"Loaded {len(workers)} workers, {len(tasks)} tasks")
+        
+        # Store for initial space setup (will be replaced in reset())
+        self.workers = workers
+        self.tasks = tasks
         
         # Define Action Space: Continuous [λ1, λ3]
         # λ2 is fixed at 0.5 based on empirical findings
-        # We limit the range to reasonable values, e.g., [0, 5.0]
-        self.action_space = spaces.Box(low=0.0, high=5.0, shape=(2,), dtype=np.float32)
+        # We limit the range to [2.5, 5.0] to constrain exploration to higher weight values
+        self.action_space = spaces.Box(low=2.5, high=5.0, shape=(2,), dtype=np.float32)
         self.lambda2_fixed = 0.5  # Fixed value for λ2
         
         # Define Observation Space
@@ -67,14 +87,24 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         # 9. % Deferrals due to No Candidates
         # 10. Time of Day (Sine)
         # 11. Time of Day (Cosine)
-        # 12. Previous λ1
-        # 13. Previous λ3
+        # 12. Previous λ1 (range: [2.5, 5.0])
+        # 13. Previous λ3 (range: [2.5, 5.0])
         # (λ2 is fixed at 0.5, so not included in observation)
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(14,), dtype=np.float32)
         
         self.simulator = None
         self.current_step_idx = 0
-        self.last_action = np.array([1.0, 1.0], dtype=np.float32)  # [λ1, λ3] only
+        self.last_action = np.array([3.0, 3.0], dtype=np.float32)  # [λ1, λ3] only (initialized to middle of [2.5, 5.0])
+        
+        # Initialize a temporary sim to get spaces (needed for observation_space definition)
+        config = get_simulation_config()
+        config['assignment_strategy'] = 'composite'
+        config['strategy_params'] = {
+            'λ1': 3.0, 'λ2': 0.5, 'λ3': 3.0,  # Initialize to middle of action space
+            'enable_deferral_tracking': True
+        }
+        self.simulator = EventSimulator(self.workers, self.tasks, sim_config=config)
+        self.simulator.reset()  # Important to set up the state for dimensions
         
         # Baseline for normalization (from baseline_metrics_summary_20251211_165426.json)
         # Values averaged from two configs: λ1=4.0,λ3=4.0 and λ1=5.0,λ3=3.0
@@ -83,26 +113,70 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.baseline_backlog = 1285    # tasks (avg peak backlog from baseline simulations)
         self.baseline_worker_idle = 146.07  # minutes (avg worker idle time from baseline simulations)
         
+    def _load_day_data(self, day_folder):
+        """
+        Helper to load a specific day's data on demand.
+        
+        Args:
+            day_folder: Name of the folder (e.g., '496528674@qq.com_20161101')
+            
+        Returns:
+            Tuple of (workers, tasks) lists
+        """
+        if self.data_root:
+            # Construct full path to the day folder
+            # Convert to absolute path to ensure correct resolution
+            if not os.path.isabs(self.data_root):
+                # If relative, make it relative to project root (where this file is in rl/, so go up 2 levels)
+                project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                # Remove leading ./ if present
+                data_root_clean = self.data_root.lstrip('./')
+                data_root_abs = os.path.join(project_root, data_root_clean)
+            else:
+                data_root_abs = self.data_root
+            
+            full_path = os.path.join(data_root_abs, day_folder)
+            # Ensure path exists
+            if not os.path.exists(full_path):
+                raise FileNotFoundError(f"Day folder not found: {full_path}")
+        else:
+            # Fallback to default dataset path
+            full_path = None
+        
+        # Use existing loader with the specific path
+        return load_workers_tasks(self.dataset, root_path=full_path)
+        
     def reset(self, seed=None, options=None):
         """
         Reset the environment to initial state.
+        On each reset, randomly selects a day folder (if using dynamic loading).
         """
         super().reset(seed=seed)
         
-        # Initialize simulator
+        # Dynamic loading: Randomly select a day if using day_folders
+        if self.day_folders:
+            selected_day = random.choice(self.day_folders)
+            # Debug: Show which day is being loaded (useful for verification)
+            # print(f"DEBUG: Resetting Env with Day {selected_day}")
+            
+            # Load data for the selected day (takes ~0.5s - 1s with optimizations)
+            self.workers, self.tasks = self._load_day_data(selected_day)
+        
+        # Initialize simulator with loaded data
         # We use 'composite' strategy by default for RL control
         config = get_simulation_config()
         config['assignment_strategy'] = 'composite'
         config['strategy_params'] = {
-            'λ1': 1.0, 'λ2': 1.0, 'λ3': 1.0,
-            'enable_deferral_tracking': True # Needed for state
+            'λ1': 3.0, 'λ2': 0.5, 'λ3': 3.0,  # Initialize to middle of action space
+            'enable_deferral_tracking': True  # Needed for state
         }
         
+        # Create NEW simulator instance with current data
         self.simulator = EventSimulator(self.workers, self.tasks, sim_config=config)
         self.simulator.reset()
         
         self.current_step_idx = 0
-        self.last_action = np.array([1.0, 1.0], dtype=np.float32)  # [λ1, λ3] only
+        self.last_action = np.array([3.0, 3.0], dtype=np.float32)  # [λ1, λ3] only (initialized to middle of [2.5, 5.0])
         
         # Get initial observation
         obs = self._get_observation()
@@ -140,8 +214,8 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         info = {
             'step': self.current_step_idx,
             'lambdas': [lambda1, lambda2, lambda3],  # Full [λ1, λ2, λ3] for logging
-            'backlog': self.simulator.summary.get('backlog_peak', 0),
-            'completed': self.simulator.summary.get('completed_tasks', 0)
+            'backlog': self.simulator.metrics.summary.get('backlog_peak', 0),
+            'completed': self.simulator.metrics.summary.get('completed_tasks', 0)
         }
         
         return obs, reward, terminated, truncated, info
@@ -203,7 +277,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         # Get pre-calculated stats from MetricsManager (single source of truth)
         stats = self.simulator.metrics.get_reward_stats()
         # stats = {'fairness': JFI, 'throughput': -Backlog, 'latency': -AvgWait}
-        
+            
         # Normalize components to be roughly in same magnitude
         # JFI is [0, 1]. Target is to boost it.
         # Backlog is [0, 500+]. Throughput is already negative.

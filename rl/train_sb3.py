@@ -20,6 +20,8 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
+from sklearn.model_selection import train_test_split
 import argparse
 import os
 import sys
@@ -30,12 +32,37 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from rl.gym_environment import AdaptiveSpatialCrowdsourcingEnv
 
-def create_env(dataset="didi", step_duration_minutes=15, reward_weights=None):
-    """Create and wrap environment for training."""
+def make_env(data_root, day_folders, rank=0, step_duration_minutes=15, reward_weights=None):
+    """
+    Utility function for multiprocessed env.
+    
+    Args:
+        data_root: Base path to dataset folders
+        day_folders: List of folder names to randomly select from
+        rank: Index of the subprocess (useful for seeding)
+        step_duration_minutes: Duration of each simulation step
+        reward_weights: Weights for reward components
+    """
+    def _init():
+        env = AdaptiveSpatialCrowdsourcingEnv(
+            dataset="didi",
+            step_duration_minutes=step_duration_minutes,
+            reward_weights=reward_weights or [1.0, 1.0, 1.0],
+            data_root=data_root,
+            day_folders=day_folders
+        )
+        return env
+    return _init
+
+def create_env(dataset="didi", step_duration_minutes=15, reward_weights=None, 
+               data_root=None, day_folders=None):
+    """Create and wrap environment for training (legacy single-env mode)."""
     env = AdaptiveSpatialCrowdsourcingEnv(
         dataset=dataset,
         step_duration_minutes=step_duration_minutes,
-        reward_weights=reward_weights or [1.0, 1.0, 1.0]
+        reward_weights=reward_weights or [1.0, 1.0, 1.0],
+        data_root=data_root,
+        day_folders=day_folders
     )
     return env
 
@@ -51,6 +78,14 @@ def main():
                        help="Directory for logs and checkpoints (default: rl_logs_sb3)")
     parser.add_argument("--skip-env-check", action="store_true",
                        help="Skip environment compatibility check (faster startup)")
+    parser.add_argument("--data-root", type=str, default="./data/didi/full_didi_gaia",
+                       help="Base path to dataset folders (default: ./data/didi/full_didi_gaia)")
+    parser.add_argument("--num-cpu", type=int, default=8,
+                       help="Number of parallel environments (default: 8)")
+    parser.add_argument("--train-days", type=int, default=24,
+                       help="Number of days to use for training (default: 24)")
+    parser.add_argument("--no-parallel", action="store_true",
+                       help="Disable parallel environments (use single env)")
     
     args = parser.parse_args()
     
@@ -72,31 +107,105 @@ def main():
     print(f"Resume from: {args.resume if args.resume else 'None (new training)'}")
     print("=" * 80)
     
-    # Initialize environment
-    print("\n[1/4] Initializing environment...")
-    env = create_env(dataset="didi", step_duration_minutes=15, reward_weights=[1.0, 1.0, 1.0])
+    # Setup Data Paths
+    print("\n[1/5] Setting up data paths...")
+    data_root = args.data_root
     
-    # Wrap with Monitor for statistics
+    # Get all day folders from the data root
+    if os.path.exists(data_root):
+        all_days = [d for d in os.listdir(data_root) 
+                   if os.path.isdir(os.path.join(data_root, d))]
+        all_days = sorted(all_days)  # Ensure consistent order before splitting
+        
+        print(f"   Found {len(all_days)} day folders in {data_root}")
+        
+        if len(all_days) < args.train_days:
+            print(f"   ⚠️  Warning: Only {len(all_days)} folders available, but {args.train_days} requested for training")
+            print(f"   Using all {len(all_days)} folders for training")
+            train_days = all_days
+            test_days = []
+        else:
+            # Split: Training Days, Testing Days
+            # shuffle=True ensures we get a random mix of weekdays/weekends in both sets
+            train_days, test_days = train_test_split(
+                all_days, 
+                train_size=args.train_days, 
+                random_state=42, 
+                shuffle=True
+            )
+        
+        print(f"   🏋️  Training on {len(train_days)} days: {train_days[:3]}...")
+        if test_days:
+            print(f"   🧪 Testing on {len(test_days)} days: {test_days[:3]}...")
+    else:
+        print(f"   ⚠️  Data root not found: {data_root}")
+        print("   Falling back to legacy single-dataset mode")
+        train_days = None
+        test_days = None
+        data_root = None
+    
+    # Initialize environment(s)
+    print("\n[2/5] Initializing environment(s)...")
+    
+    if args.no_parallel or train_days is None:
+        # Single environment mode (legacy or disabled parallel)
+        print("   Using single environment (no parallelization)")
+        env = create_env(
+            dataset="didi", 
+            step_duration_minutes=15, 
+            reward_weights=[1.0, 1.0, 1.0],
+            data_root=data_root,
+            day_folders=train_days
+        )
     env = Monitor(env, log_dir)
+    else:
+        # Parallel environments mode
+        num_cpu = args.num_cpu
+        print(f"   Creating {num_cpu} parallel environments...")
+        env = SubprocVecEnv([
+            make_env(data_root, train_days, i, step_duration_minutes=15, 
+                    reward_weights=[1.0, 1.0, 1.0]) 
+            for i in range(num_cpu)
+        ])
+        print(f"   ✅ Parallel environment created with {num_cpu} workers")
     
     # Check environment compatibility (optional)
     if not args.skip_env_check:
-        print("\n[2/4] Checking environment compatibility...")
+        print("\n[3/5] Checking environment compatibility...")
         try:
+            # For parallel envs, check the first one
+            if isinstance(env, SubprocVecEnv):
+                # Can't easily check SubprocVecEnv, skip for now
+                print("   Skipping check for parallel environments (SubprocVecEnv)")
+            else:
             check_env(env, warn=True)
             print("✅ Environment check passed!")
         except Exception as e:
             print(f"⚠️  Environment check warning: {e}")
             print("   Continuing anyway...")
     else:
-        print("\n[2/4] Skipping environment check (--skip-env-check)")
+        print("\n[3/5] Skipping environment check (--skip-env-check)")
     
     # Create evaluation environment
-    eval_env = create_env(dataset="didi", step_duration_minutes=15, reward_weights=[1.0, 1.0, 1.0])
+    print("\n[4/5] Creating evaluation environment...")
+    if not test_days or len(test_days) == 0:
+        raise ValueError(
+            "No test days available for evaluation. "
+            "Cannot evaluate on training data (data leakage). "
+            "Ensure train_days < total_days to create a test split."
+        )
+    
+    eval_env = create_env(
+        dataset="didi", 
+        step_duration_minutes=15, 
+        reward_weights=[1.0, 1.0, 1.0],
+        data_root=data_root,
+        day_folders=test_days
+    )
     eval_env = Monitor(eval_env, os.path.join(log_dir, "eval"))
     
     # Initialize or load PPO agent
-    print("\n[3/4] Initializing PPO agent...")
+    print("\n[5/5] Initializing PPO agent...")
     if args.resume:
         print(f"   Loading model from: {args.resume}")
         try:
