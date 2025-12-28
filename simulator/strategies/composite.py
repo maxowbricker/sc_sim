@@ -4,7 +4,7 @@ import pandas as pd
 from typing import Optional, Tuple, List, Dict
 from simulator.spatial_index import fast_manhattan_km
 
-def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_workers=None, mutate_state=False):
+def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_workers=None, mutate_state=False, gamma=0.3):
     """
     Calculate fairness signal for a worker based on research proposal methodology.
     
@@ -17,6 +17,7 @@ def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_
         fairness_metric: Type of fairness metric ('ewma', 'idle_time', 'task_count')
         all_workers: Optional list of all workers (not used in current implementation)
         mutate_state: If True, update worker.fairness_ewma. If False, calculate without mutation.
+        gamma: EWMA smoothing factor (default: 0.3). Should come from strategy_params.
     
     Returns:
         float: Fairness signal value
@@ -24,8 +25,7 @@ def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_
     if fairness_metric == 'ewma':
         # RESEARCH PROPOSAL: Implement EWMA as described
         # Fairness(w_i) = (1 - γ) · T_idle(w_i) + γ · Previous EWMA
-        
-        gamma = getattr(worker, 'gamma', 0.3)
+        # gamma is now passed as parameter (from strategy_params) for consistency
         
         # Determine reference time (when did they last finish a task?)
         # If last_active_ts is None, they are fresh -> use release_time
@@ -99,6 +99,7 @@ def _find_best_assignment_for_task(
     k,
     normalize_scores=False,
     diagnostic_tracker=None,
+    gamma=0.3,
     *,
     spatial_index
 ) -> Tuple[Optional[object], float, Optional[Dict]]:
@@ -164,9 +165,8 @@ def _find_best_assignment_for_task(
     
     # FAST PATH: When no normalization or diagnostics needed
     # OPTIMIZED: On-demand EWMA calculation - only for k=15 candidates, only update winner
+    # gamma is now passed as parameter (from strategy_params) for consistency
     if not normalize_scores and diagnostic_tracker is None:
-        # Pre-calculate gamma once (assumes constant gamma across workers for speed)
-        gamma = getattr(nearest_workers[0], 'gamma', 0.3) if nearest_workers else 0.3
         
         best_worker, best_score, best_fairness_val = None, float("-inf"), None
         
@@ -213,9 +213,8 @@ def _find_best_assignment_for_task(
     # MIDDLE PATH: Normalization only (no diagnostics)
     # OPTIMIZED FOR RL: Lazy EWMA calculation, minimal state mutation
     # Collects candidate data for normalization, but skips diagnostic info preparation
+    # gamma is now passed as parameter (from strategy_params) for consistency
     if normalize_scores and diagnostic_tracker is None:
-        # Pre-calculate gamma once (assumes all workers have same gamma)
-        gamma = getattr(nearest_workers[0], 'gamma', 0.3) if nearest_workers else 0.3
         
         candidate_data = []
         
@@ -299,7 +298,7 @@ def _find_best_assignment_for_task(
         
         # Calculate raw component values
         distance = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
-        fairness_raw = calculate_fairness_signal(worker, now, mutate_state=False)
+        fairness_raw = calculate_fairness_signal(worker, now, mutate_state=False, gamma=gamma)
         starvation_raw = log(1 + (now - task.release_time))
         utility_raw = 1.0 / (1.0 + distance)
         
@@ -403,6 +402,7 @@ def assign_new_tasks_composite(
     normalize_scores=False,
     disable_soft_threshold=False,
     diagnostic_tracker=None,
+    gamma=0.3,
     **_
 ):
     """Assign new tasks to available workers using composite scoring.
@@ -430,6 +430,7 @@ def assign_new_tasks_composite(
             k,
             normalize_scores=normalize_scores,
             diagnostic_tracker=diagnostic_tracker,
+            gamma=gamma,  # Pass gamma from strategy_params
             spatial_index=state.spatial_index  # Spatial index is always initialized in StateManager
         )
         
@@ -522,6 +523,7 @@ def match_worker_composite(
     normalize_scores=False,
     disable_soft_threshold=False,
     diagnostic_tracker=None,
+    gamma=0.3,
     **_
 ):
     """Match a free worker to nearby deferred tasks using spatial index.
@@ -623,10 +625,10 @@ def match_worker_composite(
     
     # OPTIMIZATION: Skip threshold check if disabled or threshold is 0
     # This avoids unnecessary EWMA calculation when threshold check always passes
+    # gamma is now passed as parameter (from strategy_params) for consistency
     if disable_soft_threshold or soft_threshold == 0:
         # Threshold check always passes - assign immediately
         # Calculate EWMA only when assignment is confirmed (lazy evaluation)
-        gamma = getattr(worker, 'gamma', 0.3)
         if worker.last_active_ts is None:
             T_idle_seconds = now - worker.release_time
         else:
@@ -642,7 +644,6 @@ def match_worker_composite(
         worker.fairness_ewma = updated_ewma
     else:
         # Threshold check required - calculate EWMA for threshold evaluation
-        gamma = getattr(worker, 'gamma', 0.3)
         if worker.last_active_ts is None:
             T_idle_seconds = now - worker.release_time
         else:
