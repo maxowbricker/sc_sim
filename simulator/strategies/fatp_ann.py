@@ -16,9 +16,8 @@ Event Handlers:
 """
 
 from simulator.strategies import register
-import pandas as pd
-from math import fabs, cos, radians, exp
-from datetime import timedelta
+from math import exp
+from simulator.spatial_index import fast_manhattan_km
 
 AVG_SPEED_KMH = 30
 
@@ -78,41 +77,39 @@ class FairnessCapTracker:
 # UTILITY FUNCTIONS
 # ============================================================================
 
-def manhattan_km(lat1, lon1, lat2, lon2):
-    """Calculate Manhattan distance in kilometers between two lat/lon points."""
-    km_per_deg = 111
-    d_lat = fabs(lat1 - lat2) * km_per_deg
-    avg_lat = (lat1 + lat2) / 2
-    d_lon = fabs(lon1 - lon2) * km_per_deg * cos(radians(avg_lat))
-    return d_lat + d_lon
-
-
 def _calculate_utility(task, worker_lat, worker_lon, worker_time, mu, alpha_scale):
     """
     Calculate utility for assigning a task from a worker's current position/time.
     
     Formula: u_r = alpha_r * exp(-mu * (completion_time - release_time))
     
+    OPTIMIZED: Uses float math instead of pandas Timedelta for better performance.
+    
     Args:
         task: Task object
         worker_lat, worker_lon: Worker's current location
-        worker_time: Worker's current time (pd.Timestamp)
+        worker_time: Worker's current time (float Unix timestamp)
         mu: Decay factor
         alpha_scale: Scaling factor for base utility
     
     Returns:
         float: Calculated utility value
     """
-    # Calculate completion time
-    pickup_dist = manhattan_km(worker_lat, worker_lon, task.pickup_lat, task.pickup_lon)
-    service_dist = manhattan_km(task.pickup_lat, task.pickup_lon, 
-                                task.dropoff_lat, task.dropoff_lon)
+    # Ensure worker_time is a float timestamp
+    if not isinstance(worker_time, (int, float)):
+        worker_time = worker_time.timestamp() if hasattr(worker_time, 'timestamp') else float(worker_time)
     
-    total_hours = (pickup_dist + service_dist) / AVG_SPEED_KMH
-    completion_time = worker_time + pd.to_timedelta(total_hours, unit="h")
+    # OPTIMIZED: Use fast_manhattan_km and float math
+    pickup_dist = fast_manhattan_km(worker_lat, worker_lon, task.pickup_lat, task.pickup_lon)
+    service_dist = fast_manhattan_km(task.pickup_lat, task.pickup_lon, 
+                                    task.dropoff_lat, task.dropoff_lon)
     
-    # Calculate time penalty (wait time since release)
-    wait_time_hours = (completion_time - task.release_time).total_seconds() / 3600.0
+    # OPTIMIZED: Use float math instead of Timedelta
+    total_seconds = ((pickup_dist + service_dist) / AVG_SPEED_KMH) * 3600
+    completion_time = worker_time + total_seconds
+    
+    # Calculate time penalty (wait time since release) - all floats
+    wait_time_hours = (completion_time - task.release_time) / 3600.0
     
     # Calculate utility with exponential decay
     base_utility = task.base_utility * alpha_scale
@@ -129,27 +126,34 @@ def _is_valid_assignment(worker, task, now):
     1. Can reach pickup before task expiry
     2. Can complete task before worker's deadline
     
+    OPTIMIZED: Uses float math instead of pandas Timedelta for better performance.
+    
     Args:
         worker: Worker object
         task: Task object
-        now: Current simulation time
+        now: Current simulation time (float Unix timestamp)
     
     Returns:
         bool: True if assignment is valid
     """
-    pickup_dist = manhattan_km(worker.start_lat, worker.start_lon, 
-                               task.pickup_lat, task.pickup_lon)
-    service_dist = manhattan_km(task.pickup_lat, task.pickup_lon,
-                               task.dropoff_lat, task.dropoff_lon)
+    # Ensure now is a float timestamp
+    if not isinstance(now, (int, float)):
+        now = now.timestamp() if hasattr(now, 'timestamp') else float(now)
     
-    # Calculate ETAs
-    pickup_eta = now + pd.to_timedelta(pickup_dist / AVG_SPEED_KMH, unit="h")
-    finish_eta = now + pd.to_timedelta((pickup_dist + service_dist) / AVG_SPEED_KMH, unit="h")
+    # OPTIMIZED: Use fast_manhattan_km
+    pickup_dist = fast_manhattan_km(worker.start_lat, worker.start_lon, 
+                                   task.pickup_lat, task.pickup_lon)
+    service_dist = fast_manhattan_km(task.pickup_lat, task.pickup_lon,
+                                   task.dropoff_lat, task.dropoff_lon)
     
-    # Check constraints
-    if pickup_eta > task.expire_time:
+    # OPTIMIZED: Use float math instead of Timedelta
+    pickup_eta_seconds = (pickup_dist / AVG_SPEED_KMH) * 3600
+    finish_eta_seconds = ((pickup_dist + service_dist) / AVG_SPEED_KMH) * 3600
+    
+    # Compare timestamps directly (all floats)
+    if (now + pickup_eta_seconds) > task.expire_time:
         return False
-    if finish_eta > worker.deadline:
+    if (now + finish_eta_seconds) > worker.deadline:
         return False
     
     return True
@@ -160,30 +164,37 @@ def _is_valid_from_shadow(task, shadow_location, shadow_time, worker):
     Check if a task is valid from a shadow (hypothetical) worker state.
     Used in Worker-Process loop for multi-task assignment.
     
+    OPTIMIZED: Uses float math instead of pandas Timedelta for better performance.
+    
     Args:
         task: Task object
         shadow_location: Tuple (lat, lon) of worker's hypothetical location
-        shadow_time: pd.Timestamp of worker's hypothetical time
+        shadow_time: float Unix timestamp of worker's hypothetical time
         worker: Worker object (for deadline)
     
     Returns:
         bool: True if assignment is valid from shadow state
     """
+    # Ensure shadow_time is a float timestamp
+    if not isinstance(shadow_time, (int, float)):
+        shadow_time = shadow_time.timestamp() if hasattr(shadow_time, 'timestamp') else float(shadow_time)
+    
     shadow_lat, shadow_lon = shadow_location
     
-    pickup_dist = manhattan_km(shadow_lat, shadow_lon, 
-                               task.pickup_lat, task.pickup_lon)
-    service_dist = manhattan_km(task.pickup_lat, task.pickup_lon,
-                               task.dropoff_lat, task.dropoff_lon)
+    # OPTIMIZED: Use fast_manhattan_km
+    pickup_dist = fast_manhattan_km(shadow_lat, shadow_lon, 
+                                   task.pickup_lat, task.pickup_lon)
+    service_dist = fast_manhattan_km(task.pickup_lat, task.pickup_lon,
+                                   task.dropoff_lat, task.dropoff_lon)
     
-    # Calculate ETAs from shadow state
-    pickup_eta = shadow_time + pd.to_timedelta(pickup_dist / AVG_SPEED_KMH, unit="h")
-    finish_eta = shadow_time + pd.to_timedelta((pickup_dist + service_dist) / AVG_SPEED_KMH, unit="h")
+    # OPTIMIZED: Use float math instead of Timedelta
+    pickup_eta_seconds = (pickup_dist / AVG_SPEED_KMH) * 3600
+    finish_eta_seconds = ((pickup_dist + service_dist) / AVG_SPEED_KMH) * 3600
     
-    # Check constraints
-    if pickup_eta > task.expire_time:
+    # Compare timestamps directly (all floats)
+    if (shadow_time + pickup_eta_seconds) > task.expire_time:
         return False
-    if finish_eta > worker.deadline:
+    if (shadow_time + finish_eta_seconds) > worker.deadline:
         return False
     
     return True
@@ -194,28 +205,35 @@ def _commit_assignment(task, worker, now):
     Commit a task assignment to a worker.
     Calculates timing, updates task and worker state.
     
+    OPTIMIZED: Uses float math instead of pandas Timedelta for better performance.
+    
     Args:
         task: Task object to assign
         worker: Worker object to assign to
-        now: Current simulation timestamp
+        now: Current simulation timestamp (float Unix timestamp)
     
     Returns:
         The assigned task object
     """
-    pickup_distance = manhattan_km(worker.start_lat, worker.start_lon, 
-                                   task.pickup_lat, task.pickup_lon)
-    drop_distance = manhattan_km(task.pickup_lat, task.pickup_lon, 
-                                 task.dropoff_lat, task.dropoff_lon)
+    # Ensure now is a float timestamp
+    if not isinstance(now, (int, float)):
+        now = now.timestamp() if hasattr(now, 'timestamp') else float(now)
+    
+    # OPTIMIZED: Use fast_manhattan_km
+    pickup_distance = fast_manhattan_km(worker.start_lat, worker.start_lon, 
+                                       task.pickup_lat, task.pickup_lon)
+    drop_distance = fast_manhattan_km(task.pickup_lat, task.pickup_lon, 
+                                     task.dropoff_lat, task.dropoff_lon)
     
     task.pickup_km = pickup_distance
     task.drop_km = drop_distance
     
-    # Calculate timing: task starts after worker travels to pickup
-    pickup_travel_hours = pickup_distance / AVG_SPEED_KMH
-    service_travel_hours = drop_distance / AVG_SPEED_KMH
+    # OPTIMIZED: Use float math instead of Timedelta
+    pickup_travel_seconds = (pickup_distance / AVG_SPEED_KMH) * 3600
+    service_travel_seconds = (drop_distance / AVG_SPEED_KMH) * 3600
     
-    task.start_time = now + pd.to_timedelta(pickup_travel_hours, unit="h")
-    task.finish_time = task.start_time + pd.to_timedelta(service_travel_hours, unit="h")
+    task.start_time = now + pickup_travel_seconds
+    task.finish_time = task.start_time + service_travel_seconds
     
     task.assign_to_worker(worker)
     worker.assign_task(task)
@@ -230,31 +248,38 @@ def assign_new_tasks_fatp_ann(state, now, tasks_to_assign,
                               fairness_cap_tracker=None,
                               mu=0.5, 
                               alpha_scale=0.5,
-                              use_k_nearest=False,
-                              k=15,
+                              use_k_nearest=True,
+                              k=100,
                               **_):
     """
     Task-Process (TP): Handle newly arriving tasks.
     
     Algorithm:
-    1. For each new task, scan all available workers (or k-nearest if enabled)
+    1. For each new task, scan k nearest workers using spatial index (or all if disabled)
     2. Filter candidates: worker.completed_tasks_count < cap AND is_valid
     3. If candidates exist, assign to nearest worker
     4. Else, task remains in pool (simulation handles automatically)
     
+    OPTIMIZED: Uses spatial index for efficient k-nearest neighbor search.
+    This reduces complexity from O(|W|) to O(k) where k=100 << |W|.
+    
     Args:
         state: StateManager with available workers and tasks
-        now: Current simulation time
+        now: Current simulation time (float Unix timestamp)
         tasks_to_assign: List of newly released tasks
         fairness_cap_tracker: FairnessCapTracker instance
         mu: Decay factor for utility calculation
         alpha_scale: Scaling factor for base utility
-        use_k_nearest: If True, only consider k nearest workers (optimization)
-        k: Number of nearest workers to consider if use_k_nearest=True
+        use_k_nearest: If True, use spatial index to find k nearest workers (default: True)
+        k: Number of nearest workers to consider if use_k_nearest=True (default: 100)
     
     Returns:
         List of (task, worker, distance) tuples for assignments made
     """
+    # Ensure now is a float timestamp
+    if not isinstance(now, (int, float)):
+        now = now.timestamp() if hasattr(now, 'timestamp') else float(now)
+    
     if fairness_cap_tracker is None:
         raise ValueError("fairness_cap_tracker must be provided to FATP-ANN strategy")
     
@@ -262,18 +287,19 @@ def assign_new_tasks_fatp_ann(state, now, tasks_to_assign,
     cap = fairness_cap_tracker.get_cap()
     
     for task in tasks_to_assign:
+        # OPTIMIZATION 1: Pre-calculate drop distance (constant for all workers)
+        drop_dist = fast_manhattan_km(task.pickup_lat, task.pickup_lon, 
+                                      task.dropoff_lat, task.dropoff_lon)
+        
         # Step 1: Get candidate workers
         if use_k_nearest:
-            # Optimization: Only consider k nearest workers
-            worker_distances = []
-            for worker in state.available_workers:
-                dist = manhattan_km(worker.start_lat, worker.start_lon, 
-                                   task.pickup_lat, task.pickup_lon)
-                worker_distances.append((worker, dist))
-            worker_distances.sort(key=lambda x: x[1])
-            candidate_pool = [w for w, _ in worker_distances[:k]]
+            # OPTIMIZATION 2: Use spatial index for efficient k-nearest search
+            # This reduces from 35,449 workers to ~100 workers checked per task!
+            candidate_pool = state.spatial_index.query_k_nearest(
+                task.pickup_lat, task.pickup_lon, k
+            )
         else:
-            # Original algorithm: Consider all available workers
+            # Original algorithm: Consider all available workers (slow!)
             candidate_pool = list(state.available_workers)
         
         # Step 2: Filter eligible candidates (fairness cap + validity check)
@@ -283,14 +309,19 @@ def assign_new_tasks_fatp_ann(state, now, tasks_to_assign,
             if worker.completed_tasks >= cap:
                 continue
             
-            # Check validity (feasibility)
-            if not _is_valid_assignment(worker, task, now):
+            # OPTIMIZATION 3: Use fast_manhattan_km and pre-calculated drop_dist
+            pickup_dist = fast_manhattan_km(worker.start_lat, worker.start_lon,
+                                           task.pickup_lat, task.pickup_lon)
+            
+            # Check validity (feasibility) using optimized function
+            # We can inline the check here for better performance
+            pickup_eta_seconds = (pickup_dist / AVG_SPEED_KMH) * 3600
+            finish_eta_seconds = ((pickup_dist + drop_dist) / AVG_SPEED_KMH) * 3600
+            
+            if (now + pickup_eta_seconds) > task.expire_time or (now + finish_eta_seconds) > worker.deadline:
                 continue
             
-            # Calculate distance for nearest selection
-            dist = manhattan_km(worker.start_lat, worker.start_lon,
-                               task.pickup_lat, task.pickup_lon)
-            eligible_candidates.append((worker, dist))
+            eligible_candidates.append((worker, pickup_dist))
         
         # Step 3: Assign to nearest eligible worker
         if eligible_candidates:
@@ -334,9 +365,14 @@ def match_worker_fatp_ann(state, now, worker,
         d. Assign task and update shadow state
     3. Return first assigned task (simulation expects single return)
     
+    OPTIMIZED: Uses float math instead of pandas Timedelta for shadow state updates.
+    
+    NOTE: Active tasks don't have a spatial index, so we iterate through all active tasks.
+    This is usually fine since active_tasks is typically smaller than available_workers.
+    
     Args:
         state: StateManager with available workers and tasks
-        now: Current simulation time
+        now: Current simulation time (float Unix timestamp)
         worker: Newly available worker
         fairness_cap_tracker: FairnessCapTracker instance
         mu: Decay factor for utility calculation
@@ -351,9 +387,13 @@ def match_worker_fatp_ann(state, now, worker,
     if not state.active_tasks:
         return None
     
+    # Ensure now is a float timestamp
+    if not isinstance(now, (int, float)):
+        now = now.timestamp() if hasattr(now, 'timestamp') else float(now)
+    
     # Initialize shadow state
     shadow_location = (worker.start_lat, worker.start_lon)
-    shadow_time = now
+    shadow_time = now  # Already a float
     tasks_assigned_in_loop = []
     
     cap = fairness_cap_tracker.get_cap()
@@ -384,13 +424,15 @@ def match_worker_fatp_ann(state, now, worker,
         # Update fairness cap tracker
         fairness_cap_tracker.update_worker_count(old_count, worker.completed_tasks)
         
-        # Update shadow state for next iteration
-        pickup_dist = manhattan_km(shadow_location[0], shadow_location[1],
-                                   best_task.pickup_lat, best_task.pickup_lon)
-        service_dist = manhattan_km(best_task.pickup_lat, best_task.pickup_lon,
-                                    best_task.dropoff_lat, best_task.dropoff_lon)
+        # OPTIMIZED: Update shadow state using float math
+        pickup_dist = fast_manhattan_km(shadow_location[0], shadow_location[1],
+                                       best_task.pickup_lat, best_task.pickup_lon)
+        service_dist = fast_manhattan_km(best_task.pickup_lat, best_task.pickup_lon,
+                                        best_task.dropoff_lat, best_task.dropoff_lon)
         
-        shadow_time += pd.to_timedelta((pickup_dist + service_dist) / AVG_SPEED_KMH, unit="h")
+        # OPTIMIZED: Use float math instead of Timedelta
+        travel_seconds = ((pickup_dist + service_dist) / AVG_SPEED_KMH) * 3600
+        shadow_time = shadow_time + travel_seconds
         shadow_location = (best_task.dropoff_lat, best_task.dropoff_lon)
     
     # Step 3: Return first task (simulation expects single task return)
