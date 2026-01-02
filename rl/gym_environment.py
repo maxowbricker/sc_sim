@@ -23,8 +23,11 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     Gymnasium environment for RL-based control of spatial crowdsourcing strategy weights.
     
     The agent observes the system state (backlog, fairness, etc.) and outputs
-    continuous weights (λ1, λ3) for the composite scoring function.
-    λ2 is fixed at 0.5 based on empirical findings, reducing action space to 2D.
+    continuous weights (λ1, λ2) for the composite scoring function.
+    λ3 (Utility/Distance) is fixed at 1.0 as the "Unit Anchor", reducing action space to 2D.
+    
+    Uses normalized weight space: all weights are scaled by 4.0 from original physics tuning.
+    This makes training more stable for neural networks and improves interpretability.
     """
     
     metadata = {"render_modes": ["human"]}
@@ -75,11 +78,23 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.workers = workers
         self.tasks = tasks
         
-        # Define Action Space: Continuous [λ1, λ3]
-        # λ2 is fixed at 0.5 based on empirical findings
-        # We limit the range to [2.5, 5.0] to constrain exploration to higher weight values
-        self.action_space = spaces.Box(low=2.5, high=5.0, shape=(2,), dtype=np.float32)
-        self.lambda2_fixed = 0.5  # Fixed value for λ2
+        # Define Action Space: Continuous [λ1, λ2]
+        # Agent controls [Fairness (λ1), Starvation (λ2)]
+        # λ1 (Fairness): Range [0, 2] - can go from "0x" to "2x" importance relative to Distance
+        # λ2 (Starvation): Range [0, 0.5] - constrained to lower values (tuned optimal is 0.225)
+        # INITIALIZATION BONUS: PPO starts near the center for λ1 (1.0), which is your Thesis Optimal.
+        # λ1: 0.0 = "I don't care about fairness", 1.0 = "Equal to Distance", 2.0 = "2x more important"
+        # λ2: 0.0 = "I don't care about starvation", 0.225 = "Tuned optimal", 0.5 = "Max allowed"
+        self.action_space = spaces.Box(low=np.array([0.0, 0.0], dtype=np.float32), 
+                                        high=np.array([2.0, 0.5], dtype=np.float32), 
+                                        dtype=np.float32)
+        
+        # Fixed Anchors (Scaled down by 4.0 from original physics tuning)
+        # λ3 (Utility/Distance) is the "Unit Anchor" - always 1.0
+        self.lambda3_fixed = 1.0      # The Unit Anchor (normalized from 4.0)
+        self.gamma_fixed = 0.1        # EWMA smoothing factor (from best_physics_params.json)
+        self.k_fixed = 50             # Number of nearest workers (from best_physics_params.json)
+        self.threshold_fixed = 0.3    # Soft threshold (scaled: 1.2 / 4.0 = 0.3)
         
         # Define Observation Space
         # Features:
@@ -95,21 +110,27 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         # 9. % Deferrals due to No Candidates
         # 10. Time of Day (Sine)
         # 11. Time of Day (Cosine)
-        # 12. Previous λ1 (range: [2.5, 5.0])
-        # 13. Previous λ3 (range: [2.5, 5.0])
-        # (λ2 is fixed at 0.5, so not included in observation)
+        # 12. Previous λ1 (range: [0.0, 2.0])
+        # 13. Previous λ2 (range: [0.0, 0.5])
+        # (λ3 is fixed at 1.0, so not included in observation)
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(14,), dtype=np.float32)
         
         self.simulator = None
         self.current_step_idx = 0
-        self.last_action = np.array([3.0, 3.0], dtype=np.float32)  # [λ1, λ3] only (initialized to middle of [2.5, 5.0])
+        self.last_action = np.array([1.0, 0.225], dtype=np.float32)  # [λ1, λ2] only (initialized: λ1=1.0 baseline, λ2=0.225 from tuned 0.9/4.0)
         
         # Initialize a temporary sim to get spaces (needed for observation_space definition)
         config = get_simulation_config()
         config['assignment_strategy'] = 'composite'
         config['strategy_params'] = {
-            'λ1': 3.0, 'λ2': 0.5, 'λ3': 3.0,  # Initialize to middle of action space
-            'enable_deferral_tracking': True
+            'λ1': 1.0,   # Starts at Center of Action Space (Thesis Optimal)
+            'λ2': 0.225, # Start at the tuned ratio (0.9/4.0 from best_physics_params.json)
+            'λ3': self.lambda3_fixed,
+            'gamma': self.gamma_fixed,
+            'k': self.k_fixed,
+            'soft_threshold': self.threshold_fixed,
+            'normalize_scores': True,
+            'enable_deferral_tracking': False
         }
         self.simulator = EventSimulator(self.workers, self.tasks, sim_config=config)
         self.simulator.reset()  # Important to set up the state for dimensions
@@ -225,14 +246,20 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         # 5. Handover to RL (Hot-Swap Strategy)
         # Switch to composite strategy for the actual training
         rl_params = {
-            'λ1': 3.0, 'λ2': 0.5, 'λ3': 3.0,  # Initialize to middle of action space
-            'enable_deferral_tracking': True  # Needed for state
+            'λ1': 1.0,   # Starts at Center of Action Space (Thesis Optimal)
+            'λ2': 0.225, # Start at the tuned ratio (0.9/4.0)
+            'λ3': self.lambda3_fixed,
+            'gamma': self.gamma_fixed,
+            'k': self.k_fixed,
+            'soft_threshold': self.threshold_fixed,
+            'normalize_scores': True,
+            'enable_deferral_tracking': True  # Needed for observation features 8 & 9 (deferral reason breakdown)
         }
         self.simulator.switch_strategy('composite', rl_params)
         
         # Reset counters for the actual episode
         self.current_step_idx = 0
-        self.last_action = np.array([3.0, 3.0], dtype=np.float32)  # [λ1, λ3] only
+        self.last_action = np.array([1.0, 0.225], dtype=np.float32)  # [λ1, λ2] only
         
         # 6. Set Hard End Time for this episode
         # This prevents the episode from running beyond the intended duration
@@ -248,14 +275,14 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         Run one timestep of the environment's dynamics.
         
         Args:
-            action: Array of shape (2,) containing [λ1, λ3]. λ2 is fixed at 0.5.
+            action: Array of shape (2,) containing [λ1, λ2]. λ3 is fixed at 1.0 (Unit Anchor).
         """
         # 1. Apply action (update weights)
-        # Action is [λ1, λ3], we fix λ2 at 0.5
-        lambda1, lambda3 = action
-        lambda2 = self.lambda2_fixed
+        # Action is [λ1, λ2], we fix λ3 at 1.0 (Unit Anchor)
+        lambda1, lambda2 = action
+        lambda3 = self.lambda3_fixed
         self.simulator.update_weights(lambda1, lambda2, lambda3)
-        self.last_action = action  # Store [λ1, λ3] for observation
+        self.last_action = action  # Store [λ1, λ2] for observation
         
         # 2. Run simulation for fixed duration
         done = self.simulator.step(duration_seconds=self.step_duration)
@@ -327,8 +354,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
             time_sin,  # 10. Time of Day (Sine)
             time_cos,  # 11. Time of Day (Cosine)
             self.last_action[0],  # 12. Previous λ1
-            self.last_action[1]  # 13. Previous λ3
-            # (λ2 is fixed at 0.5, so not included in observation)
+            self.last_action[1]  # 13. Previous λ2
         ], dtype=np.float32)
         
         return obs

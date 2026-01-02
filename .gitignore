@@ -246,4 +246,8 @@ cython_debug/
 .cursorindexingignore
 
 /experiments_analysis/*
-/results/*
+/results/* 
+
+/*.json
+/*.db
+/*.csv
