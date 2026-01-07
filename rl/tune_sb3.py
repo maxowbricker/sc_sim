@@ -131,7 +131,8 @@ def objective(trial, data_root, n_timesteps, n_eval_episodes):
             day_folders=train_days,
             step_duration_minutes=5,
             warmup_duration_minutes=30,
-            episode_duration_hours=4
+            episode_duration_hours=8,
+            day_change_frequency=50  # Run 50 episodes on each day before switching
         )
         env = Monitor(env)  # Wrap for statistics
     except Exception as e:

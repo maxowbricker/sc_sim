@@ -35,8 +35,7 @@ class Worker:
         self.last_state_ts: float | None = self.release_time
 
         # EWMA fairness tracking
-        # NOTE: gamma is now a global config parameter, not stored per-worker
-        # It's passed via strategy_params to composite functions
+        self.gamma: float = get_strategy_params("composite").get("gamma", 0.3)
         self.fairness_ewma: float = 0.0  # starts at 0 (no under-service yet)
 
         self.completed_tasks: int = 0
