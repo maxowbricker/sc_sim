@@ -103,19 +103,21 @@ class MetricsManager:
         
         # Global accumulators (persist across steps)
         self.total_tasks_released = 0  # Total tasks released (for deferred ratio)
-        self.summary = {
-            'completed_tasks': 0,
-            'total_travel_km': 0.0,
-            'empty_km': 0.0,
-            'passenger_km': 0.0,
-            'total_wait_min': 0.0,
-            'wait_times': [],
+        # Minimal summary: only what is not already covered by event handlers / snapshot
+        self._summary_minimal = {
             'service_times': [],
-            'backlog_peak': 0,
             'pickup_distances': [],
-            'assignment_delays': [],
             'expired_tasks': [],
         }
+        # Accumulators updated by on_task_completed / on_task_assigned / snapshot_step (single source of truth)
+        self._completed_tasks = 0
+        self._total_travel_km = 0.0
+        self._empty_km = 0.0
+        self._passenger_km = 0.0
+        self._total_wait_min = 0.0
+        self._wait_times = []
+        self._backlog_peak = 0
+        self._assignment_delays = []
     
     # --- EVENT HANDLERS (Fast, O(1) updates) ---
     
@@ -128,22 +130,22 @@ class MetricsManager:
             worker: Worker who completed the task
             current_time: Current simulation time (pd.Timestamp or float Unix timestamp)
         """
-        # Update global summary
-        self.summary['completed_tasks'] += 1
+        # Update accumulators (single source of truth; no duplicate summary)
+        self._completed_tasks += 1
         pickup_km = task.pickup_km or 0.0
         drop_km = task.drop_km or 0.0
-        self.summary['total_travel_km'] += pickup_km + drop_km
-        self.summary['empty_km'] += pickup_km
-        self.summary['passenger_km'] += drop_km
+        self._total_travel_km += pickup_km + drop_km
+        self._empty_km += pickup_km
+        self._passenger_km += drop_km
         
         if pickup_km is not None:
-            self.summary['pickup_distances'].append(pickup_km)
+            self._summary_minimal['pickup_distances'].append(pickup_km)
         
         # Calculate wait time
         if task.start_time and task.release_time:
             wait_min = (task.start_time - task.release_time) / 60.0  # Already in seconds
-            self.summary['total_wait_min'] += wait_min
-            self.summary['wait_times'].append(wait_min)
+            self._total_wait_min += wait_min
+            self._wait_times.append(wait_min)
             
             # Step-specific tracking
             self.step_completed_tasks.append(task)
@@ -152,7 +154,7 @@ class MetricsManager:
         # Service time
         if drop_km is not None:
             service_min = (drop_km / 30) * 60  # Assuming 30 km/h average speed
-            self.summary['service_times'].append(service_min)
+            self._summary_minimal['service_times'].append(service_min)
         
         # Update step travel distance
         self.step_travel_dist += pickup_km + drop_km
@@ -173,10 +175,10 @@ class MetricsManager:
             score_components: Optional dict with 'fairness', 'starvation', 'utility' components
             final_score: Optional final composite score
         """
-        # Update assignment delay
+        # Update assignment delay accumulator
         if task.start_time and task.release_time:
             assignment_delay = current_time - task.release_time  # Already in seconds
-            self.summary['assignment_delays'].append(assignment_delay)
+            self._assignment_delays.append(assignment_delay)
         
         # Update deferral tracker if enabled
         if self.deferral_tracker:
@@ -269,10 +271,10 @@ class MetricsManager:
         deferred_backlog = len(state.deferred_tasks)
         total_backlog = active_backlog + deferred_backlog
         
-        # Update peak backlog
-        self.summary['backlog_peak'] = max(self.summary['backlog_peak'], total_backlog)
+        # Update peak backlog accumulator
+        self._backlog_peak = max(self._backlog_peak, total_backlog)
         
-        # Calculate step average wait time
+        # Step average wait time (for current_step_stats)
         avg_wait = np.mean(self.step_wait_times) if self.step_wait_times else 0.0
         
         # Calculate deferred ratio
@@ -392,7 +394,7 @@ class MetricsManager:
             'available_workers': len(state.available_workers),
             'total_workers': len(state.all_workers_map),
             'workers': list(state.all_workers_map.values()),
-            'backlog_peak': self.summary['backlog_peak'],
+            'backlog_peak': self._backlog_peak,
             'current_time': current_time,
             'step_avg_wait': stats['avg_wait'],
             'time_sin': time_sin,
@@ -403,6 +405,25 @@ class MetricsManager:
     
     # --- FINAL RESULTS INTERFACE ---
     
+    def on_task_expired(self, task_id):
+        """Record an expired task (called from simulation TASK_EXPIRE)."""
+        self._summary_minimal['expired_tasks'].append(task_id)
+
+    @property
+    def summary(self):
+        """Read-only view merging minimal summary and accumulators (backward compat)."""
+        return {
+            **self._summary_minimal,
+            'completed_tasks': self._completed_tasks,
+            'total_travel_km': self._total_travel_km,
+            'empty_km': self._empty_km,
+            'passenger_km': self._passenger_km,
+            'total_wait_min': self._total_wait_min,
+            'wait_times': self._wait_times,
+            'backlog_peak': self._backlog_peak,
+            'assignment_delays': self._assignment_delays,
+        }
+
     def get_final_results(self) -> Dict[str, Any]:
         """
         Get final simulation results for analysis.
@@ -413,9 +434,17 @@ class MetricsManager:
         # Get fairness summary
         fairness_summary = self.fairness_tracker.get_fairness_summary()
         
-        # Combine with summary
+        # Single source of truth: minimal summary + accumulators
         results = {
-            **self.summary,
+            **self._summary_minimal,
+            'completed_tasks': self._completed_tasks,
+            'total_travel_km': self._total_travel_km,
+            'empty_km': self._empty_km,
+            'passenger_km': self._passenger_km,
+            'total_wait_min': self._total_wait_min,
+            'wait_times': self._wait_times,
+            'backlog_peak': self._backlog_peak,
+            'assignment_delays': self._assignment_delays,
             **fairness_summary,
             'metric_tracker': self.metric_tracker,
         }

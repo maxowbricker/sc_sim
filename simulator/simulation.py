@@ -282,7 +282,7 @@ class EventSimulator:
                 
                 # Track expired tasks for metrics (only if not completed AND not assigned)
                 if not is_assigned and task not in self.state.completed_tasks and not task.is_completed:
-                    self.metrics.summary['expired_tasks'].append(task.id)
+                    self.metrics.on_task_expired(task.id)
 
     def get_state(self):
         """
@@ -305,42 +305,28 @@ class EventSimulator:
         """
         Calculate and return final simulation statistics.
         
-        Now delegates to MetricsManager for unified results.
+        Delegates to MetricsManager for unified results; adds only derived stats and worker idle.
         """
-        # Get results from metrics manager
         results = self.metrics.get_final_results()
-        
-        # Add simulation-specific calculations
         total_tasks_count = self.total_tasks_count
-        summary = self.metrics.summary
-        
-        tar = summary['completed_tasks'] / total_tasks_count if total_tasks_count else 0
-        avg_travel_km = summary['total_travel_km'] / summary['completed_tasks'] if summary['completed_tasks'] else 0
-        avg_wait_min = summary['total_wait_min'] / summary['completed_tasks'] if summary['completed_tasks'] else 0
-        
-        # Helper for safe stats
+        completed = results.get('completed_tasks', 0)
+
         def safe_mean(arr): return float(np.mean(arr)) if arr else 0.0
         def safe_std(arr): return float(np.std(arr)) if arr else 0.0
         def safe_percentile(arr, p): return float(np.percentile(arr, p)) if arr else 0.0
         def safe_max(arr): return float(np.max(arr)) if arr else 0.0
-        
-        # Task completion metrics
-        summary['task_assignment_ratio'] = tar
-        summary['total_tasks'] = total_tasks_count
-        
-        # Wait times
-        summary['avg_wait_time_minutes'] = avg_wait_min
-        summary['std_wait_time_minutes'] = safe_std(summary['wait_times'])
-        summary['p90_wait_time_minutes'] = safe_percentile(summary['wait_times'], 90)
-        summary['max_wait_time_minutes'] = safe_max(summary['wait_times'])
-        
-        # Worker idle times
+
+        # Derived metrics (single source: manager accumulators via results)
+        results['task_assignment_ratio'] = completed / total_tasks_count if total_tasks_count else 0
+        results['total_tasks'] = total_tasks_count
+        results['avg_wait_time_minutes'] = results['total_wait_min'] / completed if completed else 0
+        results['std_wait_time_minutes'] = safe_std(results.get('wait_times', []))
+        results['p90_wait_time_minutes'] = safe_percentile(results.get('wait_times', []), 90)
+        results['max_wait_time_minutes'] = safe_max(results.get('wait_times', []))
+
         worker_idle_times = [w.total_idle_time / 60.0 for w in self.state.all_workers_map.values()]
-        summary['mean_worker_idle_time_min'] = safe_mean(worker_idle_times)
-        
-        # Update results with summary
-        results.update(summary)
-        
+        results['mean_worker_idle_time_min'] = safe_mean(worker_idle_times)
+
         return results
 
 
