@@ -19,6 +19,7 @@ import numpy as np
 from simulator.simulation import EventSimulator
 from config import get_simulation_config
 from data.loader import load_workers_tasks
+from data.stratified_sampler import stratified_temporal_sample
 
 # --- CONFIG ---
 # Update this to point to your data folder
@@ -287,11 +288,14 @@ if __name__ == "__main__":
                        help=f"Run in test mode ({TEST_DURATION_HOURS} hours) for quick validation")
     parser.add_argument("--test-hours", type=float, default=TEST_DURATION_HOURS,
                        help=f"Duration in hours for test mode (default: {TEST_DURATION_HOURS})")
+    parser.add_argument("--stress-test", action="store_true",
+                       help="Enable stress test mode: subsample workers by 50% (more tasks than workers)")
     args = parser.parse_args()
     
     # Override TEST_MODE if command-line flag is set
     use_test_mode = args.test_mode or TEST_MODE
     test_duration = args.test_hours
+    stress_test = args.stress_test
     
     print("=" * 70)
     print("🧪 DYNAMIC WEIGHTING VALIDATION")
@@ -302,6 +306,9 @@ if __name__ == "__main__":
         print("   This is for quick validation of normalization and lambda changes.")
     else:
         print("   Running full dataset (~16 hours)")
+    if stress_test:
+        print("⚠️  STRESS TEST MODE ENABLED: Workers will be subsampled by 50%")
+        print("   This creates a scenario with more tasks than workers.")
     print()
     
     # 1. Load Data
@@ -314,15 +321,43 @@ if __name__ == "__main__":
             print(f"❌ No day folders found in {DATA_PATH}")
             sys.exit(1)
         
-        first_day = day_folders[0]
-        day_path = os.path.join(DATA_PATH, first_day)
-        print(f"   Using dataset: {first_day}")
+        # Use first day (index 0)
+        selected_day = day_folders[0]
+        print(f"   Using dataset: {selected_day} (first day)")
+        
+        day_path = os.path.join(DATA_PATH, selected_day)
     else:
         print(f"❌ Data path not found: {DATA_PATH}")
         sys.exit(1)
     
-    workers, tasks = load_workers_tasks("didi", root_path=day_path)
-    print(f"✅ Loaded {len(workers):,} workers, {len(tasks):,} tasks")
+    all_workers, all_tasks = load_workers_tasks("didi", root_path=day_path)
+    print(f"✅ Loaded {len(all_workers):,} workers, {len(all_tasks):,} tasks")
+    
+    # Apply stress test: subsample workers by 50% using stratified sampling
+    if stress_test:
+        original_worker_count = len(all_workers)
+        target_worker_count = original_worker_count // 2
+        
+        print(f"⚠️  STRESS TEST: Sampling {target_worker_count:,} workers (50% subsample)...")
+        # Use stratified sampler: keep all tasks, sample 50% of workers
+        # Set target_tasks to full count to keep all tasks
+        sampled_tasks, worker_samples = stratified_temporal_sample(
+            all_workers=all_workers,
+            all_tasks=all_tasks,
+            target_tasks=len(all_tasks),  # Keep all tasks
+            worker_counts=[target_worker_count],  # Sample 50% of workers
+            seed=42
+        )
+        
+        workers = worker_samples[target_worker_count]
+        tasks = sampled_tasks
+        
+        print(f"⚠️  STRESS TEST: Reduced workers from {original_worker_count:,} to {len(workers):,} (50% subsample)")
+        print(f"   Tasks: {len(tasks):,} (all tasks kept)")
+        print(f"   Task-to-worker ratio: {len(tasks) / len(workers):.2f}:1")
+    else:
+        workers = all_workers
+        tasks = all_tasks
     
     # 2. Run Static to get Peaks
     static_res = run_static_baseline(workers, tasks, test_mode=use_test_mode, test_duration_hours=test_duration)
