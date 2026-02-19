@@ -6,7 +6,7 @@ Usage (from project root):
     $ python main.py
 
 Optional CLI flags:
-    --dataset didi|checkin|synthetic  (overrides config dataset)
+    --dataset didi|synthetic  (overrides config dataset)
     --root    PATH                    (overrides config root_path)
 """
 

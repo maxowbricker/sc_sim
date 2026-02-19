@@ -13,7 +13,7 @@ organized configuration sections for different simulation aspects.
 
 SIMULATION_CONFIG = {
     # Dataset and execution
-    "dataset": "didi",                          # "didi" | "synthetic" | "checkins"
+    "dataset": "didi",                          # "didi" | "synthetic"
     "data_root_path": None,                     # Override data directory (None = auto)
 
     # Assignment strategy

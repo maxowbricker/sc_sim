@@ -11,7 +11,6 @@ from models.task import Task
 from simulator.spatial_index import set_city_constants
 
 # Dataset-specific adapters
-from data.checkins import checkin  # Gowalla / Weeplaces
 # from data.synthetic import synthetic  # Synthetic generator (placeholder) - not implemented
 from data.didi import didi  # Didi Gaia GPS + orders
 
@@ -53,7 +52,7 @@ def load_workers_tasks(dataset: str, root_path: str | None = None, **adapter_kwa
     Parameters
     ----------
     dataset : str
-        Identifier – e.g. "didi", "checkin", "synthetic".
+        Identifier – e.g. "didi", "synthetic".
     root_path : str | os.PathLike
         Directory containing the raw files for that dataset.
     adapter_kwargs : Any
@@ -109,9 +108,7 @@ def get_adapter(dataset: str, root_path: str, **kwargs):
     """
     Returns the appropriate adapter instance for the given dataset name.
     """
-    if dataset == "checkin" or dataset == "checkins":
-        return checkin.Adapter(root_path)
-    elif dataset == "synthetic":
+    if dataset == "synthetic":
         return synthetic.Adapter(root_path)
     elif dataset == "didi":
         return didi.Adapter(root_path)

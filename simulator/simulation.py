@@ -484,10 +484,6 @@ class Simulation:
             'workers_with_eligibility_data': results.get('workers_with_eligibility_data', 0),
             'total_task_assignments_tracked': results.get('total_task_assignments_tracked', 0),
             
-            # EXPERIMENT 008: Pass through diagnostic tracker and summary
-            'diagnostic_tracker': results.get('diagnostic_tracker'),
-            'diagnostic_summary': results.get('diagnostic_summary'),
-            
             # EXPERIMENT 019: Pass through deferral tracker stats (RQ3.3)
             'deferral_stats': results.get('deferral_stats'),
         }

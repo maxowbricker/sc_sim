@@ -13,7 +13,7 @@ The goal is to prove that dynamic control has potential before investing in RL t
 
 import os
 import sys
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
 from simulator.simulation import EventSimulator

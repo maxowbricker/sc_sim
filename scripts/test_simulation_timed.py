@@ -13,7 +13,7 @@ Configuration:
 
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import time
 import random
@@ -59,7 +59,7 @@ SIM_CONFIG = {
 
 def get_random_day_path():
     """Select a random day folder from full_didi_gaia."""
-    project_root = Path(__file__).parent
+    project_root = Path(__file__).resolve().parent.parent
     full_didi_path = project_root / "data" / "didi" / "full_didi_gaia"
     
     if not full_didi_path.exists():

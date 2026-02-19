@@ -5,7 +5,7 @@ This module provides a single source of truth for all metrics calculations,
 replacing the fragmented logic across simulation.py, tracker.py, and gym_environment.py.
 
 The MetricsManager:
-- Orchestrates specialized trackers (diagnostic, deferral, fairness)
+- Orchestrates specialized trackers (deferral, fairness)
 - Maintains current step statistics for RL agent
 - Provides clean interfaces for simulation events and RL observations
 - Eliminates duplicate metric calculations
@@ -23,7 +23,6 @@ from metrics.fairness import (
     FairnessMetricsTracker
 )
 from metrics.tracker import MetricTracker
-from metrics.diagnostic_tracker import DiagnosticTracker
 from metrics.deferral_tracker import DeferralTracker
 
 
@@ -58,14 +57,12 @@ class MetricsManager:
         
         Args:
             config: Configuration dict with flags like:
-                - enable_diagnostics: Enable diagnostic tracking
                 - enable_deferral_tracking: Enable deferral tracking
         """
         config = config or {}
         self.config = config
         
         # Configuration flags
-        self.enable_diagnostics = config.get('enable_diagnostics', False)
         self.enable_deferral_tracking = config.get('enable_deferral_tracking', False)
         
         # Initialize specialized trackers
@@ -73,13 +70,10 @@ class MetricsManager:
         self.metric_tracker = MetricTracker()
         
         # Optional specialized trackers
-        self.diagnostic_tracker = DiagnosticTracker() if self.enable_diagnostics else None
         self.deferral_tracker = DeferralTracker() if self.enable_deferral_tracking else None
         
         # Pass trackers to strategy params if needed (strategy_params is passed in config)
         strategy_params = config.get('strategy_params', {})
-        if self.diagnostic_tracker:
-            strategy_params['diagnostic_tracker'] = self.diagnostic_tracker
         if self.deferral_tracker:
             strategy_params['deferral_tracker'] = self.deferral_tracker
         
@@ -184,25 +178,6 @@ class MetricsManager:
             assignment_delay = current_time - task.release_time  # Already in seconds
             self.summary['assignment_delays'].append(assignment_delay)
         
-        # Update diagnostic tracker if enabled
-        if self.diagnostic_tracker and score_components:
-            self.diagnostic_tracker.record_assignment(
-                task_id=str(task.id),
-                worker_id=str(worker.id),
-                fairness_raw=score_components.get('fairness', 0.0),
-                starvation_raw=score_components.get('starvation', 0.0),
-                utility_raw=score_components.get('utility', 0.0),
-                fairness_norm=score_components.get('fairness_norm'),
-                starvation_norm=score_components.get('starvation_norm'),
-                utility_norm=score_components.get('utility_norm'),
-                fairness_weight=score_components.get('fairness_weight', 1.0),
-                starvation_weight=score_components.get('starvation_weight', 1.0),
-                utility_weight=score_components.get('utility_weight', 1.0),
-                final_score=final_score or 0.0,
-                was_deferred_before=hasattr(task, 'deferral_count') and task.deferral_count > 0,
-                timestamp=current_time
-            )
-        
         # Update deferral tracker if enabled
         if self.deferral_tracker:
             was_deferred = hasattr(task, 'deferral_count') and task.deferral_count > 0
@@ -248,16 +223,6 @@ class MetricsManager:
                 timestamp=current_time,
                 score=score,
                 reason=reason
-            )
-        
-        if self.diagnostic_tracker and threshold is not None:
-            self.diagnostic_tracker.record_task_deferred(
-                task_id=str(task.id),
-                best_score=score,
-                threshold=threshold,
-                reason=reason,
-                timestamp=current_time,
-                best_worker_id=best_worker_id
             )
     
     # --- STEP SNAPSHOT (Expensive, runs once per step) ---
@@ -456,10 +421,6 @@ class MetricsManager:
         }
         
         # Add optional tracker summaries
-        if self.diagnostic_tracker:
-            results['diagnostic_tracker'] = self.diagnostic_tracker
-            results['diagnostic_summary'] = self.diagnostic_tracker.get_summary_stats()
-        
         if self.deferral_tracker:
             results['deferral_stats'] = self.deferral_tracker.get_summary()
         
