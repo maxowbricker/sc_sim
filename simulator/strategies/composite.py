@@ -204,7 +204,7 @@ def _commit_assignment(task, worker, now):
     task.pickup_km = pickup_distance
     task.drop_km = drop_distance
     
-    # FIXED: Realistic timing - task starts after worker travels to pickup location
+    # Travel time (hours): worker→pickup, then pickup→dropoff at constant speed
     pickup_travel_hours = pickup_distance / AVG_SPEED_KMH
     service_travel_hours = drop_distance / AVG_SPEED_KMH
     
@@ -217,19 +217,18 @@ def _commit_assignment(task, worker, now):
     return task
 
 def assign_new_tasks_composite(
-    state, 
-    now, 
-    tasks_to_assign, 
-    fairness_weight=1.0, 
-    starvation_weight=1.0, 
-    utility_weight=1.0, 
-    k=15, 
-    soft_threshold=0.2, 
-    fairness_metric='ewma',
+    state,
+    now,
+    tasks_to_assign,
+    fairness_weight=1.0,
+    starvation_weight=1.0,
+    utility_weight=1.0,
+    k=15,
+    soft_threshold=0.2,
     normalize_scores=False,
     disable_soft_threshold=False,
     gamma=0.3,
-    **_
+    **_,
 ):
     """Assign new tasks to available workers using composite scoring.
     
@@ -255,8 +254,6 @@ def assign_new_tasks_composite(
             spatial_index=state.spatial_index
         )
         
-        # OPTIMIZATION: Skip threshold check if disabled or threshold is 0
-        # This avoids unnecessary comparison when threshold check always passes
         if disable_soft_threshold or soft_threshold == 0:
             threshold_passed = True
         else:
@@ -291,13 +288,8 @@ def match_worker_composite(
     **_
 ):
     """Match a free worker to nearby deferred tasks using spatial index.
-    
-    OPTIMIZED: Uses spatial index to find only k nearest deferred tasks instead of
-    checking all deferred tasks. This reduces complexity from O(|D|) to O(k) where
-    k=15 << |D| (number of deferred tasks).
-    
     Fairness is not calculated unless Assignment occurs.
-    Ranking uses only starvation + utility (fairness is constant as the worker stays the same).
+    Ranking uses only starvation + utility
     
     Parameters
     ----------
@@ -348,7 +340,7 @@ def match_worker_composite(
     if not candidate_data:
         return None
     
-    # Apply normalization if requested
+    # Apply normalization if true
     if normalize_scores:
         starvation_values = [c['starvation_raw'] for c in candidate_data]
         utility_values = [c['utility_raw'] for c in candidate_data]
@@ -377,49 +369,23 @@ def match_worker_composite(
     # Find best candidate using ranking score
     best_candidate = max(candidate_data, key=lambda c: c['ranking_score'])
     best_task = best_candidate['task']
-    
-    # OPTIMIZATION: Skip threshold check if disabled or threshold is 0
-    # This avoids unnecessary EWMA calculation when threshold check always passes
-    # gamma is now passed as parameter (from strategy_params) for consistency
+
+    ref_time = worker.last_active_ts if worker.last_active_ts is not None else worker.release_time
+    T_idle_seconds = now - ref_time
+    updated_ewma = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
+    fairness_contribution = fairness_weight * updated_ewma
+    best_score = best_candidate['ranking_score'] + fairness_contribution
+
     if disable_soft_threshold or soft_threshold == 0:
-        # Threshold check always passes - assign immediately
-        # Calculate EWMA only when assignment is confirmed (lazy evaluation)
-        if worker.last_active_ts is None:
-            T_idle_seconds = now - worker.release_time
-        else:
-            T_idle_seconds = now - worker.last_active_ts
-        
-        updated_ewma = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
-        fairness_contribution = fairness_weight * updated_ewma
-        
-        # Calculate full score for return value and diagnostics
-        best_score = best_candidate['ranking_score'] + fairness_contribution
-        
-        # ASSIGNMENT CONFIRMED: Update worker's EWMA state
-        worker.fairness_ewma = updated_ewma
+        threshold_passed = True
     else:
-        # Threshold check required - calculate EWMA for threshold evaluation
-        if worker.last_active_ts is None:
-            T_idle_seconds = now - worker.release_time
-        else:
-            T_idle_seconds = now - worker.last_active_ts
-        
-        updated_ewma = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
-        fairness_contribution = fairness_weight * updated_ewma
-        
-        # Calculate full score with updated fairness for threshold check
-        best_score = best_candidate['ranking_score'] + fairness_contribution
-        
-        # Check threshold
         threshold_passed = best_score >= soft_threshold
-        
-        if not threshold_passed:
-            # Threshold not met: do nothing, worker keeps current EWMA, task stays deferred
-            return None
-        
-        # ASSIGNMENT CONFIRMED: Update worker's EWMA state
-        worker.fairness_ewma = updated_ewma
-            
+
+    if not threshold_passed:
+        return None
+
+    worker.fairness_ewma = updated_ewma
+
     if best_task:
         assigned_task = _commit_assignment(best_task, worker, now)
         state.assign_task(assigned_task, worker)
