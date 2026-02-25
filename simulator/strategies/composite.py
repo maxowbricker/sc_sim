@@ -4,6 +4,9 @@ import pandas as pd
 from typing import Optional, Tuple, List, Dict
 from simulator.spatial_index import fast_manhattan_km
 
+AVG_SPEED_KMH = 30
+
+
 def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_workers=None, mutate_state=False, gamma=0.3):
     """
     Calculate fairness signal for a worker based on research proposal methodology.
@@ -22,34 +25,20 @@ def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_
     Returns:
         float: Fairness signal value
     """
-    if fairness_metric == 'ewma':
-        # RESEARCH PROPOSAL: Implement EWMA as described
-        # Fairness(w_i) = (1 - γ) · T_idle(w_i) + γ · Previous EWMA
-        # gamma is now passed as parameter (from strategy_params) for consistency
+    if fairness_metric == 'ewma':   # EWMA formula: Fairness(w_i) = (1 - γ) · T_idle(w_i) + γ · Previous EWMA
         
-        # Determine reference time (when did they last finish a task?)
-        # If last_active_ts is None, they are fresh -> use release_time
+        # Determine when the worker last finished a task - If last_active_ts is None, they are fresh and use release_time
         ref_time = worker.last_active_ts if worker.last_active_ts is not None else worker.release_time
         
-        # Calculate continuous idle duration (on-demand, no state mutation)
+        # Calculate continuous idle duration since last task completion
         current_idle_seconds = current_time - ref_time
         
-        # Calculate POTENTIAL EWMA (without mutating state), for fair score comparison between candidate workers
-        potential_ewma = (1 - gamma) * current_idle_seconds + gamma * worker.fairness_ewma
-        
-        # Only update worker state if explicitly requested (e.g., after assignment)
-        if mutate_state:
-            worker.fairness_ewma = potential_ewma
-        
-        return potential_ewma
+        current_ewma = (1 - gamma) * current_idle_seconds + gamma * worker.fairness_ewma        
+        return current_ewma
         
     elif fairness_metric == 'idle_time':
-        # Direct idle time approach
-        if worker.last_active_ts is None:
-            idle_seconds = current_time - worker.release_time
-        else:
-            idle_seconds = current_time - worker.last_active_ts
-        return idle_seconds
+        ref_time = worker.last_active_ts if worker.last_active_ts is not None else worker.release_time
+        return current_time - ref_time
         
     elif fairness_metric == 'task_count':
         # Inverse of completed tasks (higher signal = fewer tasks completed)
@@ -61,7 +50,6 @@ def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_
             f"Must be one of: 'ewma', 'idle_time', 'task_count'"
         )
 
-AVG_SPEED_KMH = 30
 
 def _normalize_components(components: List[float]) -> List[float]:
     """Apply min-max normalization to component values.
@@ -131,8 +119,6 @@ def _find_best_assignment_for_task(
     if not workers:
         return None, float("-inf")
 
-    # OPTIMIZATION 1: Use Spatial Index for efficient nearest neighbor search
-    # This reduces from 38,000 workers to 15 workers checked per task!
     nearest_workers = spatial_index.query_k_nearest(task.pickup_lat, task.pickup_lon, k)
     
     if not nearest_workers:
@@ -291,8 +277,6 @@ def assign_new_tasks_composite(
     **_
 ):
     """Assign new tasks to available workers using composite scoring.
-    
-    EXPERIMENT 008: Enhanced with score normalization and threshold ablation.
     
     Parameters
     ----------
