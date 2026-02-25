@@ -6,51 +6,6 @@ from simulator.spatial_index import fast_manhattan_km
 
 AVG_SPEED_KMH = 30
 
-
-def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_workers=None, mutate_state=False, gamma=0.3):
-    """
-    Calculate fairness signal for a worker based on research proposal methodology.
-    
-    OPTIMIZED: On-demand calculation - only calculates when needed, doesn't mutate state
-    unless explicitly requested. This allows scoring multiple candidates without side effects.
-    
-    Args:
-        worker: Worker object
-        current_time: Current simulation time
-        fairness_metric: Type of fairness metric ('ewma', 'idle_time', 'task_count')
-        all_workers: Optional list of all workers (not used in current implementation)
-        mutate_state: If True, update worker.fairness_ewma. If False, calculate without mutation.
-        gamma: EWMA smoothing factor (default: 0.3). Should come from strategy_params.
-    
-    Returns:
-        float: Fairness signal value
-    """
-    if fairness_metric == 'ewma':   # EWMA formula: Fairness(w_i) = (1 - γ) · T_idle(w_i) + γ · Previous EWMA
-        
-        # Determine when the worker last finished a task - If last_active_ts is None, they are fresh and use release_time
-        ref_time = worker.last_active_ts if worker.last_active_ts is not None else worker.release_time
-        
-        # Calculate continuous idle duration since last task completion
-        current_idle_seconds = current_time - ref_time
-        
-        current_ewma = (1 - gamma) * current_idle_seconds + gamma * worker.fairness_ewma        
-        return current_ewma
-        
-    elif fairness_metric == 'idle_time':
-        ref_time = worker.last_active_ts if worker.last_active_ts is not None else worker.release_time
-        return current_time - ref_time
-        
-    elif fairness_metric == 'task_count':
-        # Inverse of completed tasks (higher signal = fewer tasks completed)
-        return 1.0 / (1.0 + worker.completed_tasks)
-        
-    else:
-        raise ValueError(
-            f"Invalid fairness_metric: '{fairness_metric}'. "
-            f"Must be one of: 'ewma', 'idle_time', 'task_count'"
-        )
-
-
 def _normalize_components(components: List[float]) -> List[float]:
     """Apply min-max normalization to component values.
     
