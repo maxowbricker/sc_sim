@@ -98,11 +98,10 @@ def _find_best_assignment_for_task(
     utility_weight, 
     k,
     normalize_scores=False,
-    diagnostic_tracker=None,
     gamma=0.3,
     *,
     spatial_index
-) -> Tuple[Optional[object], float, Optional[Dict]]:
+) -> Tuple[Optional[object], float]:
     """
     OPTIMIZED: Advanced Nearest Neighbor (ANN) approach from FATP paper.
     
@@ -113,33 +112,14 @@ def _find_best_assignment_for_task(
     This reduces complexity from O(|W|) to O(k) where k=15 << |W|=38,000.
     Massive performance improvement: 38,000 -> 15 workers checked per task!
     
-    Performance Optimization: Three Execution Paths
-    -----------------------------------------------
-    FAST PATH: When normalize_scores=False and diagnostic_tracker=None
-        - Uses single-pass algorithm (like Experiments 006/007)
-        - Scores candidates inline, no data collection overhead
-        - Typical performance: 3-4 hours for 20k tasks
-    
-    MIDDLE PATH: When normalize_scores=True and diagnostic_tracker=None
-        - Collects candidate data for normalization only
-        - Applies normalization, scores with normalized values
-        - Skips diagnostic info preparation (reduces overhead)
-        - Performance: ~1.5-2x slower than fast path
-    
-    SLOW PATH: When diagnostic_tracker is provided
-        - Collects all candidate data for normalization and/or diagnostics
-        - Prepares diagnostic_info for tracking
-        - Multiple passes through candidate list
-        - Performance: 2-3x slower than fast path, enables advanced features
+    Two execution paths:
+    FAST PATH: When normalize_scores=False - single-pass, no data collection.
+    MIDDLE PATH: When normalize_scores=True - collects candidate data for normalization only.
     
     Parameters
     ----------
     normalize_scores : bool, default False
         If True, apply min-max normalization to F, S, U across candidates.
-        Forces SLOW PATH. Use to test if mis-scaled components cause issues.
-    diagnostic_tracker : DiagnosticTracker, optional
-        If provided, record score component details for analysis.
-        Forces SLOW PATH. Enable via config: enable_diagnostics=True.
         
     Returns
     -------
@@ -147,26 +127,24 @@ def _find_best_assignment_for_task(
         Best candidate worker
     best_score : float
         Best composite score achieved
-    diagnostic_info : dict or None
-        Component values for diagnostic tracking (None for fast path)
     """
     if not workers:
-        return None, float("-inf"), None
+        return None, float("-inf")
 
     # OPTIMIZATION 1: Use Spatial Index for efficient nearest neighbor search
     # This reduces from 38,000 workers to 15 workers checked per task!
     nearest_workers = spatial_index.query_k_nearest(task.pickup_lat, task.pickup_lon, k)
     
     if not nearest_workers:
-        return None, float("-inf"), None
+        return None, float("-inf")
     
     # OPTIMIZATION 2: Pre-calculate task drop distance (constant for all workers)
     drop_distance_const = fast_manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
     
-    # FAST PATH: When no normalization or diagnostics needed
+    # FAST PATH: When no normalization needed
     # OPTIMIZED: On-demand EWMA calculation - only for k=15 candidates, only update winner
     # gamma is now passed as parameter (from strategy_params) for consistency
-    if not normalize_scores and diagnostic_tracker is None:
+    if not normalize_scores:
         
         best_worker, best_score, best_fairness_val = None, float("-inf"), None
         
@@ -208,13 +186,11 @@ def _find_best_assignment_for_task(
         if best_worker is not None:
             best_worker.fairness_ewma = best_fairness_val
         
-        return best_worker, best_score, None
+        return best_worker, best_score
     
-    # MIDDLE PATH: Normalization only (no diagnostics)
+    # MIDDLE PATH: Normalization only (normalize_scores is True)
     # OPTIMIZED FOR RL: Lazy EWMA calculation, minimal state mutation
-    # Collects candidate data for normalization, but skips diagnostic info preparation
-    # gamma is now passed as parameter (from strategy_params) for consistency
-    if normalize_scores and diagnostic_tracker is None:
+    else:
         
         candidate_data = []
         
@@ -243,7 +219,7 @@ def _find_best_assignment_for_task(
             })
         
         if not candidate_data:
-            return None, float("-inf"), None
+            return None, float("-inf")
         
         # Extract component values for normalization
         fairness_values = [c['fairness_raw'] for c in candidate_data]
@@ -278,97 +254,7 @@ def _find_best_assignment_for_task(
         else:
             best_score = float("-inf")
         
-        return best_worker, best_score, None
-    
-    # SLOW PATH: Diagnostics enabled (with or without normalization)
-    # Collects all candidate data for normalization and/or diagnostic tracking
-    candidate_data = []
-    
-    for worker in nearest_workers:
-        # Check feasibility constraints: pickup before expiry, finish before worker shift ends
-        d_pick = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
-        total_km_tmp = d_pick + drop_distance_const
-        
-        pickup_eta_seconds = (d_pick / AVG_SPEED_KMH) * 3600
-        finish_eta_seconds = (total_km_tmp / AVG_SPEED_KMH) * 3600
-        
-        # Compare timestamps
-        if (now + pickup_eta_seconds) > task.expire_time or (now + finish_eta_seconds) > worker.deadline:
-            continue
-        
-        # Calculate raw component values
-        distance = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
-        fairness_raw = calculate_fairness_signal(worker, now, mutate_state=False, gamma=gamma)
-        starvation_raw = log(1 + (now - task.release_time))
-        utility_raw = 1.0 / (1.0 + distance)
-        
-        candidate_data.append({
-            'worker': worker,
-            'fairness_raw': fairness_raw,
-            'starvation_raw': starvation_raw,
-            'utility_raw': utility_raw
-        })
-    
-    if not candidate_data:
-        return None, float("-inf"), None
-    
-    # Apply normalization if requested
-    if normalize_scores:
-        # Extract component values
-        fairness_values = [c['fairness_raw'] for c in candidate_data]
-        starvation_values = [c['starvation_raw'] for c in candidate_data]
-        utility_values = [c['utility_raw'] for c in candidate_data]
-        
-        # Normalize each component across candidates
-        fairness_norm = _normalize_components(fairness_values)
-        starvation_norm = _normalize_components(starvation_values)
-        utility_norm = _normalize_components(utility_values)
-        
-        # Add normalized values to candidate data
-        for i, candidate in enumerate(candidate_data):
-            candidate['fairness_norm'] = fairness_norm[i]
-            candidate['starvation_norm'] = starvation_norm[i]
-            candidate['utility_norm'] = utility_norm[i]
-            
-            # Calculate score with normalized values
-            candidate['score'] = (
-                fairness_weight * fairness_norm[i] +
-                starvation_weight * starvation_norm[i] +
-                utility_weight * utility_norm[i]
-            )
-    else:
-        # Calculate scores with raw values (original behavior)
-        for candidate in candidate_data:
-            candidate['score'] = (
-                fairness_weight * candidate['fairness_raw'] +
-                starvation_weight * candidate['starvation_raw'] +
-                utility_weight * candidate['utility_raw']
-            )
-            candidate['fairness_norm'] = None
-            candidate['starvation_norm'] = None
-            candidate['utility_norm'] = None
-    
-    # Find best candidate
-    best_candidate = max(candidate_data, key=lambda c: c['score'])
-    best_worker = best_candidate['worker']
-    best_score = best_candidate['score']
-    
-    # UPDATE WINNER STATE (only the selected worker gets EWMA updated)
-    # This ensures state is only mutated for the worker that actually gets the task
-    if best_worker is not None:
-        best_worker.fairness_ewma = best_candidate['fairness_raw']
-    
-    # Prepare diagnostic info for the best candidate
-    diagnostic_info = {
-        'fairness_raw': best_candidate['fairness_raw'],
-        'starvation_raw': best_candidate['starvation_raw'],
-        'utility_raw': best_candidate['utility_raw'],
-        'fairness_norm': best_candidate.get('fairness_norm'),
-        'starvation_norm': best_candidate.get('starvation_norm'),
-        'utility_norm': best_candidate.get('utility_norm'),
-    }
-            
-    return best_worker, best_score, diagnostic_info
+        return best_worker, best_score
 
 def _commit_assignment(task, worker, now):
     pickup_distance = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
@@ -401,7 +287,6 @@ def assign_new_tasks_composite(
     fairness_metric='ewma',
     normalize_scores=False,
     disable_soft_threshold=False,
-    diagnostic_tracker=None,
     gamma=0.3,
     **_
 ):
@@ -415,12 +300,10 @@ def assign_new_tasks_composite(
         If True, normalize F, S, U components before scoring (default: False)
     disable_soft_threshold : bool
         If True, bypass threshold check and assign immediately (default: False)
-    diagnostic_tracker : DiagnosticTracker, optional
-        If provided, record assignment diagnostics for analysis
     """
     assignments = []
     for task in tasks_to_assign:
-        best_worker, best_score, diagnostic_info = _find_best_assignment_for_task(
+        best_worker, best_score = _find_best_assignment_for_task(
             task, 
             state.available_workers, 
             now, 
@@ -429,9 +312,8 @@ def assign_new_tasks_composite(
             utility_weight, 
             k,
             normalize_scores=normalize_scores,
-            diagnostic_tracker=diagnostic_tracker,
-            gamma=gamma,  # Pass gamma from strategy_params
-            spatial_index=state.spatial_index  # Spatial index is always initialized in StateManager
+            gamma=gamma,
+            spatial_index=state.spatial_index
         )
         
         # OPTIMIZATION: Skip threshold check if disabled or threshold is 0
@@ -445,35 +327,6 @@ def assign_new_tasks_composite(
             assigned_task = _commit_assignment(task, best_worker, now)
             state.assign_task(assigned_task, best_worker)
             assignments.append((assigned_task, best_worker, best_score))
-            
-            # EXPERIMENT 008: Record assignment to diagnostic tracker
-            if diagnostic_tracker and diagnostic_info:
-                diagnostic_tracker.record_assignment(
-                    task_id=task.id,
-                    worker_id=best_worker.id,
-                    fairness_raw=diagnostic_info['fairness_raw'],
-                    starvation_raw=diagnostic_info['starvation_raw'],
-                    utility_raw=diagnostic_info['utility_raw'],
-                    fairness_norm=diagnostic_info.get('fairness_norm'),
-                    starvation_norm=diagnostic_info.get('starvation_norm'),
-                    utility_norm=diagnostic_info.get('utility_norm'),
-                    fairness_weight=fairness_weight,
-                    starvation_weight=starvation_weight,
-                    utility_weight=utility_weight,
-                    final_score=best_score,
-                    was_deferred_before=False,
-                    timestamp=now
-                )
-            
-            # EXPERIMENT 019: Record assignment to deferral tracker (RQ3.3)
-            deferral_tracker = _.get('deferral_tracker') if _ else None
-            if deferral_tracker:
-                deferral_tracker.record_assignment(
-                    task_id=task.id,
-                    timestamp=now,
-                    was_deferred=(task.deferral_count > 0),
-                    deferral_count=task.deferral_count
-                )
         else:
             # Defer task and schedule expiry event if not already expired
             if state.defer_task(task, now):
@@ -481,29 +334,6 @@ def assign_new_tasks_composite(
                 expiry_scheduler = _.get('expiry_scheduler')
                 if expiry_scheduler:
                     expiry_scheduler(task)
-            
-            # EXPERIMENT 008: Record deferral to diagnostic tracker
-            if diagnostic_tracker:
-                reason = "no_candidates" if not best_worker else "below_threshold"
-                diagnostic_tracker.record_task_deferred(
-                    task_id=task.id,
-                    best_score=best_score,
-                    threshold=soft_threshold,
-                    reason=reason,
-                    timestamp=now,
-                    best_worker_id=best_worker.id if best_worker else None
-                )
-            
-            # EXPERIMENT 019: Record deferral to deferral tracker (RQ3.3)
-            deferral_tracker = _.get('deferral_tracker') if _ else None
-            if deferral_tracker:
-                reason = "no_candidates" if not best_worker else "below_threshold"
-                deferral_tracker.record_deferral(
-                    task_id=task.id,
-                    timestamp=now,
-                    score=best_score,
-                    reason=reason
-                )
             
             # Monitor deferred task behavior (if monitoring enabled)
             if hasattr(state, 'deferred_monitor') and state.deferred_monitor:
@@ -522,7 +352,6 @@ def match_worker_composite(
     soft_threshold=0.2,
     normalize_scores=False,
     disable_soft_threshold=False,
-    diagnostic_tracker=None,
     gamma=0.3,
     **_
 ):
@@ -541,8 +370,6 @@ def match_worker_composite(
         If True, normalize S, U components before scoring (default: False)
     disable_soft_threshold : bool
         If True, bypass threshold check and assign immediately (default: False)
-    diagnostic_tracker : DiagnosticTracker, optional
-        If provided, record assignment diagnostics for analysis
     """
     if not state.deferred_tasks:
         return None
@@ -666,39 +493,8 @@ def match_worker_composite(
         worker.fairness_ewma = updated_ewma
             
     if best_task:
-        
         assigned_task = _commit_assignment(best_task, worker, now)
         state.assign_task(assigned_task, worker)
-        
-        # EXPERIMENT 008: Record assignment to diagnostic tracker
-        if diagnostic_tracker:
-            diagnostic_tracker.record_assignment(
-                task_id=best_task.id,
-                worker_id=worker.id,
-                fairness_raw=updated_ewma,
-                starvation_raw=best_candidate['starvation_raw'],
-                utility_raw=best_candidate['utility_raw'],
-                fairness_norm=None,
-                starvation_norm=best_candidate.get('starvation_norm'),
-                utility_norm=best_candidate.get('utility_norm'),
-                fairness_weight=fairness_weight,
-                starvation_weight=starvation_weight,
-                utility_weight=utility_weight,
-                final_score=best_score,
-                was_deferred_before=True,
-                timestamp=now
-            )
-        
-        # EXPERIMENT 019: Record assignment to deferral tracker (RQ3.3)
-        # Note: Need to get deferral_tracker from strategy_params (passed via _)
-        deferral_tracker = _.get('deferral_tracker') if _ else None
-        if deferral_tracker:
-            deferral_tracker.record_assignment(
-                task_id=best_task.id,
-                timestamp=now,
-                was_deferred=True,  # Always true in match_worker path
-                deferral_count=best_task.deferral_count
-            )
         
         # Monitor successful assignment from deferred state (if monitoring enabled)
         if hasattr(state, 'deferred_monitor') and state.deferred_monitor:
