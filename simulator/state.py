@@ -30,9 +30,6 @@ class StateManager:
         
         # PERFORMANCE FIX: Assignment logging removed - was causing memory bloat without any benefit
         # Real statistics are collected via simulation summary and fairness tracker
-        
-        # Deferred tasks monitoring (optional)
-        self.deferred_monitor = None  # Set by simulation if monitoring enabled
 
     def get_worker(self, worker_id):
         return self.all_workers_map.get(worker_id)

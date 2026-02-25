@@ -334,11 +334,7 @@ def assign_new_tasks_composite(
                 expiry_scheduler = _.get('expiry_scheduler')
                 if expiry_scheduler:
                     expiry_scheduler(task)
-            
-            # Monitor deferred task behavior (if monitoring enabled)
-            if hasattr(state, 'deferred_monitor') and state.deferred_monitor:
-                state.deferred_monitor.record_task_deferred(task.id, now)
-            
+
     return assignments
 
 def match_worker_composite(
@@ -374,13 +370,6 @@ def match_worker_composite(
     if not state.deferred_tasks:
         return None
 
-    # Monitor computational impact (if monitoring enabled)
-    deferred_count = len(state.deferred_tasks)
-    if hasattr(state, 'deferred_monitor') and state.deferred_monitor:
-        state.deferred_monitor.record_deferred_iteration(deferred_count)
-
-    # OPTIMIZATION: Use spatial index to find nearby deferred tasks
-    # instead of iterating through ALL deferred tasks.
     # Query the task index using the WORKER'S location
     nearby_tasks = state.deferred_task_index.query_k_nearest(
         worker.start_lat, 
@@ -394,7 +383,7 @@ def match_worker_composite(
     # Collect candidate data
     candidate_data = []
     
-    # Iterate over nearby_tasks instead of state.deferred_tasks
+    # Iterate over nearby_tasks
     # Expired tasks are removed via TASK_EXPIRE events before matching
     for task in nearby_tasks:
         drop_distance_const = fast_manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
@@ -495,11 +484,6 @@ def match_worker_composite(
     if best_task:
         assigned_task = _commit_assignment(best_task, worker, now)
         state.assign_task(assigned_task, worker)
-        
-        # Monitor successful assignment from deferred state (if monitoring enabled)
-        if hasattr(state, 'deferred_monitor') and state.deferred_monitor:
-            state.deferred_monitor.record_task_assigned_from_deferred(best_task.id, now)
-            
         return (assigned_task, worker, best_score)
     
     return None
