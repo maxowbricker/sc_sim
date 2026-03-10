@@ -33,169 +33,73 @@ def _normalize_components(components: List[float]) -> List[float]:
 
 
 def _find_best_assignment_for_task(
-    task, 
-    workers, 
-    now, 
-    fairness_weight, 
-    starvation_weight, 
-    utility_weight, 
+    task,
+    workers,
+    now,
+    fairness_weight,
+    starvation_weight,
+    utility_weight,
     k,
     normalize_scores=False,
     gamma=0.3,
     *,
-    spatial_index
+    spatial_index,
 ) -> Tuple[Optional[object], float]:
-    """
-    OPTIMIZED: Advanced Nearest Neighbor (ANN) approach from FATP paper.
-    
-    Instead of checking ALL workers O(|W|), we:
-    1. Find k nearest workers O(k log k) 
-    2. Score only those k workers O(k)
-    
-    This reduces complexity from O(|W|) to O(k) where k=15 << |W|=38,000.
-    Massive performance improvement: 38,000 -> 15 workers checked per task!
-    
-    Two execution paths:
-    FAST PATH: When normalize_scores=False - single-pass, no data collection.
-    MIDDLE PATH: When normalize_scores=True - collects candidate data for normalization only.
-    
-    Parameters
-    ----------
-    normalize_scores : bool, default False
-        If True, apply min-max normalization to F, S, U across candidates.
-        
-    Returns
-    -------
-    best_worker : Worker or None
-        Best candidate worker
-    best_score : float
-        Best composite score achieved
-    """
-    if not workers:
-        return None, float("-inf")
-
+    """OPTIMIZED: Advanced Nearest Neighbor (ANN) single-pass evaluation."""
     nearest_workers = spatial_index.query_k_nearest(task.pickup_lat, task.pickup_lon, k)
-    
     if not nearest_workers:
         return None, float("-inf")
-    
-    # OPTIMIZATION 2: Pre-calculate task drop distance (constant for all workers)
+
+    # 1. CONSTANTS (Calculated ONCE outside the loop)
     drop_distance_const = fast_manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
-    
-    # FAST PATH: When no normalization needed
-    # OPTIMIZED: On-demand EWMA calculation - only for k=15 candidates, only update winner
-    # gamma is now passed as parameter (from strategy_params) for consistency
-    if not normalize_scores:
-        
-        best_worker, best_score, best_fairness_val = None, float("-inf"), None
-        
-        for worker in nearest_workers:
-            # Check feasibility constraints: pickup before expiry, finish before worker shift ends
-            d_pick = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
-            total_km_tmp = d_pick + drop_distance_const
-            
-            # Use float math instead of Timedelta (much faster)
-            pickup_eta_seconds = (d_pick / AVG_SPEED_KMH) * 3600
-            finish_eta_seconds = (total_km_tmp / AVG_SPEED_KMH) * 3600
-            
-            # Compare timestamps
-            if (now + pickup_eta_seconds) > task.expire_time or (now + finish_eta_seconds) > worker.deadline:
-                continue
-            
-            # --- ON-DEMAND FAIRNESS CALCULATION ---
-            # 1. Determine reference time (when did they last finish?)
-            ref_time = worker.last_active_ts if worker.last_active_ts is not None else worker.release_time
-            
-            # 2. Calculate continuous idle duration
-            current_idle_seconds = now - ref_time
-            
-            # 3. Calculate POTENTIAL EWMA (without mutating state)
-            #    Formula: (1-gamma) * NewIdle + gamma * OldEWMA
-            potential_fairness = (1 - gamma) * current_idle_seconds + gamma * worker.fairness_ewma
-            
-            # 4. Score using this potential fairness
-            starvation = log(1 + (now - task.release_time))
-            utility = 1.0 / (1.0 + d_pick)
-            
-            s = fairness_weight * potential_fairness + starvation_weight * starvation + utility_weight * utility
-            
-            if s > best_score:
-                best_score, best_worker = s, worker
-                best_fairness_val = potential_fairness  # Store for winner update
-        
-        # UPDATE WINNER STATE (only the selected worker)
-        if best_worker is not None:
-            best_worker.fairness_ewma = best_fairness_val
-        
-        return best_worker, best_score
-    
-    # MIDDLE PATH: Normalization only (normalize_scores is True)
-    # OPTIMIZED FOR RL: Lazy EWMA calculation, minimal state mutation
-    else:
-        
-        candidate_data = []
-        
-        for worker in nearest_workers:
-            # Check feasibility constraints
-            d_pick = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
-            total_km_tmp = d_pick + drop_distance_const
-            pickup_eta_seconds = (d_pick / AVG_SPEED_KMH) * 3600
-            finish_eta_seconds = (total_km_tmp / AVG_SPEED_KMH) * 3600
-            if (now + pickup_eta_seconds) > task.expire_time or (now + finish_eta_seconds) > worker.deadline:
-                continue
-            
-            # LAZY EWMA: Calculate without mutating worker state
-            if worker.last_active_ts is None:
-                T_idle_seconds = now - worker.release_time
-            else:
-                T_idle_seconds = now - worker.last_active_ts
-            
-            fairness_raw = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
-            utility_raw = 1.0 / (1.0 + d_pick)
-            
-            candidate_data.append({
-                'worker': worker,
-                'fairness_raw': fairness_raw,
-                'utility_raw': utility_raw
-            })
-        
-        if not candidate_data:
-            return None, float("-inf")
-        
-        # Extract component values for normalization
-        fairness_values = [c['fairness_raw'] for c in candidate_data]
-        utility_values = [c['utility_raw'] for c in candidate_data]
-        
-        fairness_norm = _normalize_components(fairness_values)
-        utility_norm = _normalize_components(utility_values)
-        
-        # Find best candidate using ranking score (fairness + utility only)
-        best_worker, best_index, best_ranking_score = None, -1, float("-inf")
-        for i, candidate in enumerate(candidate_data):
-            ranking_score = (
-                fairness_weight * fairness_norm[i] +
-                utility_weight * utility_norm[i]
-            )
-            
-            if ranking_score > best_ranking_score:
-                best_ranking_score = ranking_score
-                best_index = i
-                best_worker = candidate['worker']
-        
-        # ASSIGNMENT CONFIRMED: Update only the assigned worker's EWMA
-        if best_worker is not None:
-            best_candidate = candidate_data[best_index]
-            # Update EWMA state for assigned worker only
-            best_worker.fairness_ewma = best_candidate['fairness_raw']
-            
-            # Calculate full score with starvation (for return value)
-            starvation_raw = log(1 + (now - task.release_time))
-            starvation_contribution = starvation_weight * starvation_raw
-            best_score = best_ranking_score + starvation_contribution
+    starvation_raw = log(1 + (now - task.release_time))
+    starvation_score = starvation_weight * starvation_raw  # Constant for all workers
+
+    candidate_data = []
+    best_worker, best_score, best_fairness_val = None, float("-inf"), None
+
+    # 2. FEASIBILITY & RAW METRICS (Unified Loop)
+    for worker in nearest_workers:
+        d_pick = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
+
+        # Constraints check
+        if (now + (d_pick / AVG_SPEED_KMH) * 3600) > task.expire_time or (
+            now + ((d_pick + drop_distance_const) / AVG_SPEED_KMH) * 3600
+        ) > worker.deadline:
+            continue
+
+        # Raw Metrics
+        ref_time = worker.last_active_ts if worker.last_active_ts is not None else worker.release_time
+        fairness_raw = (1 - gamma) * (now - ref_time) + gamma * worker.fairness_ewma
+        utility_raw = 1.0 / (1.0 + d_pick)
+
+        # 3. SCORE EVALUATION
+        if normalize_scores:
+            # Store for batch normalization
+            candidate_data.append((worker, fairness_raw, utility_raw))
         else:
-            best_score = float("-inf")
-        
-        return best_worker, best_score
+            # FAST PATH: Score immediately, avoiding list memory allocation
+            s = (fairness_weight * fairness_raw) + (utility_weight * utility_raw)
+            if s > best_score:
+                best_score, best_worker, best_fairness_val = s, worker, fairness_raw
+
+    # 4. RESOLVE NORMALIZATION (Middle Path Only)
+    if normalize_scores and candidate_data:
+        f_norm = _normalize_components([c[1] for c in candidate_data])
+        u_norm = _normalize_components([c[2] for c in candidate_data])
+
+        for i, (worker, f_raw, u_raw) in enumerate(candidate_data):
+            s = (fairness_weight * f_norm[i]) + (utility_weight * u_norm[i])
+            if s > best_score:
+                best_score, best_worker, best_fairness_val = s, worker, f_raw
+
+    # 5. FINALIZE WINNER
+    if best_worker is not None:
+        best_worker.fairness_ewma = best_fairness_val
+        return best_worker, best_score + starvation_score
+
+    return None, float("-inf")
+
 
 def _commit_assignment(task, worker, now):
     pickup_distance = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
