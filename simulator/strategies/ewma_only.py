@@ -29,27 +29,25 @@ def manhattan_km(lat1, lon1, lat2, lon2):
     return d_lat + d_lon
 
 
-def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_workers=None):
+def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', gamma=0.3):
     """
     Calculate fairness signal for a worker based on EWMA methodology.
-    
+
     Copied from composite.py to ensure identical metric calculation.
     Higher score = more under-served = higher priority for assignment.
-    
+
     Args:
         worker: Worker object
         current_time: Current simulation timestamp
         fairness_metric: Type of fairness metric ('ewma' is default)
-        all_workers: All workers in system (unused for EWMA)
-    
+        gamma: EWMA smoothing factor (from strategy_params)
+
     Returns:
         Float representing fairness signal (higher = more under-served)
     """
     if fairness_metric == 'ewma':
         # EWMA Formula: Fairness(w_i) = (1 - γ) · T_idle(w_i) + γ · Previous EWMA
-        
-        gamma = getattr(worker, 'gamma', 0.3)
-        
+
         # Calculate current idle time in seconds
         if worker.last_active_ts is None:
             # Worker has never been active - use time since release
@@ -85,8 +83,6 @@ def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', all_
         
     else:
         # Default to EWMA
-        gamma = getattr(worker, 'gamma', 0.3)
-        
         if worker.last_active_ts is None:
             T_idle_seconds = (current_time - worker.release_time).total_seconds()
         else:
@@ -135,7 +131,7 @@ def _commit_assignment(task, worker, now):
     return task
 
 
-def assign_new_tasks_ewma_only(state, now, tasks_to_assign, **_):
+def assign_new_tasks_ewma_only(state, now, tasks_to_assign, gamma=0.3, **_):
     """
     EWMA-Only assignment for new tasks arriving in the system.
     
@@ -178,7 +174,7 @@ def assign_new_tasks_ewma_only(state, now, tasks_to_assign, **_):
                 continue
             
             # EWMA-ONLY CORE LOGIC: Calculate fairness signal for each worker
-            fairness_signal = calculate_fairness_signal(worker, now, 'ewma')
+            fairness_signal = calculate_fairness_signal(worker, now, 'ewma', gamma=gamma)
             
             if fairness_signal > best_fairness_signal:
                 # Found worker with higher fairness signal (more under-served)

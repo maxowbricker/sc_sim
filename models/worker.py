@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 import pandas as pd
-from config import get_strategy_params
 
 
 class Worker:
@@ -11,10 +10,6 @@ class Worker:
     Augmented with bookkeeping fields that will be required for metrics such as
     EWMA fairness, revenue distribution, etc.
     """
-
-    # ------------------------------------------------------------------ #
-    # Construction & basic properties
-    # ------------------------------------------------------------------ #
 
     def __init__(self, worker_dict):
         # Static attributes (from dataset)
@@ -28,23 +23,15 @@ class Worker:
         self.assigned_task = None
         self.available = True
 
-        # ------------------------------------------------------------------ #
-        # Metrics-related counters
-        # ------------------------------------------------------------------ #
         self.total_idle_time = 0.0  # cumulative idle duration in seconds
         self.last_state_ts: float | None = self.release_time
 
         # EWMA fairness tracking
-        self.gamma: float = get_strategy_params("composite").get("gamma", 0.3)
         self.fairness_ewma: float = 0.0  # starts at 0 (no under-service yet)
 
         self.completed_tasks: int = 0
         self.revenue: float = 0.0  # placeholder – will depend on task info
         self.last_active_ts: float | None = None  # when last task finished
-
-    # ------------------------------------------------------------------ #
-    # State transitions
-    # ------------------------------------------------------------------ #
 
     def assign_task(self, task):
         """Mark worker as busy with *task*."""
@@ -68,10 +55,6 @@ class Worker:
         # Worker becomes available again; `StateManager` will also toggle pools.
         self.available = True
 
-    # ------------------------------------------------------------------ #
-    # Availability helpers
-    # ------------------------------------------------------------------ #
-
     def is_available(self, current_time):
         return self.available and self.release_time <= current_time <= self.deadline
 
@@ -84,7 +67,5 @@ class Worker:
         if not self.available:
             return
 
-        # Update cumulative idle duration (for reporting only)
-        # Now using float math for maximum performance
         self.total_idle_time += time_delta_seconds
 
