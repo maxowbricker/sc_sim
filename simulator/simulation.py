@@ -394,15 +394,7 @@ class Simulation:
             workers.append(worker)
         
         print(f"   ✅ Converted {len(workers):,} workers")
-        
-        # CRITICAL: Update worker gamma if specified in config (Exp 019 fix)
-        strategy_params = self.config.get('strategy_params', {})
-        if 'gamma' in strategy_params:
-            gamma_value = strategy_params['gamma']
-            print(f"   🔧 Updating worker gamma to {gamma_value}...")
-            for worker in workers:
-                worker.gamma = gamma_value
-        
+
         # Convert tasks DataFrame to Task objects (FAST vectorized approach)
         tasks = []
         total_tasks = len(self.tasks_df)
