@@ -166,7 +166,6 @@ class FairnessMetricsTracker:
             if worker_id not in self.worker_stats:
                 self.worker_stats[worker_id] = {
                     'completed_tasks': 0,
-                    'total_revenue': 0.0,
                     'total_idle_time': 0.0,
                     'fairness_ewma': 0.0,
                     'last_active_time': None
@@ -174,7 +173,6 @@ class FairnessMetricsTracker:
             
             stats = self.worker_stats[worker_id]
             stats['completed_tasks'] = worker.completed_tasks
-            stats['total_revenue'] = worker.revenue
             stats['total_idle_time'] = worker.total_idle_time
             stats['fairness_ewma'] = worker.fairness_ewma
             stats['last_active_time'] = worker.last_active_ts
@@ -184,9 +182,8 @@ class FairnessMetricsTracker:
         if not self.worker_stats:
             return {}
         
-        # Extract task counts and revenues
+        # Extract task counts and idle times
         task_counts = [stats['completed_tasks'] for stats in self.worker_stats.values()]
-        revenues = [stats['total_revenue'] for stats in self.worker_stats.values()]
         idle_times = [stats['total_idle_time'] for stats in self.worker_stats.values()]
         ewma_values = [stats['fairness_ewma'] for stats in self.worker_stats.values()]
         
@@ -195,10 +192,7 @@ class FairnessMetricsTracker:
         
         # Calculate metrics
         jfi_tasks = jains_fairness_index(task_counts)
-        jfi_revenue = jains_fairness_index(revenues) if sum(revenues) > 0 else 1.0
-        
         ud_tasks = utility_difference(task_counts)
-        ud_revenue = utility_difference(revenues)
         ud_idle = utility_difference(idle_times)
         
         ideal_assignment = calculate_ideal_fair_assignment(total_tasks, num_workers)
@@ -211,9 +205,7 @@ class FairnessMetricsTracker:
         
         return {
             'jains_fairness_index_tasks': jfi_tasks,
-            'jains_fairness_index_revenue': jfi_revenue,
             'utility_difference_tasks': ud_tasks,
-            'utility_difference_revenue': ud_revenue,
             'utility_difference_idle_time': ud_idle,
             'fairness_loss_tasks': fl_tasks,
             'ewma_fairness_mean': ewma_mean,

@@ -30,7 +30,6 @@ class Worker:
         self.fairness_ewma: float = 0.0  # starts at 0 (no under-service yet)
 
         self.completed_tasks: int = 0
-        self.revenue: float = 0.0  # placeholder – will depend on task info
         self.last_active_ts: float | None = None  # when last task finished
 
     def assign_task(self, task):
