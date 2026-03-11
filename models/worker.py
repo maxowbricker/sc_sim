@@ -19,18 +19,15 @@ class Worker:
         self.release_time = float(worker_dict["release_time"])
         self.deadline = float(worker_dict["deadline"])
 
-        # Dynamic state
-        self.assigned_task = None
-        self.available = True
+        self.assigned_task = None     # Core link between worker and task; used to determine current busy state.
+        self.available = True         # Fast boolean lookup; works with release_time and deadline in is_available().
 
-        self.total_idle_time = 0.0  # cumulative idle duration in seconds
-        self.last_state_ts: float | None = self.release_time
+        self.total_idle_time = 0.0    # Cumulative metric used by MetricsManager for RL rewards and final stats.
+        self.last_state_ts = self.release_time  # The "lap button"; used to calculate idle deltas between RL steps.
+        self.fairness_ewma = 0.0      # Persists the decaying fairness score between assignments.
+        self.last_active_ts = None    # The "Fairness Anchor"; records last completion to calculate wait time for next assignment.
 
-        # EWMA fairness tracking
-        self.fairness_ewma: float = 0.0  # starts at 0 (no under-service yet)
-
-        self.completed_tasks: int = 0
-        self.last_active_ts: float | None = None  # when last task finished
+        self.completed_tasks = 0      # Used for JFI stats and as a physical constraint/cap in FATP-ANN strategy.
 
     def assign_task(self, task):
         """Mark worker as busy with *task*."""
@@ -45,7 +42,6 @@ class Worker:
             task_revenue: Revenue from completed task
         """
         self.completed_tasks += 1
-        self.revenue += float(task_revenue)
         self.last_active_ts = now
         
         # Update last_state_ts for idle time tracking
