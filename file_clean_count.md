@@ -17,20 +17,13 @@ Order: from deepest architecture up to wrappers and documentation.
 | `data/loader.py` | Data loading, Flat Earth setup, load_day_data |
 | `simulator/__init__.py` | Package re-exports (Simulation, run_simulation, StateManager) |
 | `simulator/strategies/composite.py` | Primary strategy; unified ANN loop, threshold resolution |
+| `simulator/strategies/__init__.py` | Strategy registry (get_strategy, register) |
 
 ---
 
 ## TO CLEAN (Priority Order)
 
-### 1. Primary Strategy
-
-Core contribution. Final pass to ensure it interacts perfectly with cleaned models and state.
-
-| # | File | Notes |
-|---|------|-------|
-| 5 | `simulator/strategies/__init__.py` | |
-
-### 3. Metrics & Accounting
+### 1. Metrics & Accounting
 
 Single sources of truth. Ensure no other files do manual math that belongs here.
 
