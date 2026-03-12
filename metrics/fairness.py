@@ -224,14 +224,14 @@ class FairnessMetricsTracker:
             available_workers: List of currently available workers
             current_time: Current simulation time
         """
-        from simulator.spatial_index import manhattan_km
+        from simulator.spatial_index import fast_manhattan_km
         
         task_id = str(task.id)
         eligible_workers = []
         
         # Determine which workers are within reachable distance
         for worker in available_workers:
-            distance = manhattan_km(
+            distance = fast_manhattan_km(
                 worker.start_lat, worker.start_lon,
                 task.pickup_lat, task.pickup_lon
             )
