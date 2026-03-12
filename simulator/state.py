@@ -66,11 +66,13 @@ class StateManager:
     
     def remove_deferred_task(self, task):
         """
-        Helper to cleanly remove a task from deferred state (e.g. on expiry).
+        Helper to cleanly remove a task from deferred state (e.g. on expiry or assignment).
         Removes from both the deferred_tasks set and the deferred_task_index.
+        Only removes if the task is in the deferred pool (new tasks assigned immediately are not).
         """
-        self.deferred_tasks.remove(task)
-        self.deferred_task_index.remove(task)
+        if task in self.deferred_tasks:
+            self.deferred_tasks.remove(task)
+            self.deferred_task_index.remove(task)
 
     def complete_task(self, task, worker, current_time):
         self.assigned_tasks.discard(task)
