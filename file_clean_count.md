@@ -34,6 +34,33 @@ Single sources of truth. Ensure no other files do manual math that belongs here.
 | 9 | `metrics/tracker.py` | |
 | 10 | `metrics/deferral_tracker.py` | |
 
+### 2. Data Layer
+
+Ensure data is loaded cleanly and efficiently into the models.
+
+| # | File | Notes |
+|---|------|-------|
+| 17 | `data/stratified_sampler.py` | |
+| 18 | `data/didi/didi.py` | |
+| 19 | `data/didi/didi_optimized.py` | |
+
+### 3. Configuration & Standard Entry Points
+
+Standardize how a run is defined and executed.
+
+| # | File | Notes |
+|---|------|-------|
+| 21 | `config.py` | |
+| 22 | `main.py` | |
+| 23 | `scripts/test_simulation_simple.py` | Canonical physics test |
+| 24 | `scripts/test_simulation_timed.py` | |
+| 25 | `scripts/validate_dynamic.py` | |
+| 26 | `scripts/tune_physics_full.py` | |
+
+
+# DEFER UNTIL PROMISING RESULTS WITH DRL:
+
+
 ### 4. Baseline Strategies
 
 Ensure they don’t break after worker.py changes (gamma, revenue removed). Share optimization tricks from composite.py.
@@ -46,29 +73,6 @@ Ensure they don’t break after worker.py changes (gamma, revenue removed). Shar
 | 14 | `simulator/strategies/laf.py` | |
 | 15 | `simulator/strategies/greedy.py` | |
 | 16 | `simulator/strategies/random_assign.py` | |
-
-### 5. Data Layer
-
-Ensure data is loaded cleanly and efficiently into the models.
-
-| # | File | Notes |
-|---|------|-------|
-| 17 | `data/stratified_sampler.py` | |
-| 18 | `data/didi/didi.py` | |
-| 19 | `data/didi/didi_optimized.py` | |
-
-### 6. Configuration & Standard Entry Points
-
-Standardize how a run is defined and executed.
-
-| # | File | Notes |
-|---|------|-------|
-| 21 | `config.py` | |
-| 22 | `main.py` | |
-| 23 | `scripts/test_simulation_simple.py` | Canonical physics test |
-| 24 | `scripts/test_simulation_timed.py` | |
-| 25 | `scripts/validate_dynamic.py` | |
-| 26 | `scripts/tune_physics_full.py` | |
 
 ### 7. Reinforcement Learning (Deferred)
 
