@@ -1,6 +1,10 @@
 from simulator.spatial_index import GridSpatialIndex
 
+
 class StateManager:
+    spatial_index: GridSpatialIndex
+    deferred_task_index: GridSpatialIndex
+
     def __init__(self, all_workers=None, all_tasks=None):
         """
         Parameters

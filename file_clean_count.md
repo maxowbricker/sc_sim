@@ -15,27 +15,20 @@ Order: from deepest architecture up to wrappers and documentation.
 | `simulator/state.py` | Worker/Task pool management, fast lookups |
 | `simulator/simulation.py` | Main event loop |
 | `data/loader.py` | Data loading, Flat Earth setup, load_day_data |
+| `simulator/__init__.py` | Package re-exports (Simulation, run_simulation, StateManager) |
+| `simulator/strategies/composite.py` | Primary strategy; unified ANN loop, threshold resolution |
 
 ---
 
 ## TO CLEAN (Priority Order)
 
-### 1. Core Engine (Deepest Architecture)
-
-If these are slow or bloated, the entire simulation suffers. Ensure highly optimized and memory-efficient.
-
-| # | File | Notes |
-|---|------|-------|
-| 1 | `simulator/__init__.py` | |
-
-### 2. Primary Strategy
+### 1. Primary Strategy
 
 Core contribution. Final pass to ensure it interacts perfectly with cleaned models and state.
 
 | # | File | Notes |
 |---|------|-------|
-| 5 | `simulator/strategies/composite.py` | |
-| 6 | `simulator/strategies/__init__.py` | |
+| 5 | `simulator/strategies/__init__.py` | |
 
 ### 3. Metrics & Accounting
 
