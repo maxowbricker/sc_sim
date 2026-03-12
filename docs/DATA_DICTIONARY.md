@@ -3,8 +3,16 @@
 ## Overview
 Complete reference for all metrics, flags, and data structures collected by the simulation.
 
-**Last Updated**: October 21, 2025  
-**Version**: 2.0 (Post-statistics enhancement)
+**Last Updated**: February 2025  
+**Version**: 2.1 (Lean domain models)
+
+---
+
+## Domain Models (Worker & Task)
+
+**Worker** (`models/worker.py`): `id`, `start_lat`, `start_lon`, `release_time`, `deadline`, `assigned_task`, `available`, `total_idle_time`, `last_state_ts`, `fairness_ewma`, `completed_tasks`, `last_active_ts`. No `gamma` or `revenue` (removed).
+
+**Task** (`models/task.py`): `id`, `pickup_lat`, `pickup_lon`, `dropoff_lat`, `dropoff_lon`, `release_time`, `expire_time`, `assigned_worker`, `finish_time`, `start_time`, `pickup_km`, `drop_km`, `deferral_count`. `base_utility` is lazy-loaded (FATP-ANN only).
 
 ---
 
@@ -26,8 +34,7 @@ Complete reference for all metrics, flags, and data structures collected by the 
 
 ### `enable_diagnostics` (boolean)
 - **Default**: `false`
-- **Impact**: Enables detailed component-level tracking
-- **Performance Cost**: ~40% slower (enables "slow path")
+- **Impact**: Enables detailed component-level tracking (when supported by strategy)
 - **Additional Data Collected**:
   - Score component dominance per assignment
   - Per-assignment breakdown (fairness/starvation/utility)

@@ -2,6 +2,8 @@
 
 This document provides a comprehensive overview of all metrics collected throughout the spatial crowdsourcing simulation.
 
+**Single Source of Truth**: All metrics are aggregated at the end of each simulation step by `MetricsManager` (`metrics/manager.py`). The old `Simulation.summary` dictionary has been deprecated.
+
 ---
 
 ## 1. Core Time-Series Metrics (`tracker.py` - `MetricTracker`)
@@ -226,16 +228,13 @@ For each component (fairness, starvation, utility):
 
 #### Worker Statistics
 - **`completed_tasks`**: Number of tasks completed by worker
-- **`total_revenue`**: Total revenue earned by worker
 - **`total_idle_time`**: Total idle time (in seconds)
 - **`fairness_ewma`**: EWMA-based fairness value
 - **`last_active_time`**: Timestamp of last activity
 
 #### Current Fairness Metrics
 - **`jains_fairness_index_tasks`**: JFI based on task counts
-- **`jains_fairness_index_revenue`**: JFI based on revenue
 - **`utility_difference_tasks`**: UD based on task counts
-- **`utility_difference_revenue`**: UD based on revenue
 - **`utility_difference_idle_time`**: UD based on idle time
 - **`fairness_loss_tasks`**: FL based on task counts
 - **`ewma_fairness_mean`**: Mean EWMA fairness across workers

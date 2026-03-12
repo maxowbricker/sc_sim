@@ -274,6 +274,8 @@ def match_worker_composite(
     best_candidate = max(candidate_data, key=lambda c: c['ranking_score'])
     best_task = best_candidate['task']
 
+    # 3. FINAL THRESHOLD CHECK
+    # Calculate final score with fairness contribution
     ref_time = worker.last_active_ts if worker.last_active_ts is not None else worker.release_time
     T_idle_seconds = now - ref_time
     updated_ewma = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
@@ -285,16 +287,21 @@ def match_worker_composite(
     else:
         threshold_passed = best_score >= soft_threshold
 
+    # 4. RESOLUTION
+    # If the threshold isn't met, the worker rejects the sub-optimal tasks.
+    # Returning None keeps the worker in the 'available' pool to wait for
+    # better tasks (e.g., a NEW_TASK event in the next time step).
     if not threshold_passed:
         return None
 
+    # ASSIGNMENT CONFIRMED: Update worker state and commit
     worker.fairness_ewma = updated_ewma
 
     if best_task:
         assigned_task = _commit_assignment(best_task, worker, now)
         state.assign_task(assigned_task, worker)
         return (assigned_task, worker, best_score)
-    
+
     return None
 
 @register("composite")
