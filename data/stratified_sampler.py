@@ -12,8 +12,7 @@ where early tasks had insufficient worker availability.
 
 import random
 from typing import List, Tuple
-import pandas as pd
-from datetime import timedelta
+from datetime import datetime
 
 
 def stratified_temporal_sample(
@@ -26,18 +25,6 @@ def stratified_temporal_sample(
 ) -> Tuple[List, dict]:
     """
     Sample tasks and workers using stratified temporal sampling.
-    
-    Args:
-        all_workers: Full list of worker objects
-        all_tasks: Full list of task objects
-        target_tasks: Number of tasks to sample (default 20K)
-        worker_counts: List of worker counts to sample (e.g., [2K, 4K, 8K])
-        num_bins: Number of temporal bins (default 12 = 15-min bins for 3 hours)
-        seed: Random seed for reproducibility
-    
-    Returns:
-        sampled_tasks: List of sampled tasks (stratified across time)
-        worker_samples: Dict mapping worker_count -> list of sampled workers
     """
     random.seed(seed)
     
@@ -55,16 +42,16 @@ def stratified_temporal_sample(
     # ========================================================================
     print("[STEP 1] Analyzing task temporal distribution...")
     
-    sorted_tasks = sorted(all_tasks, key=lambda t: float(t.release_time))
+    # Timestamps are already native floats thanks to earlier optimizations
+    sorted_tasks = sorted(all_tasks, key=lambda t: t.release_time)
     
-    task_times = [float(t.release_time) for t in sorted_tasks]
+    task_times = [t.release_time for t in sorted_tasks]
     task_start = min(task_times)
     task_end = max(task_times)
-    task_duration = task_end - task_start  # Now in seconds
+    task_duration = task_end - task_start 
     
-    # Convert to datetime for display only
-    task_start_dt = pd.Timestamp.fromtimestamp(task_start)
-    task_end_dt = pd.Timestamp.fromtimestamp(task_end)
+    task_start_dt = datetime.fromtimestamp(task_start)
+    task_end_dt = datetime.fromtimestamp(task_end)
     print(f"  Task window: {task_start_dt} to {task_end_dt}")
     print(f"  Duration: {task_duration / 3600:.2f} hours")
     print(f"  Total tasks available: {len(sorted_tasks):,}")
@@ -85,31 +72,25 @@ def stratified_temporal_sample(
         bin_start = task_start + i * bin_duration
         bin_end = bin_start + bin_duration
         
-        # Get tasks in this bin (direct float comparison)
-        bin_tasks = [t for t in sorted_tasks 
-                    if bin_start <= float(t.release_time) < bin_end]
+        bin_tasks = [t for t in sorted_tasks if bin_start <= t.release_time < bin_end]
         
-        # Sample from this bin
         n_to_sample = min(tasks_per_bin, len(bin_tasks))
         bin_sample = random.sample(bin_tasks, n_to_sample)
         sampled_tasks.extend(bin_sample)
         
         task_bin_counts.append((bin_start, bin_end, len(bin_tasks), n_to_sample))
     
-    # If we're short, sample remaining from last bin
     if len(sampled_tasks) < target_tasks:
         remaining = target_tasks - len(sampled_tasks)
-        last_bin_tasks = [t for t in sorted_tasks 
-                         if float(t.release_time) >= task_bin_counts[-1][0]]
+        last_bin_tasks = [t for t in sorted_tasks if t.release_time >= task_bin_counts[-1][0]]
         additional = random.sample(last_bin_tasks, min(remaining, len(last_bin_tasks)))
         sampled_tasks.extend(additional)
     
     print(f"  ✅ Sampled {len(sampled_tasks):,} tasks")
     print(f"  Distribution across bins:")
     for bin_start, bin_end, available, sampled in task_bin_counts:
-        # Convert to datetime for display only
-        bin_start_dt = pd.Timestamp.fromtimestamp(bin_start)
-        bin_end_dt = pd.Timestamp.fromtimestamp(bin_end)
+        bin_start_dt = datetime.fromtimestamp(bin_start)
+        bin_end_dt = datetime.fromtimestamp(bin_end)
         print(f"    {bin_start_dt.strftime('%H:%M')}-{bin_end_dt.strftime('%H:%M')}: "
               f"{sampled:>4} tasks (from {available:>5} available)")
     print()
@@ -119,33 +100,29 @@ def stratified_temporal_sample(
     # ========================================================================
     print("[STEP 3] Analyzing worker temporal distribution...")
     
-    # Sort workers by release time (now floats)
-    sorted_workers = sorted(all_workers, key=lambda w: float(w.release_time))
+    sorted_workers = sorted(all_workers, key=lambda w: w.release_time)
     
-    worker_times = [float(w.release_time) for w in sorted_workers]
+    worker_times = [w.release_time for w in sorted_workers]
     worker_start = min(worker_times)
     worker_end = max(worker_times)
     
-    # Convert to datetime for display only
-    worker_start_dt = pd.Timestamp.fromtimestamp(worker_start)
-    worker_end_dt = pd.Timestamp.fromtimestamp(worker_end)
+    worker_start_dt = datetime.fromtimestamp(worker_start)
+    worker_end_dt = datetime.fromtimestamp(worker_end)
     print(f"  Worker window: {worker_start_dt} to {worker_end_dt}")
     print(f"  Total workers available: {len(sorted_workers):,}")
     print()
     
-    # Verify overlap
     overlap_start = max(task_start, worker_start)
     overlap_end = min(task_end, worker_end)
     
-    # Convert to datetime for display only
-    overlap_start_dt = pd.Timestamp.fromtimestamp(overlap_start)
-    overlap_end_dt = pd.Timestamp.fromtimestamp(overlap_end)
+    overlap_start_dt = datetime.fromtimestamp(overlap_start)
+    overlap_end_dt = datetime.fromtimestamp(overlap_end)
     print(f"  ✅ Overlap window: {overlap_start_dt} to {overlap_end_dt}")
     print(f"     Duration: {(overlap_end - overlap_start) / 3600:.2f} hours")
     print()
     
     # ========================================================================
-    # STEP 4: Sample workers stratified across temporal bins (for each count)
+    # STEP 4: Sample workers stratified across temporal bins
     # ========================================================================
     worker_samples = {}
     
@@ -157,73 +134,66 @@ def stratified_temporal_sample(
         
         workers_per_bin = worker_count // num_bins
         sampled_workers = []
+        sampled_workers_set = set()  # O(1) lookup set to fix O(N^2) list traversal
         worker_bin_counts = []
         
         for i in range(num_bins):
             bin_start = overlap_start + i * bin_duration
             bin_end = bin_start + bin_duration
             
-            # Get workers available during this bin
-            # Worker is available if: release_time <= bin_end AND deadline >= bin_start
             bin_workers = [
                 w for w in sorted_workers
-                if (float(w.release_time) <= bin_end and 
-                    float(w.deadline) >= bin_start)
+                if (w.release_time <= bin_end and w.deadline >= bin_start)
             ]
             
-            # Sample from this bin
             n_to_sample = min(workers_per_bin, len(bin_workers))
             
-            # Avoid duplicate sampling
-            available_for_sampling = [w for w in bin_workers if w not in sampled_workers]
+            # Fast O(1) duplicate check
+            available_for_sampling = [w for w in bin_workers if w not in sampled_workers_set]
             n_to_sample = min(n_to_sample, len(available_for_sampling))
             
             if n_to_sample > 0:
                 bin_sample = random.sample(available_for_sampling, n_to_sample)
                 sampled_workers.extend(bin_sample)
+                sampled_workers_set.update(bin_sample)
             
             worker_bin_counts.append((bin_start, bin_end, len(bin_workers), n_to_sample))
         
-        # If we're short, sample remaining from eligible workers not yet sampled
         if len(sampled_workers) < worker_count:
             remaining = worker_count - len(sampled_workers)
             eligible_workers = [
                 w for w in sorted_workers
-                if (w not in sampled_workers and
-                    float(w.release_time) <= overlap_end and
-                    float(w.deadline) >= overlap_start)
+                if (w not in sampled_workers_set and
+                    w.release_time <= overlap_end and
+                    w.deadline >= overlap_start)
             ]
             if len(eligible_workers) > 0:
                 additional = random.sample(eligible_workers, min(remaining, len(eligible_workers)))
                 sampled_workers.extend(additional)
+                sampled_workers_set.update(additional)
         
         worker_samples[worker_count] = sampled_workers
         
         print(f"  ✅ Sampled {len(sampled_workers):,} workers")
         print(f"  Distribution across bins:")
         for bin_start, bin_end, available, sampled in worker_bin_counts:
-            bin_start_dt = pd.Timestamp.fromtimestamp(bin_start)
-            bin_end_dt = pd.Timestamp.fromtimestamp(bin_end)
+            bin_start_dt = datetime.fromtimestamp(bin_start)
+            bin_end_dt = datetime.fromtimestamp(bin_end)
             print(f"    {bin_start_dt.strftime('%H:%M')}-{bin_end_dt.strftime('%H:%M')}: "
                   f"{sampled:>4} workers (from {available:>5} available)")
         
-        # Verify temporal coverage
-        sampled_worker_times = [float(w.release_time) for w in sampled_workers]
+        sampled_worker_times = [w.release_time for w in sampled_workers]
         earliest = min(sampled_worker_times)
         latest = max(sampled_worker_times)
-        earliest_dt = pd.Timestamp.fromtimestamp(earliest)
-        latest_dt = pd.Timestamp.fromtimestamp(latest)
         
-        print(f"  Coverage: {earliest_dt.strftime('%H:%M')} to {latest_dt.strftime('%H:%M')}")
+        print(f"  Coverage: {datetime.fromtimestamp(earliest).strftime('%H:%M')} to {datetime.fromtimestamp(latest).strftime('%H:%M')}")
         
-        # Check availability at first task
-        first_task_time = min([float(t.release_time) for t in sampled_tasks])
-        first_task_time_dt = pd.Timestamp.fromtimestamp(first_task_time)
+        first_task_time = min([t.release_time for t in sampled_tasks])
         available_at_start = sum(
             1 for w in sampled_workers
-            if float(w.release_time) <= first_task_time <= float(w.deadline)
+            if w.release_time <= first_task_time <= w.deadline
         )
-        print(f"  📊 Workers available at first task ({first_task_time_dt.strftime('%H:%M')}): "
+        print(f"  📊 Workers available at first task ({datetime.fromtimestamp(first_task_time).strftime('%H:%M')}): "
               f"{available_at_start:,} ({available_at_start/len(sampled_workers)*100:.1f}%)")
         print()
     
@@ -237,17 +207,14 @@ def stratified_temporal_sample(
     print(f"✅ Worker samples created: {len(worker_samples)}")
     print()
     print("Worker availability at first task:")
-    first_task_time = min([float(t.release_time) for t in sampled_tasks])
+    first_task_time = min([t.release_time for t in sampled_tasks])
     for worker_count, workers in worker_samples.items():
         available = sum(
             1 for w in workers
-            if float(w.release_time) <= first_task_time <= float(w.deadline)
+            if w.release_time <= first_task_time <= w.deadline
         )
         print(f"  {worker_count:>6,} workers: {available:>5,} available ({available/worker_count*100:>5.1f}%)")
     print("=" * 80)
     print()
     
     return sampled_tasks, worker_samples
-
-
-
