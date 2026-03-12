@@ -12,6 +12,7 @@ Order: from deepest architecture up to wrappers and documentation.
 | `models/task.py` | Lazy-loaded base_utility, lean domain model |
 | `models/worker.py` | Removed gamma, revenue; lean domain model |
 | `simulator/spatial_index.py` | Removed dead SpatialIndex class and broken benchmark; GridSpatialIndex only |
+| `simulator/state.py` | Worker/Task pool management, fast lookups |
 
 ---
 
@@ -23,9 +24,8 @@ If these are slow or bloated, the entire simulation suffers. Ensure highly optim
 
 | # | File | Notes |
 |---|------|-------|
-| 1 | `simulator/state.py` | Worker/Task pool management, fast lookups |
-| 2 | `simulator/simulation.py` | Main event loop |
-| 3 | `simulator/__init__.py` | |
+| 1 | `simulator/simulation.py` | Main event loop |
+| 2 | `simulator/__init__.py` | |
 
 ### 2. Primary Strategy
 
