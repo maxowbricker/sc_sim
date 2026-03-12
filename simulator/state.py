@@ -1,6 +1,4 @@
-from datetime import datetime
 from simulator.spatial_index import GridSpatialIndex
-
 
 class StateManager:
     def __init__(self, all_workers=None, all_tasks=None):
@@ -13,7 +11,7 @@ class StateManager:
         self.all_workers_map = {w.id: w for w in all_workers} if all_workers else {}
         self.all_tasks_map = {t.id: t for t in all_tasks} if all_tasks else {}
         
-        # Dynamic pools - Using sets for O(1) operations instead of O(n) list operations
+        # Dynamic pools - Using sets for O(1) operations
         self.available_workers = set()
         self.active_tasks = set()          # Released but unassigned
         self.deferred_tasks = set()        # Scored below threshold, waiting
@@ -27,9 +25,6 @@ class StateManager:
         
         # INDEX 2: Deferred Tasks (uses pickup_lat/lon)
         self.deferred_task_index = GridSpatialIndex(lat_attr='pickup_lat', lon_attr='pickup_lon')
-        
-        # PERFORMANCE FIX: Assignment logging removed - was causing memory bloat without any benefit
-        # Real statistics are collected via simulation summary and fairness tracker
 
     def get_worker(self, worker_id):
         return self.all_workers_map.get(worker_id)
@@ -39,26 +34,16 @@ class StateManager:
 
     def release_worker(self, worker):
         self.available_workers.add(worker)
-        # ADD TO INDEX
         self.spatial_index.add(worker)
-        # Note: last_state_ts is already initialized to release_time in Worker.__init__
-        # and updated in worker.record_completion() when worker becomes available after task completion
 
     def release_task(self, task):
         self.active_tasks.add(task)
 
     def assign_task(self, task, worker):
-        # Remove from active/deferred pools (O(1) operations with sets)
-        self.active_tasks.discard(task)      # discard() won't raise error if not present
-        
-        # Remove from deferred state if present (handles both set and index)
+        self.active_tasks.discard(task)
         self.remove_deferred_task(task)
         
-        # Move worker from available to assigned
         self.available_workers.discard(worker)
-        
-        # REMOVE FROM INDEX
-        # Note: Worker must be at the same location as when they were added
         self.spatial_index.remove(worker)
         
         self.assigned_tasks.add(task)
@@ -67,42 +52,27 @@ class StateManager:
     def defer_task(self, task, current_time=None):
         """
         Defer a task to the deferred pool.
-        
-        Args:
-            task: Task to defer
-            current_time: Current simulation time (optional, for expiry check)
-        
-        Returns:
-            bool: True if task was deferred, False if already expired
+        Returns True if deferred, False if already expired.
         """
-        # Check if task is already expired (if current_time provided)
-        if current_time is not None and current_time > task.expire_time:
-            return False  # Don't defer already-expired tasks
+        if current_time is not None and current_time >= task.expire_time:
+            return False 
         
-        # Move from active to deferred (O(1) operations)
         self.active_tasks.discard(task)
-        
-        # Add to deferred set AND index
         self.deferred_tasks.add(task)
         self.deferred_task_index.add(task)
         
-        task.deferral_count += 1  # Track number of times this task was deferred
+        task.deferral_count += 1
         return True
     
     def remove_deferred_task(self, task):
         """
         Helper to cleanly remove a task from deferred state (e.g. on expiry).
         Removes from both the deferred_tasks set and the deferred_task_index.
-        
-        Args:
-            task: Task to remove from deferred state
         """
-        if task in self.deferred_tasks:
-            self.deferred_tasks.remove(task)
-            self.deferred_task_index.remove(task)
+        self.deferred_tasks.remove(task)
+        self.deferred_task_index.remove(task)
 
     def complete_task(self, task, worker, current_time):
-        # Remove from assigned pools (O(1) operations with sets)
         self.assigned_tasks.discard(task)
         self.assigned_workers.discard(worker)
 
@@ -110,13 +80,9 @@ class StateManager:
         self.completed_tasks.add(task)
         worker.record_completion(current_time)
 
-        # The worker is now at the drop-off location of the completed task.
-        # This state update is crucial for subsequent assignments.
+        # Worker physically moves to the drop-off location
         worker.start_lat = task.dropoff_lat
         worker.start_lon = task.dropoff_lon
             
-        # Worker becomes available again
         self.available_workers.add(worker)
-        
-        # ADD TO INDEX (at new location)
         self.spatial_index.add(worker)
