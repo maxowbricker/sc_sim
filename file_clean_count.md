@@ -13,6 +13,8 @@ Order: from deepest architecture up to wrappers and documentation.
 | `models/worker.py` | Removed gamma, revenue; lean domain model |
 | `simulator/spatial_index.py` | Removed dead SpatialIndex class and broken benchmark; GridSpatialIndex only |
 | `simulator/state.py` | Worker/Task pool management, fast lookups |
+| `simulator/simulation.py` | Main event loop |
+| `data/loader.py` | Data loading, Flat Earth setup, load_day_data |
 
 ---
 
@@ -24,8 +26,7 @@ If these are slow or bloated, the entire simulation suffers. Ensure highly optim
 
 | # | File | Notes |
 |---|------|-------|
-| 1 | `simulator/simulation.py` | Main event loop |
-| 2 | `simulator/__init__.py` | |
+| 1 | `simulator/__init__.py` | |
 
 ### 2. Primary Strategy
 
@@ -66,10 +67,9 @@ Ensure data is loaded cleanly and efficiently into the models.
 
 | # | File | Notes |
 |---|------|-------|
-| 17 | `data/loader.py` | |
-| 18 | `data/stratified_sampler.py` | |
-| 19 | `data/didi/didi.py` | |
-| 20 | `data/didi/didi_optimized.py` | |
+| 17 | `data/stratified_sampler.py` | |
+| 18 | `data/didi/didi.py` | |
+| 19 | `data/didi/didi_optimized.py` | |
 
 ### 6. Configuration & Standard Entry Points
 
