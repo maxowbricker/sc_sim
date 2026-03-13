@@ -312,6 +312,9 @@ class MetricsManager:
             'wait_times': self._wait_times,
             'backlog_peak': self._backlog_peak,
             'assignment_delays': self._assignment_delays,
+            'final_jains_fairness_index': self.current_step_stats.get('jfi', 1.0),
+            'final_utility_difference_tasks': self.current_step_stats.get('utility_diff', 0.0),
+            
             **fairness_summary,
             'metric_tracker': self.metric_tracker,
         }
