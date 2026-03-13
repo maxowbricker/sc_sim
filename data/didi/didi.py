@@ -19,14 +19,29 @@ class Adapter:
         self.orders_df = self._load_orders()
 
     def _load_gps(self) -> pd.DataFrame:
-        """Load raw GPS data (Keep your existing CSV loading logic here)"""
-        # (Assuming your original pd.read_csv logic goes here)
-        pass
+        """Load raw GPS data"""
+        gps_path = self.root / "gps.txt"
+        if not gps_path.exists() and (self.root / "gps").exists():
+            gps_path = self.root / "gps"  # Fallback for no extension
+            
+        return pd.read_csv(
+            gps_path,
+            names=["driver_id", "order_id", "timestamp", "lon", "lat"]
+        )
 
     def _load_orders(self) -> pd.DataFrame:
-        """Load raw Orders data (Keep your existing CSV loading logic here)"""
-        # (Assuming your original pd.read_csv logic goes here)
-        pass
+        """Load raw Orders data"""
+        order_path = self.root / "order.txt"
+        if not order_path.exists() and (self.root / "order").exists():
+            order_path = self.root / "order" # Fallback for no extension
+            
+        return pd.read_csv(
+            order_path,
+            names=[
+                "order_id", "start_billing", "end_billing", 
+                "pickup_lon", "pickup_lat", "dropoff_lon", "dropoff_lat"
+            ]
+        )
 
     # ------------------------------------------------------------------ #
     # Canonical DataFrame export (for timestep simulator)
