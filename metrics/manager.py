@@ -10,7 +10,11 @@ import pandas as pd
 import numpy as np
 import datetime  # Built-in for faster timestamp processing
 
-from metrics.fairness import FairnessMetricsTracker
+from metrics.fairness import (
+    jains_fairness_index,
+    utility_difference,
+    FairnessMetricsTracker,
+)
 from metrics.tracker import MetricTracker
 from metrics.deferral_tracker import DeferralTracker
 
@@ -164,12 +168,13 @@ class MetricsManager:
                 elif w.last_state_ts is None:
                     w.last_state_ts = current_time
         
-        self.fairness_tracker.update_worker_stats(list(state.all_workers_map.values()))
+        workers = list(state.all_workers_map.values())
+        self.fairness_tracker.update_worker_stats(workers)
         
-        # NOTE: Metric calculation methods inside fairness tracker safely handle empty returns
-        fairness_metrics = self.fairness_tracker.calculate_current_fairness()
-        jfi = fairness_metrics.get('jains_fairness_index_tasks', 1.0)
-        utility_diff = fairness_metrics.get('utility_difference_tasks', 0.0)
+        # Calculate directly math functions
+        task_counts = [w.completed_tasks for w in workers]
+        jfi = jains_fairness_index(task_counts)
+        utility_diff = utility_difference(task_counts)
         
         active_backlog = len(state.active_tasks)
         deferred_backlog = len(state.deferred_tasks)
@@ -196,7 +201,6 @@ class MetricsManager:
         else:
             task_worker_ratio = 0.0
         
-        workers = list(state.all_workers_map.values())
         if workers:
             idle_times_min = [w.total_idle_time / 60.0 for w in workers]
             mean_idle = float(np.mean(idle_times_min))
