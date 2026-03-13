@@ -123,9 +123,9 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         config = get_simulation_config()
         config['assignment_strategy'] = 'composite'
         config['strategy_params'] = {
-            'λ1': 1.0,   # Starts at Center of Action Space (Thesis Optimal)
-            'λ2': 0.225, # Start at the tuned ratio (0.9/4.0 from best_physics_params.json)
-            'λ3': self.lambda3_fixed,
+            'fairness_weight': 1.0,   # Starts at Center of Action Space (Thesis Optimal)
+            'starvation_weight': 0.225, # Start at the tuned ratio (0.9/4.0 from best_physics_params.json)
+            'utility_weight': self.lambda3_fixed,
             'gamma': self.gamma_fixed,
             'k': self.k_fixed,
             'soft_threshold': self.threshold_fixed,
@@ -244,16 +244,15 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.simulator.step(duration_seconds=self.warmup_duration_seconds)
         
         # 5. Handover to RL (Hot-Swap Strategy)
-        # Switch to composite strategy for the actual training
         rl_params = {
-            'λ1': 1.0,   # Starts at Center of Action Space (Thesis Optimal)
-            'λ2': 0.225, # Start at the tuned ratio (0.9/4.0)
-            'λ3': self.lambda3_fixed,
+            'fairness_weight': 1.0,   
+            'starvation_weight': 0.225, 
+            'utility_weight': self.lambda3_fixed,
             'gamma': self.gamma_fixed,
             'k': self.k_fixed,
             'soft_threshold': self.threshold_fixed,
             'normalize_scores': True,
-            'enable_deferral_tracking': True  # Needed for observation features 8 & 9 (deferral reason breakdown)
+            'enable_deferral_tracking': True  
         }
         self.simulator.switch_strategy('composite', rl_params)
         
@@ -278,10 +277,14 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
             action: Array of shape (2,) containing [λ1, λ2]. λ3 is fixed at 1.0 (Unit Anchor).
         """
         # 1. Apply action (update weights)
-        # Action is [λ1, λ2], we fix λ3 at 1.0 (Unit Anchor)
         lambda1, lambda2 = action
         lambda3 = self.lambda3_fixed
-        self.simulator.update_weights(lambda1, lambda2, lambda3)
+        
+        # Update the simulation physics engine directly using standard python floats
+        self.simulator.strategy_params['fairness_weight'] = float(lambda1)
+        self.simulator.strategy_params['starvation_weight'] = float(lambda2)
+        self.simulator.strategy_params['utility_weight'] = float(lambda3)
+        
         self.last_action = action  # Store [λ1, λ2] for observation
         
         # 2. Run simulation for fixed duration

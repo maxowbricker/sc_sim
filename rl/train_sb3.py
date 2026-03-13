@@ -316,7 +316,7 @@ def create_model(env, log_dir):
         vf_coef=0.5,      # Value function coefficient
         max_grad_norm=0.5,  # Gradient clipping
         policy_kwargs=dict(
-            net_arch=[dict(pi=[64, 64], vf=[64, 64])]  # Network architecture
+            net_arch=dict(pi=[64, 64], vf=[64, 64])  # No more square brackets!
         )
     )
     return model
