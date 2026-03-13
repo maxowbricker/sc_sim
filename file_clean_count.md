@@ -18,50 +18,24 @@ Order: from deepest architecture up to wrappers and documentation.
 | `simulator/__init__.py` | Package re-exports (Simulation, run_simulation, StateManager) |
 | `simulator/strategies/composite.py` | Primary strategy; unified ANN loop, threshold resolution |
 | `simulator/strategies/__init__.py` | Strategy registry (get_strategy, register) |
+| `metrics/manager.py` | Central hub; orchestrates trackers, RL step stats |
+| `metrics/fairness.py` | JFI, UD, FL, FairnessMetricsTracker |
+| `metrics/tracker.py` | Per-tick snapshots, historical time-series |
+| `metrics/deferral_tracker.py` | Deferral lifecycle (optional) |
+| `data/stratified_sampler.py` | |
+| `data/didi/didi.py` | Simplified adapter |
+| `data/didi/didi_optimized.py` | |
+| `config.py` | |
+| `main.py` | |
 
 ---
 
 ## TO CLEAN (Priority Order)
 
-### 1. Metrics & Accounting
-
-Single sources of truth. Ensure no other files do manual math that belongs here.
-
-| # | File | Notes |
-|---|------|-------|
-| 7 | `metrics/manager.py` | |
-| 8 | `metrics/fairness.py` | |
-| 9 | `metrics/tracker.py` | |
-| 10 | `metrics/deferral_tracker.py` | |
-
-### 2. Data Layer
-
-Ensure data is loaded cleanly and efficiently into the models.
-
-| # | File | Notes |
-|---|------|-------|
-| 17 | `data/stratified_sampler.py` | |
-| 18 | `data/didi/didi.py` | |
-| 19 | `data/didi/didi_optimized.py` | |
-
-### 3. Configuration & Standard Entry Points
-
-Standardize how a run is defined and executed.
-
-| # | File | Notes |
-|---|------|-------|
-| 21 | `config.py` | |
-| 22 | `main.py` | |
-| 23 | `scripts/test_simulation_simple.py` | Canonical physics test |
-| 24 | `scripts/test_simulation_timed.py` | |
-| 25 | `scripts/validate_dynamic.py` | |
-| 26 | `scripts/tune_physics_full.py` | |
-
-
 # DEFER UNTIL PROMISING RESULTS WITH DRL:
 
 
-### 4. Baseline Strategies
+### 2. Baseline Strategies
 
 Ensure they don’t break after worker.py changes (gamma, revenue removed). Share optimization tricks from composite.py.
 
@@ -74,7 +48,7 @@ Ensure they don’t break after worker.py changes (gamma, revenue removed). Shar
 | 15 | `simulator/strategies/greedy.py` | |
 | 16 | `simulator/strategies/random_assign.py` | |
 
-### 7. Reinforcement Learning (Deferred)
+### 3. Reinforcement Learning (Deferred)
 
 Queue for later. Ensure observation space relies on cleaned MetricsManager.
 
@@ -85,7 +59,7 @@ Queue for later. Ensure observation space relies on cleaned MetricsManager.
 | 29 | `rl/train_sb3.py` | |
 | 30 | `rl/tune_sb3.py` | |
 
-### 8. Documentation (The Polish)
+### 4. Documentation (The Polish)
 
 Once code is locked in, ensure manuals match the engine.
 

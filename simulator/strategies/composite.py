@@ -110,7 +110,6 @@ def assign_new_tasks_composite(
     k=15,
     soft_threshold=0.2,
     normalize_scores=False,
-    disable_soft_threshold=False,
     gamma=0.3,
     **_,
 ):
@@ -129,7 +128,7 @@ def assign_new_tasks_composite(
             spatial_index=state.spatial_index
         )
         
-        threshold_passed = True if (disable_soft_threshold or soft_threshold == 0) else (best_score >= soft_threshold)
+        threshold_passed = (soft_threshold == 0.0) or (best_score >= soft_threshold)
         
         if best_worker and threshold_passed:
             assigned_task = _commit_assignment(task, best_worker, now)
@@ -154,9 +153,8 @@ def match_worker_composite(
     k=15, 
     soft_threshold=0.2,
     normalize_scores=False,
-    disable_soft_threshold=False,
     gamma=0.3,
-    **_
+    **_,
 ):
     if not state.deferred_tasks:
         return None
@@ -217,7 +215,7 @@ def match_worker_composite(
     
     best_score = best_ranking_score + fairness_contribution
 
-    threshold_passed = True if (disable_soft_threshold or soft_threshold == 0) else (best_score >= soft_threshold)
+    threshold_passed = (soft_threshold == 0.0) or (best_score >= soft_threshold)
 
     if not threshold_passed:
         return None

@@ -16,6 +16,7 @@ data/didi/order_quarter_fixed.txt
 data/didi/gps_small.txt
 data/didi/order_small.txt
 data/didi/*
+!data/didi/didi.py
 data/didi/otherdata
 data/didi/sample_didi.py
 
