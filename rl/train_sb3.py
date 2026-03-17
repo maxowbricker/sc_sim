@@ -2,7 +2,7 @@
 Train PPO agent for Adaptive Spatial Crowdsourcing using Stable Baselines 3.
 
 Usage:
-    python rl/train_sb3.py [--timesteps N] [--resume PATH] [--test]
+    python rl/train_sb3.py [--timesteps N] [--resume PATH] [--test] [--hyperparams PATH]
     
 Examples:
     # Quick test run (1000 timesteps)
@@ -13,6 +13,9 @@ Examples:
     
     # Resume from checkpoint
     python rl/train_sb3.py --resume rl_logs_sb3/ppo_sc_model_1000_steps.zip --timesteps 50000
+    
+    # Use Optuna-tuned hyperparameters (default: rl/best_hyperparameters.json)
+    python rl/train_sb3.py --hyperparams best_hyperparameters.json --timesteps 50000
 """
 
 import gymnasium as gym
@@ -23,9 +26,11 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 from sklearn.model_selection import train_test_split
 import argparse
+import json
 import os
 import sys
 from datetime import datetime
+from pathlib import Path
 
 # Ensure project root is in path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -94,6 +99,8 @@ def main():
                        help="Number of days to use for training (default: 24)")
     parser.add_argument("--no-parallel", action="store_true",
                        help="Disable parallel environments (use single env)")
+    parser.add_argument("--hyperparams", type=str, default=None,
+                       help="Path to best_hyperparameters.json from Optuna tuning (default: rl/best_hyperparameters.json)")
     
     args = parser.parse_args()
     
@@ -228,9 +235,9 @@ def main():
         except Exception as e:
             print(f"❌ Failed to load model: {e}")
             print("   Starting fresh training instead...")
-            model = create_model(env, log_dir)
+            model = create_model(env, log_dir, hyperparams_path=args.hyperparams)
     else:
-        model = create_model(env, log_dir)
+        model = create_model(env, log_dir, hyperparams_path=args.hyperparams)
     
     # Setup callbacks
     print("\n[4/4] Setting up training callbacks...")
@@ -298,26 +305,61 @@ def main():
         except:
             print("   Failed to save model")
 
-def create_model(env, log_dir):
-    """Create a new PPO model with default hyperparameters."""
+def _get_net_arch(net_arch_type):
+    """Map Optuna net_arch_type to policy_kwargs. Default to large [256, 256]."""
+    if net_arch_type == "small":
+        return dict(pi=[64, 64], vf=[64, 64])
+    elif net_arch_type == "medium":
+        return dict(pi=[128, 128], vf=[128, 128])
+    elif net_arch_type == "large":
+        return dict(pi=[256, 256], vf=[256, 256])
+    return dict(pi=[256, 256], vf=[256, 256])  # Default: Optuna-recommended large
+
+
+def create_model(env, log_dir, hyperparams_path=None):
+    """
+    Create a new PPO model. Loads hyperparameters from best_hyperparameters.json if available.
+    Defaults to large [256, 256] network when no file is specified.
+    """
+    project_root = Path(__file__).resolve().parent.parent
+    default_hyperparams_path = project_root / "rl" / "best_hyperparameters.json"
+    path = Path(hyperparams_path) if hyperparams_path else default_hyperparams_path
+
+    kwargs = {
+        "learning_rate": 3e-4,
+        "n_steps": 2048,
+        "batch_size": 64,
+        "n_epochs": 10,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "clip_range": 0.2,
+        "ent_coef": 0.01,
+        "vf_coef": 0.5,
+        "max_grad_norm": 0.5,
+    }
+    net_arch_type = "large"
+
+    if path.exists():
+        try:
+            with open(path) as f:
+                hp = json.load(f)
+            net_arch_type = hp.pop("net_arch_type", "large")
+            for k, v in hp.items():
+                if k in kwargs:
+                    kwargs[k] = v
+            print(f"   Loaded hyperparameters from {path} (net_arch: {net_arch_type})")
+        except Exception as e:
+            print(f"   ⚠️  Could not load {path}: {e}. Using defaults.")
+    else:
+        print(f"   No hyperparams file at {path}. Using defaults (net_arch: large [256, 256]).")
+
     model = PPO(
         "MlpPolicy",
         env,
         verbose=1,
         tensorboard_log=log_dir,
-        learning_rate=3e-4,
-        n_steps=2048,  # Steps per update
-        batch_size=64,
-        n_epochs=10,   # Optimization epochs per update
-        gamma=0.99,    # Discount factor
-        gae_lambda=0.95,  # GAE lambda
-        clip_range=0.2,   # PPO clip range
-        ent_coef=0.01,    # Entropy coefficient
-        vf_coef=0.5,      # Value function coefficient
-        max_grad_norm=0.5,  # Gradient clipping
-        policy_kwargs=dict(
-            net_arch=dict(pi=[64, 64], vf=[64, 64])  # No more square brackets!
-        )
+        policy_kwargs=dict(net_arch=_get_net_arch(net_arch_type)),
+        **kwargs
     )
     return model
 

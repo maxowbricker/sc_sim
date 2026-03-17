@@ -248,7 +248,7 @@ def run_dynamic_heuristic(workers, tasks, peaks, test_mode=False, test_duration_
             new_lambda1 = 1.0
         
         # 5. ACT (update weights before processing this step)
-        sim.update_weights(lambda1=new_lambda1, lambda2=new_lambda2, lambda3=1.0)
+        sim.update_weights(fairness_weight=new_lambda1, starvation_weight=new_lambda2, utility_weight=1.0)
         
         # Log the weights we're using
         history_lambda1.append(new_lambda1)

@@ -122,9 +122,16 @@ class EventSimulator:
         
         return self.get_state()
 
-    def update_weights(self, lambda1, lambda2, lambda3):
+    def update_weights(self, fairness_weight, starvation_weight, utility_weight=None):
+        """Update composite strategy weights. Uses standard names for DRL compatibility."""
         if self.strategy_name == "composite":
-            self.strategy_params.update({'λ1': lambda1, 'λ2': lambda2, 'λ3': lambda3})
+            params = {
+                'fairness_weight': float(fairness_weight),
+                'starvation_weight': float(starvation_weight),
+            }
+            if utility_weight is not None:
+                params['utility_weight'] = float(utility_weight)
+            self.strategy_params.update(params)
 
     def switch_strategy(self, strategy_name: str, strategy_params: Optional[Dict] = None):
         self.strategy_name = strategy_name
