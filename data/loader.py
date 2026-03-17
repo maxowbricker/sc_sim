@@ -11,21 +11,20 @@ from simulator.spatial_index import set_city_constants
 # Dataset-specific adapters
 from data.didi import didi  
 
+# Config and Sampler
+from config import get_data_sampling_config
+from data.stratified_sampler import stratified_temporal_sample
+
 def load_workers(file_path):
     """Loads workers from a CSV/txt file and returns a list of Worker objects."""
     df = pd.read_csv(file_path)
-    # FAST VECTORIZED INSTANTIATION
     return [Worker(row) for row in df.to_dict('records')]
 
 def load_tasks(file_path):
     """Loads tasks from a CSV/txt file and returns a list of Task objects."""
     df = pd.read_csv(file_path)
-    
-    # Configure Flat Earth constants before Tasks are created so base_utility calculates correctly
     if not df.empty and 'pickup_lat' in df.columns:
         set_city_constants(float(df['pickup_lat'].mean()))
-    
-    # FAST VECTORIZED INSTANTIATION
     return [Task(row) for row in df.to_dict('records')]
 
 # --------------------------------------------------------------------------- #
@@ -36,15 +35,6 @@ def load_workers_tasks(dataset: str, root_path: str | None = None, **adapter_kwa
     """
     Return (workers, tasks) lists prepared for the simulator.
     Acts as the boundary layer: ingests raw files via Pandas, outputs pure Python objects.
-
-    Parameters
-    ----------
-    dataset : str
-        Identifier – e.g. "didi", "synthetic".
-    root_path : str | os.PathLike
-        Directory containing the raw files for that dataset.
-    adapter_kwargs : Any
-        Extra parameters forwarded to the adapter constructor (if needed).
     """
     if root_path is None:
         root_path = f"./data/{dataset}"
@@ -52,10 +42,8 @@ def load_workers_tasks(dataset: str, root_path: str | None = None, **adapter_kwa
     adapter = get_adapter(dataset, root_path, **adapter_kwargs)
 
     if hasattr(adapter, "to_dataframes"):
-        # Preferred: adapter provides tidy DataFrames
         workers_df, tasks_df = adapter.to_dataframes()
     else:
-        # Fallback: assume <root>/workers.txt & <root>/tasks.txt exist
         workers_path = os.path.join(root_path, "workers.txt")
         tasks_path = os.path.join(root_path, "tasks.txt")
 
@@ -69,7 +57,6 @@ def load_workers_tasks(dataset: str, root_path: str | None = None, **adapter_kwa
         tasks_df = pd.read_csv(tasks_path)
 
     # --- FLAT EARTH SETUP ---
-    # Calculate global constants BEFORE object instantiation
     mean_lats = []
     if not workers_df.empty and 'start_lat' in workers_df.columns:
         mean_lats.append(float(workers_df['start_lat'].mean()))
@@ -86,10 +73,26 @@ def load_workers_tasks(dataset: str, root_path: str | None = None, **adapter_kwa
     print(f"   📊 Instantiating {len(tasks_df):,} Tasks...")
     tasks = [Task(row) for row in tasks_df.to_dict('records')]
 
+    # --- STRATIFIED SAMPLING INTERCEPT ---
+    sampling_cfg = get_data_sampling_config()
+    if sampling_cfg.get("use_stratified_sampling", False):
+        target_t = sampling_cfg.get("target_tasks", 20000)
+        target_w = sampling_cfg.get("target_workers", 5000)
+        print(f"   ✂️ Applying Stratified Sampling: Shrinking to {target_t} tasks and {target_w} workers...")
+        
+        tasks, w_dict = stratified_temporal_sample(
+            all_workers=workers,
+            all_tasks=tasks,
+            target_tasks=target_t,
+            worker_counts=[target_w],
+            num_bins=sampling_cfg.get("stratified_sampling_bins", 12),
+            seed=sampling_cfg.get("random_state", 42)
+        )
+        workers = w_dict[target_w]
+
     return workers, tasks
 
 def get_adapter(dataset: str, root_path: str, **kwargs):
-    """Returns the appropriate adapter instance for the given dataset name."""
     if dataset == "didi":
         return didi.Adapter(root_path)
     elif dataset == "synthetic":

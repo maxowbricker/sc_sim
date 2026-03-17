@@ -21,11 +21,11 @@ SIMULATION_CONFIG = {
 # ============================================================================
 
 DATA_SAMPLING = {
-    "use_stratified_sampling": False,       # Toggle to use stratified sampler instead of full raw dataset
-    "target_tasks": 20000,                  # Number of tasks to sample if enabled
-    "target_workers": 5000,                 # Number of workers to sample if enabled
-    "stratified_sampling_bins": 12,         # 12 bins = 15-minute bins for 3-hour window
-    "random_state": 42,                     # Random seed for reproducibility
+    "use_stratified_sampling": True,        # TURN THIS ON!
+    "target_tasks": 5000,                   # Shrink from 200k to 5k
+    "target_workers": 1250,                 # Keep a 1:4 ratio of workers to tasks
+    "stratified_sampling_bins": 12,         
+    "random_state": 42,                     
 }
 
 # ============================================================================
