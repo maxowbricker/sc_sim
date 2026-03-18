@@ -379,13 +379,61 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
             self.last_action[1]  # 13. Previous λ2
         ], dtype=np.float32)
 
-        # Placeholder for spatial_grid until _generate_spatial_grid() is implemented (Step 2.1)
-        spatial_grid = np.zeros((4, self.grid_size, self.grid_size), dtype=np.float32)
+        # --- NEW: CALL THE SPATIAL ENGINE (STEP 2.2) ---
+        spatial_grid = self._generate_spatial_grid()
 
         return {
             "spatial_grid": spatial_grid,
             "global_scalars": global_scalars
         }
+
+    def _generate_spatial_grid(self) -> np.ndarray:
+        """
+        Generates a 4-channel spatial feature map (10x10) of the city state.
+        Channel 0: Available Worker Density
+        Channel 1: Active Task Density
+        Channel 2: Future Supply (Busy Worker Drop-offs)
+        Channel 3: Starvation Heat Map (Sum of wait times)
+        """
+        # Initialize an empty 4-channel grid (Shape: 4 x 10 x 10)
+        grid = np.zeros((4, self.grid_size, self.grid_size), dtype=np.float32)
+
+        # Helper function for O(1) coordinate snapping
+        def get_cell(lat, lon):
+            x = int((lat - self.min_lat) / self.lat_step)
+            y = int((lon - self.min_lon) / self.lon_step)
+            # Bound check to ensure we don't crash if a coordinate is slightly outside the Ring Road
+            x = max(0, min(x, self.grid_size - 1))
+            y = max(0, min(y, self.grid_size - 1))
+            return x, y
+
+        # Channel 0: Available Supply
+        for worker in self.simulator.state.available_workers:
+            x, y = get_cell(worker.start_lat, worker.start_lon)
+            grid[0, x, y] += 1.0
+
+        # Channel 1 (Demand) & Channel 3 (Starvation Heat Map)
+        current_time = self.simulator.current_time
+        for task in self.simulator.state.active_tasks:
+            x, y = get_cell(task.pickup_lat, task.pickup_lon)
+            grid[1, x, y] += 1.0
+            wait_time = current_time - task.release_time  # seconds since release
+            grid[3, x, y] += wait_time  # Adds the actual wait time to create the "Pain Map"
+
+        # Channel 2: Future Supply (Proactive Anticipation)
+        for worker in self.simulator.state.assigned_workers:
+            if worker.assigned_task:
+                x, y = get_cell(worker.assigned_task.dropoff_lat, worker.assigned_task.dropoff_lon)
+                grid[2, x, y] += 1.0
+
+        # Optional: Normalize the channels so massive numbers don't blow out the neural network
+        # (Using a simple max division. Add 1e-8 to prevent divide by zero errors)
+        for c in range(4):
+            max_val = np.max(grid[c])
+            if max_val > 0:
+                grid[c] = grid[c] / max_val
+
+        return grid
 
     def _calculate_reward(self):
         """
