@@ -51,76 +51,33 @@ def test_environment():
     try:
         obs, info = env.reset()
         print(f"   ✅ Reset successful!")
-        print(f"   Observation shape: {obs.shape}")
-        print(f"   Observation range: [{obs.min():.3f}, {obs.max():.3f}]")
-        print(f"   Action space: {env.action_space}")
-        print(f"   Observation space: {env.observation_space}")
+
+        # --- NEW: Print dictionary shapes safely ---
+        if isinstance(obs, dict):
+            print(f"   Grid Shape: {obs['spatial_grid'].shape}")
+            print(f"   Scalars Shape: {obs['global_scalars'].shape}")
+        else:
+            print(f"   Observation shape: {obs.shape}")
+
+        # Take a few random steps
+        print("\n[3/4] Taking random steps...")
+        for i in range(3):
+            action = env.action_space.sample()
+            obs, reward, terminated, truncated, info = env.step(action)
+
+            # Extract basic JFI from the complex dictionary to avoid printing the whole grid
+            jfi = obs['global_scalars'][2] if isinstance(obs, dict) else obs[2]
+
+            print(f"   Step {i+1}: Action={action}, Reward={reward:.2f}, JFI={jfi:.2f}")
+            if terminated or truncated:
+                print("   Episode ended early!")
+                break
     except Exception as e:
         print(f"   ❌ Reset failed: {e}")
         import traceback
         traceback.print_exc()
         return False
-    
-    print(f"\n[3/4] Testing step() with progress output...")
-    try:
-        import time
-        import sys
-        
-        # Sample a random action
-        action = env.action_space.sample()
-        print(f"   Action (λ1, λ3): [{action[0]:.3f}, {action[1]:.3f}]")
-        print(f"   Running simulation step (15 minutes of sim time)...")
-        print(f"   " + "-" * 50)
-        print(f"   Processing events", end="", flush=True)
-        
-        # Add a simple progress indicator
-        start_time = time.time()
-        
-        # Run step and show progress (with dots)
-        def progress_callback():
-            print(".", end="", flush=True)
-        
-        # Run the step
-        obs, reward, terminated, truncated, info = env.step(action)
-        
-        elapsed = time.time() - start_time
-        print(f" done! ({elapsed:.1f}s)")
-        print(f"   " + "-" * 50)
-        print(f"   ✅ Step completed!")
-        print(f"   📊 Results:")
-        print(f"      Reward: {reward:.3f}")
-        print(f"      Backlog: {info.get('backlog', 'N/A')}")
-        print(f"      Completed tasks: {info.get('completed', 'N/A')}")
-        print(f"      Step index: {info.get('step', 'N/A')}")
-        print(f"      Lambdas used: λ1={info.get('lambdas', [0,0,0])[0]:.2f}, "
-              f"λ2={info.get('lambdas', [0,0,0])[1]:.2f}, "
-              f"λ3={info.get('lambdas', [0,0,0])[2]:.2f}")
-        print(f"   📈 Observation stats:")
-        print(f"      Shape: {obs.shape}")
-        print(f"      Min: {obs.min():.3f}, Max: {obs.max():.3f}, Mean: {obs.mean():.3f}")
-        print(f"      Terminated: {terminated}, Truncated: {truncated}")
-        
-        # Show a few more steps to see progression
-        print(f"\n   Running 3 more steps to show progression...")
-        for i in range(3):
-            action = env.action_space.sample()
-            print(f"   Step {i+2}/3: λ=[{action[0]:.2f}, {action[1]:.2f}] ... ", end="", flush=True)
-            step_start = time.time()
-            obs, reward, terminated, truncated, info = env.step(action)
-            step_time = time.time() - step_start
-            print(f"done ({step_time:.1f}s)")
-            print(f"      → Reward={reward:6.2f}, Backlog={info.get('backlog', 0):5d}, "
-                  f"Completed={info.get('completed', 0):5d}")
-            if terminated:
-                print(f"      ⚠️  Episode terminated!")
-                break
-        
-    except Exception as e:
-        print(f"   ❌ Step failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-    
+
     print(f"\n[4/4] Testing multiple resets (dynamic day loading)...")
     try:
         # Test that reset loads different days (if multiple available)
@@ -140,7 +97,10 @@ def test_environment():
             loaded_days.append(day_signature)
             
             print(f" → Loaded: {worker_count:,} workers, {task_count:,} tasks")
-            print(f"      Observation shape: {obs.shape}, range: [{obs.min():.3f}, {obs.max():.3f}]")
+            if isinstance(obs, dict):
+                print(f"      Grid: {obs['spatial_grid'].shape}, Scalars: {obs['global_scalars'].shape}")
+            else:
+                print(f"      Observation shape: {obs.shape}, range: [{obs.min():.3f}, {obs.max():.3f}]")
         
         # Check if we got different days
         unique_days = len(set(loaded_days))
