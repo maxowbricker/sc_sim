@@ -19,7 +19,10 @@ Examples:
 """
 
 import gymnasium as gym
+import torch as th
+import torch.nn as nn
 from stable_baselines3 import PPO
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 from stable_baselines3.common.monitor import Monitor
@@ -316,10 +319,57 @@ def _get_net_arch(net_arch_type):
     return dict(pi=[256, 256], vf=[256, 256])  # Default: Optuna-recommended large
 
 
+class SpatialCNNExtractor(BaseFeaturesExtractor):
+    """
+    Custom CNN architecture designed specifically for the 10x10 Spatial Crowdsourcing Grid.
+    It processes the 4-channel spatial map and concatenates it with the global scalars.
+    """
+    def __init__(self, observation_space: gym.spaces.Dict, features_dim: int = 256):
+        # We start by calling the Base class
+        super().__init__(observation_space, features_dim)
+
+        # 1. The Visual Cortex (CNN)
+        # Input: (4 channels, 10x10) -> Output: (32 channels, 5x5) -> Flattened: 800
+        self.cnn = nn.Sequential(
+            nn.Conv2d(4, 16, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),  # Shrinks 10x10 to 5x5
+            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+
+        # Calculate the size of the combined flattened arrays
+        cnn_output_size = 32 * 5 * 5  # 800
+        scalar_size = observation_space.spaces["global_scalars"].shape[0]  # 14
+        total_concat_size = cnn_output_size + scalar_size  # 814
+
+        # 2. The Synthesizer (Linear Layer)
+        # Compresses the combined visual and scalar data into the final feature dimension
+        self.linear = nn.Sequential(
+            nn.Linear(total_concat_size, features_dim),
+            nn.ReLU()
+        )
+
+    def forward(self, observations) -> th.Tensor:
+        # Extract the dual inputs
+        grid = observations["spatial_grid"]
+        scalars = observations["global_scalars"]
+
+        # Process grid through CNN
+        cnn_features = self.cnn(grid)
+
+        # Concatenate CNN output with scalars side-by-side
+        combined_features = th.cat([cnn_features, scalars], dim=1)
+
+        # Pass through final linear compression
+        return self.linear(combined_features)
+
+
 def create_model(env, log_dir, hyperparams_path=None):
     """
     Create a new PPO model. Loads hyperparameters from best_hyperparameters.json if available.
-    Defaults to large [256, 256] network when no file is specified.
+    Uses MultiInputPolicy with SpatialCNNExtractor for the dual-modal (spatial + scalar) observation.
     """
     project_root = Path(__file__).resolve().parent.parent
     default_hyperparams_path = project_root / "rl" / "best_hyperparameters.json"
@@ -337,28 +387,41 @@ def create_model(env, log_dir, hyperparams_path=None):
         "vf_coef": 0.5,
         "max_grad_norm": 0.5,
     }
-    net_arch_type = "large"
 
+    # Default network architecture (using our Custom Extractor)
+    policy_kwargs = dict(
+        features_extractor_class=SpatialCNNExtractor,
+        features_extractor_kwargs=dict(features_dim=256),
+        net_arch=dict(pi=[64, 64], vf=[64, 64])
+    )
+
+    # Load custom hyperparameters if provided
     if path.exists():
         try:
             with open(path) as f:
                 hp = json.load(f)
             net_arch_type = hp.pop("net_arch_type", "large")
+            if net_arch_type == "large":
+                # We update the internal MLPs, but keep our custom extractor!
+                policy_kwargs["net_arch"] = dict(pi=[256, 256], vf=[256, 256])
+            elif net_arch_type == "medium":
+                policy_kwargs["net_arch"] = dict(pi=[128, 128], vf=[128, 128])
+
             for k, v in hp.items():
                 if k in kwargs:
                     kwargs[k] = v
-            print(f"   Loaded hyperparameters from {path} (net_arch: {net_arch_type})")
+            print(f"   🧠 Loaded hyperparameters from {path} (net_arch: {net_arch_type})")
         except Exception as e:
             print(f"   ⚠️  Could not load {path}: {e}. Using defaults.")
     else:
-        print(f"   No hyperparams file at {path}. Using defaults (net_arch: large [256, 256]).")
+        print(f"   ⚠️  No hyperparams found at {path}. Using defaults.")
 
     model = PPO(
-        "MlpPolicy",
+        "MultiInputPolicy",  # <--- CRITICAL CHANGE: Changed from MlpPolicy
         env,
         verbose=1,
         tensorboard_log=log_dir,
-        policy_kwargs=dict(net_arch=_get_net_arch(net_arch_type)),
+        policy_kwargs=policy_kwargs,
         **kwargs
     )
     return model
