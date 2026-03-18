@@ -46,3 +46,45 @@ This project is more relevant to your PhD topic (Recommender Systems) than it lo
 2. **Privacy**: In your PhD, you'll look at privacy in eCommerce. The "Grid-based" observation maps you might build now are actually a form of **Differential Privacy** (masking individual locations into aggregate cells), which is a core concept in secure recommendation.
 
 **Verdict**: Don't pull in the towel. Your engine is fast, your metrics are $O(1)$, and you have the cluster access. A 2-week "Spatial Grid + Pareto Sweep" sprint will give you a high-quality paper and a perfect bridge into your PhD work.
+
+
+# Considerations and backburner items:
+
+### **Multi-Channel Feature Map Configuration (Active Task)**
+These are the four channels we identified to give your PPO agent "spatial eyes" while keeping the action space simple:
+* **Channel 1: Available Supply**: Current density of workers in `available_workers` based on their last known coordinates.
+* **Channel 2: Immediate Demand**: Current density of active, unassigned tasks at their pickup locations.
+* **Channel 3: Future Supply (Proactive)**: The predicted drop-off locations of `busy_workers`, allowing the agent to anticipate where supply will be in 10–20 minutes.
+* **Channel 4: Starvation Heat Map**: A "Pain Map" showing the sum of wait times per grid cell, highlighting exactly where fairness is being violated.
+
+### **The "Back Burner" (Future Work/High Complexity)**
+These items are deferred to preserve your 14-day timeline and PhD pivot but should be mentioned in your "Future Work" section:
+* **Localized Spatial Multipliers**: Adding a 1.1x (or variable) score boost to tasks located in "high-attention" grid cells. This is deferred because it requires deep modification of the physics engine (`composite.py`) and breaks the clean RL-Simulator separation.
+* **End-to-End Policy Learning**: Moving away from weight-tuning to let the AI directly assign workers to tasks. This is out of scope due to the massive action space ($35k \times 200k$ pairs) and slow training.
+* **Constrained RL**: Implementing hard fairness thresholds using Lagrangian multipliers. This is deferred due to high tuning sensitivity and risk of training instability.
+* **Real-Time Worker Repositioning**: Updating worker locations mid-task. Currently, workers only update their location upon task completion to keep the simulation $O(1)$ efficient.
+
+### **Research Highlight: Proactive Behavior**
+* **Time-Contextual Policy**: The agent already sees "Time of Day" (Sine/Cosine). We will use this to prove the agent can learn to shift weights *before* a rush hour starts.
+* **Grid-Based Credit Assignment**: Using the 4-channel grid to prove the agent can decide *when* to use global knobs based on local spatial distribution.
+
+### **Analysis Strategy: The Pareto Sweep**
+* **Conflicting Objectives**: Instead of one "best" run, we will perform a batch sweep on RACE using 5 different `reward_weights`.
+* **Visual Proof**: This will allow you to plot a **Pareto Frontier**, proving why a specific balance of Fairness vs. Efficiency is the "optimal" choice for the city.
+
+This list ensures you stay focused on the **Multi-Channel Feature Maps** branch while having a robust set of "Future Work" items to satisfy your supervisor and conference reviewers.
+
+
+# Steps to take:
+### **Phase 1: Environment Architecture (`gym_environment.py`)**
+- [ ] **1.1 Define Map Boundaries:** We need to find the geographical "Bounding Box" (min/max latitude and longitude) of your Didi dataset so we know how to slice the city into a $10 \times 10$ grid.
+- [ ] **1.2 Update the Observation Space:** We must change `self.observation_space` from a flat `Box(14,)` to a `spaces.Dict`. This allows the agent to ingest a 3D "Image" (the 4-channel grid) alongside "Scalars" (Time of day, Previous weights).
+
+### **Phase 2: The Spatial Engine (`gym_environment.py`)**
+- [ ] **2.1 Write `_generate_spatial_grid()`:** Create the highly efficient NumPy function that translates worker/task coordinates into our 4 specific channels (Supply, Demand, Future Supply, Starvation).
+- [ ] **2.2 Update `_get_observation()`:** Wire the environment to pull the grid and the scalars, format them into the new Dictionary structure, and pass them to the agent.
+
+### **Phase 3: Brain Surgery (`train_sb3.py` & `tune_sb3.py`)**
+- [ ] **3.1 Switch to `MultiInputPolicy`:** Stable Baselines 3 needs to know it's no longer just looking at a flat array. We will switch the policy from `MlpPolicy` to `MultiInputPolicy` (which automatically combines CNNs for imags and MLPs for scalars).
+- [ ] **3.2 Update Network Architecture:** We will tweak the Optuna hyperparameters slightly to accommodate the new CNN feature extractore.
+

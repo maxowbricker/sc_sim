@@ -96,24 +96,43 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.k_fixed = 50             # Number of nearest workers (from best_physics_params.json)
         self.threshold_fixed = 0.3    # Soft threshold (scaled: 1.2 / 4.0 = 0.3)
         
-        # Define Observation Space
-        # Features:
-        # 0. Deferred Tasks Ratio (deferred / total_tasks_released)
-        # 1. Worker Availability Ratio
-        # 2. Current JFI (Fairness)
-        # 3. Step Average Wait Time (Normalized)
-        # 4. Peak Backlog (Normalized)
-        # 5. Task Release Rate per Worker (tasks/min/worker)
-        # 6. Mean Worker Idle Time (normalized)
-        # 7. Worker Idle Time Inequality (CV)
-        # 8. % Deferrals due to Low Score (below_threshold)
-        # 9. % Deferrals due to No Candidates
-        # 10. Time of Day (Sine)
-        # 11. Time of Day (Cosine)
-        # 12. Previous λ1 (range: [0.0, 2.0])
-        # 13. Previous λ2 (range: [0.0, 0.5])
-        # (λ3 is fixed at 1.0, so not included in observation)
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(14,), dtype=np.float32)
+        # --- NEW: SPATIAL GRID CONFIGURATION (STEP 1.1) ---
+        # Chengdu 2nd Ring Road Bounding Box (Didi GAIA Standard)
+        self.grid_size = 10
+        self.min_lat = 30.65
+        self.max_lat = 30.73
+        self.min_lon = 104.04
+        self.max_lon = 104.13
+        
+        # Pre-calculate cell sizes for O(1) snapping later
+        self.lat_step = (self.max_lat - self.min_lat) / self.grid_size
+        self.lon_step = (self.max_lon - self.min_lon) / self.grid_size
+        # --------------------------------------------------
+        
+        # --- NEW: MULTI-INPUT OBSERVATION SPACE (STEP 1.2) ---
+        # The agent now receives a Dictionary containing both Spatial (Grid) and Global (Scalar) data.
+        self.observation_space = spaces.Dict({
+            # The Spatial "Image": [Channels, Width, Height] -> [4, 10, 10]
+            # Channel 0: Available Worker Density
+            # Channel 1: Active Task Density
+            # Channel 2: Predicted Future Supply (Drop-offs)
+            # Channel 3: Starvation Heat Map (Sum of wait times)
+            "spatial_grid": spaces.Box(
+                low=0.0,
+                high=np.inf,
+                shape=(4, self.grid_size, self.grid_size),
+                dtype=np.float32
+            ),
+            
+            # The Global "Context": The original 14 metrics (Time of day, JFI, etc.)
+            "global_scalars": spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                shape=(14,),
+                dtype=np.float32
+            )
+        })
+        # -----------------------------------------------------
         
         self.simulator = None
         self.current_step_idx = 0
@@ -342,8 +361,8 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         
         # Normalize worker idle time
         normalized_idle = mean_worker_idle / self.baseline_worker_idle
-            
-        obs = np.array([
+
+        global_scalars = np.array([
             deferred_ratio,  # 0. Deferred Tasks Ratio
             worker_availability_ratio,  # 1. Worker Availability Ratio
             jfi,  # 2. Current JFI (Fairness)
@@ -359,8 +378,14 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
             self.last_action[0],  # 12. Previous λ1
             self.last_action[1]  # 13. Previous λ2
         ], dtype=np.float32)
-        
-        return obs
+
+        # Placeholder for spatial_grid until _generate_spatial_grid() is implemented (Step 2.1)
+        spatial_grid = np.zeros((4, self.grid_size, self.grid_size), dtype=np.float32)
+
+        return {
+            "spatial_grid": spatial_grid,
+            "global_scalars": global_scalars
+        }
 
     def _calculate_reward(self):
         """
