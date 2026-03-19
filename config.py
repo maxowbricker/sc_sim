@@ -36,16 +36,16 @@ STRATEGY_PARAMS = {
     # === COMPOSITE STRATEGY (DRL Target) ===
     "composite": {
         # Weights for scoring function: Score = (fairness_weight × F) + (starvation_weight × S) + (1.0 × U)
-        "fairness_weight": 0.5,                 # Dynamic parameter controlled by DRL
-        "starvation_weight": 0.25,               # Dynamic parameter controlled by DRL
+        "fairness_weight": 1.0,                 # Dynamic parameter controlled by DRL
+        "starvation_weight": 0.2,               # Dynamic parameter controlled by DRL
         "utility_weight": 1.0,                  # HARDCODED: Anchors the DRL action space
         
         # EWMA fairness calculation
         "gamma": 0.1,                           # EWMA smoothing factor (0.1=responsive, 0.9=smooth)
         
         # Assignment mechanism
-        "k": 25,                                # Number of nearest workers to consider
-        "soft_threshold": 0.3,                  # Minimum score to assign immediately (0.0 = disabled)
+        "k": 15,                                # Number of nearest workers to consider
+        "soft_threshold": 0.05,                  # Minimum score to assign immediately (0.0 = disabled)
         
         # Diagnostic Trackers
         "enable_diagnostics": False,            # Enable heavy evaluation metrics (IOR, Fairness Loss) - DISABLE FOR RL

@@ -86,14 +86,12 @@ def sample_ppo_params(trial):
     }
 
 def get_net_arch(net_arch_type):
-    """Helper to decode network architecture string."""
-    if net_arch_type == "small":
-        return [dict(pi=[64, 64], vf=[64, 64])]
-    elif net_arch_type == "medium":
-        return [dict(pi=[128, 128], vf=[128, 128])]
-    elif net_arch_type == "large":
-        return [dict(pi=[256, 256], vf=[256, 256])]
-    return [dict(pi=[64, 64], vf=[64, 64])]
+    """Helper to decode network architecture string. SB3 v1.8+ expects dict, not list."""
+    return {
+        "small": dict(pi=[64, 64], vf=[64, 64]),
+        "medium": dict(pi=[128, 128], vf=[128, 128]),
+        "large": dict(pi=[256, 256], vf=[256, 256]),
+    }.get(net_arch_type, dict(pi=[64, 64], vf=[64, 64]))
 
 def objective(trial, data_root, n_timesteps, n_eval_episodes):
     """
