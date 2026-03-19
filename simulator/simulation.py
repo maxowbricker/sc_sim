@@ -226,7 +226,8 @@ class EventSimulator:
                 is_assigned = task in self.state.assigned_tasks
                 
                 if not is_assigned and task not in self.state.completed_tasks and not task.is_completed:
-                    self.metrics.on_task_expired(task.id)
+                    # UPDATED: Pass the current_time so we can track the 30-minute window
+                    self.metrics.on_task_expired(task.id, self.current_time)
 
     def get_state(self):
         obs_data = self.metrics.get_observation_data(self.state, self.current_time)

@@ -244,13 +244,27 @@ class MetricsManager:
         self.step_deferrals_below_threshold = 0
         self.step_deferrals_no_candidates = 0
     
+    def get_recent_expirations(self, current_time, window_minutes=30) -> int:
+        """Counts how many tasks expired in the trailing time window."""
+        window_seconds = window_minutes * 60.0
+        cutoff_time = current_time - window_seconds
+
+        count = 0
+        # Iterate backwards through the chronological list for blazing speed
+        for _, exp_time in reversed(self._summary_minimal['expired_tasks']):
+            if exp_time >= cutoff_time:
+                count += 1
+            else:
+                break  # Stop searching once we hit tasks older than 30 mins
+        return count
+
     # --- RL INTERFACE ---
     
-    def get_reward_stats(self) -> Dict[str, float]:
+    def get_reward_stats(self, current_time) -> Dict[str, float]:
         return {
             'fairness': self.current_step_stats['jfi'],
-            'throughput': self.current_step_stats['backlog'],
-            'latency': self.current_step_stats['avg_wait']
+            'latency': self.current_step_stats['avg_wait'],
+            'recent_expirations': self.get_recent_expirations(current_time, window_minutes=30)
         }
     
     def get_observation_data(self, state, current_time) -> Dict[str, Any]:
@@ -260,30 +274,49 @@ class MetricsManager:
         if isinstance(current_time, (int, float)):
             dt = datetime.datetime.fromtimestamp(current_time)
             hour = dt.hour + dt.minute / 60.0
+            weekday = dt.weekday()
         else:
             hour = current_time.hour + current_time.minute / 60.0
+            weekday = current_time.weekday()
             
         time_sin = np.sin(2 * np.pi * hour / 24.0)
         time_cos = np.cos(2 * np.pi * hour / 24.0)
         
+        # Day Categories (0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun)
+        is_weekend = float(weekday >= 5)
+        is_midweek = float(1 <= weekday <= 3)
+        is_mon_fri = float(weekday == 0 or weekday == 4)
+
+        # Assignment Delay (Time to Match)
+        # Safely get the average delay of tasks completed in this step
+        recent_delays = self._assignment_delays[-max(1, self.step_completed_tasks_count):] if self._assignment_delays else []
+        step_avg_delay = float(np.mean(recent_delays)) if recent_delays else 0.0
+        
+        # Raw Task Arrival Rate (Tasks per minute)
+        # We divide by 5.0 minutes (the standard step duration)
+        task_arrival_rate = (self.step_tasks_released / 5.0) 
+        
         return {
-            'deferred_tasks': len(state.deferred_tasks),
-            'total_tasks_released': self.total_tasks_released,
-            'available_workers': len(state.available_workers),
+            'deferred_ratio': stats['deferred_ratio'],
+            'worker_availability_ratio': stats['worker_availability_ratio'],
             'total_workers': len(state.all_workers_map),
-            'workers': list(state.all_workers_map.values()),
-            'backlog_peak': self._backlog_peak,
-            'current_time': current_time,
+            'jfi': stats['jfi'],
             'step_avg_wait': stats['avg_wait'],
+            'step_avg_assignment_delay': step_avg_delay,
+            'backlog_peak': self._backlog_peak,
+            'task_arrival_rate': task_arrival_rate,
+            'is_midweek': is_midweek,
+            'is_mon_fri': is_mon_fri,
+            'is_weekend': is_weekend,
             'time_sin': time_sin,
             'time_cos': time_cos,
-            **stats
         }
     
     # --- FINAL RESULTS INTERFACE ---
     
-    def on_task_expired(self, task_id):
-        self._summary_minimal['expired_tasks'].append(task_id)
+    def on_task_expired(self, task_id, current_time=0.0):
+        # Store as a tuple: (task_id, expiration_timestamp)
+        self._summary_minimal['expired_tasks'].append((task_id, current_time))
 
     @property
     def summary(self):
