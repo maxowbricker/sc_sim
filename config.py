@@ -21,7 +21,7 @@ SIMULATION_CONFIG = {
 # ============================================================================
 
 DATA_SAMPLING = {
-    "use_stratified_sampling": True,        # TURN THIS ON!
+    "use_stratified_sampling": False,        # TURN THIS ON!
     "target_tasks": 5000,                   # Shrink from 200k to 5k
     "target_workers": 1250,                 # Keep a 1:4 ratio of workers to tasks
     "stratified_sampling_bins": 12,         
@@ -36,16 +36,16 @@ STRATEGY_PARAMS = {
     # === COMPOSITE STRATEGY (DRL Target) ===
     "composite": {
         # Weights for scoring function: Score = (fairness_weight × F) + (starvation_weight × S) + (1.0 × U)
-        "fairness_weight": 1.0,                 # Dynamic parameter controlled by DRL
-        "starvation_weight": 1.0,               # Dynamic parameter controlled by DRL
+        "fairness_weight": 0.5,                 # Dynamic parameter controlled by DRL
+        "starvation_weight": 0.25,               # Dynamic parameter controlled by DRL
         "utility_weight": 1.0,                  # HARDCODED: Anchors the DRL action space
         
         # EWMA fairness calculation
-        "gamma": 0.3,                           # EWMA smoothing factor (0.1=responsive, 0.9=smooth)
+        "gamma": 0.1,                           # EWMA smoothing factor (0.1=responsive, 0.9=smooth)
         
         # Assignment mechanism
-        "k": 15,                                # Number of nearest workers to consider
-        "soft_threshold": 0.5,                  # Minimum score to assign immediately (0.0 = disabled)
+        "k": 25,                                # Number of nearest workers to consider
+        "soft_threshold": 0.3,                  # Minimum score to assign immediately (0.0 = disabled)
         
         # Diagnostic Trackers
         "enable_diagnostics": False,            # Enable heavy evaluation metrics (IOR, Fairness Loss) - DISABLE FOR RL

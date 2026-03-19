@@ -16,7 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.loader import load_workers_tasks
 from simulator.simulation import EventSimulator
-from config import get_simulation_config, create_composite_config
+from config import get_simulation_config, get_strategy_params, create_composite_config
 
 class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     """
@@ -82,19 +82,18 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         # Agent controls [Fairness (λ1), Starvation (λ2)]
         # λ1 (Fairness): Range [0, 2] - can go from "0x" to "2x" importance relative to Distance
         # λ2 (Starvation): Range [0, 0.5] - constrained to lower values (tuned optimal is 0.225)
-        # INITIALIZATION BONUS: PPO starts near the center for λ1 (1.0), which is your Thesis Optimal.
         # λ1: 0.0 = "I don't care about fairness", 1.0 = "Equal to Distance", 2.0 = "2x more important"
         # λ2: 0.0 = "I don't care about starvation", 0.225 = "Tuned optimal", 0.5 = "Max allowed"
         self.action_space = spaces.Box(low=np.array([0.0, 0.0], dtype=np.float32), 
                                         high=np.array([2.0, 0.5], dtype=np.float32), 
                                         dtype=np.float32)
         
-        # Fixed Anchors (Scaled down by 4.0 from original physics tuning)
-        # λ3 (Utility/Distance) is the "Unit Anchor" - always 1.0
-        self.lambda3_fixed = 1.0      # The Unit Anchor (normalized from 4.0)
-        self.gamma_fixed = 0.1        # EWMA smoothing factor (from best_physics_params.json)
-        self.k_fixed = 50             # Number of nearest workers (from best_physics_params.json)
-        self.threshold_fixed = 0.3    # Soft threshold (scaled: 1.2 / 4.0 = 0.3)
+        # Fixed Anchors: Single source of truth from config.py (no defaults - fail fast if missing)
+        composite_defaults = get_strategy_params('composite')
+        self.lambda3_fixed = composite_defaults['utility_weight']
+        self.gamma_fixed = composite_defaults['gamma']
+        self.k_fixed = composite_defaults['k']
+        self.threshold_fixed = composite_defaults['soft_threshold']
         
         # Define Observation Space
         # Features:
@@ -365,25 +364,23 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     def _calculate_reward(self):
         """
         Calculate reward using the standardized MetricsManager.
-        
+
         The manager already calculated JFI, Backlog, and AvgWait at the end of the step.
-        We just normalize and combine them with reward weights.
+        We normalize them and apply penalties for high backlog/wait times.
         """
-        # Get pre-calculated stats from MetricsManager (single source of truth)
         stats = self.simulator.metrics.get_reward_stats()
-        # stats = {'fairness': JFI, 'throughput': -Backlog, 'latency': -AvgWait}
-            
-        # Normalize components to be roughly in same magnitude
-        # JFI is [0, 1]. Target is to boost it.
-        # Backlog is [0, 500+]. Throughput is already negative.
-        # Wait time is [0, 30+]. Latency is already negative.
-        
-        r_fairness = (stats['fairness'] - 0.5) * 10.0  # Range [-5, 5]
-        r_throughput = stats['throughput'] / 100.0  # Range [-5, 0] (throughput is already negative)
-        r_latency = stats['latency'] / 5.0  # Range [-6, 0] (latency is already negative)
-        
-        reward = (self.reward_weights[0] * r_fairness + 
-                  self.reward_weights[1] * r_throughput + 
+
+        # 1. Fairness Reward (with Anti-Greedy Cliff)
+        r_fairness = (stats['fairness'] - 0.5) * 10.0  # Base scale
+        if stats['fairness'] < 0.75:
+            r_fairness -= 20.0  # SEVERE PENALTY: Destroys the "Pure Greedy" shortcut
+
+        # 2. Efficiency Penalties (Negating the true positive metrics)
+        r_throughput = -stats['throughput'] / 100.0  # Penalize high backlog
+        r_latency = -stats['latency'] / 5.0          # Penalize high wait times
+
+        reward = (self.reward_weights[0] * r_fairness +
+                  self.reward_weights[1] * r_throughput +
                   self.reward_weights[2] * r_latency)
-                  
+
         return reward

@@ -249,8 +249,8 @@ class MetricsManager:
     def get_reward_stats(self) -> Dict[str, float]:
         return {
             'fairness': self.current_step_stats['jfi'],
-            'throughput': -self.current_step_stats['backlog'],
-            'latency': -self.current_step_stats['avg_wait']
+            'throughput': self.current_step_stats['backlog'],
+            'latency': self.current_step_stats['avg_wait']
         }
     
     def get_observation_data(self, state, current_time) -> Dict[str, Any]:
