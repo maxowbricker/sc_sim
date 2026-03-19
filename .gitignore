@@ -3,6 +3,7 @@
 data/tasks.txt
 data/workers.txt
 rl_logs_sb3/
+rl_logs_final/
 
 # Didi dataset files (all variations) - Keep in Google Drive only
 data/didi/gps.txt
@@ -250,5 +251,9 @@ cython_debug/
 /results/* 
 
 /*.json
+!best_hyperparameters.json
+!rl/best_hyperparameters.json
 /*.db
 /*.csv
+/rl_logs_sb3/*
+/rl_logs_final/*
