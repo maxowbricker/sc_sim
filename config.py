@@ -21,7 +21,7 @@ SIMULATION_CONFIG = {
 # ============================================================================
 
 DATA_SAMPLING = {
-    "use_stratified_sampling": False,        # TURN THIS ON!
+    "use_stratified_sampling": False,
     "target_tasks": 5000,                   # Shrink from 200k to 5k
     "target_workers": 1250,                 # Keep a 1:4 ratio of workers to tasks
     "stratified_sampling_bins": 12,         

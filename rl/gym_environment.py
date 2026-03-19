@@ -110,6 +110,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         # Baseline for normalization
         self.baseline_wait_time = 3.82  
         self.baseline_backlog = 1285    
+        self.greedy_baseline_jfi = 0.5  # dynamically set in reset() according to the greedy baseline
         
     def _load_day_data(self, day_folder):
         if self.data_root:
@@ -163,8 +164,13 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.simulator = EventSimulator(self.workers, self.tasks, sim_config=warmup_config)
         self.simulator.reset(start_time=start_time)
         
-        # 4. Run Warmup
+        # 4. Run Warmup (Pure Greedy)
         self.simulator.step(duration_seconds=self.warmup_duration_seconds)
+        
+        # --- NEW: Capture the Dynamic Greedy Baseline ---
+        warmup_stats = self.simulator.metrics.current_step_stats
+        # Set a minimum floor of 0.40 just in case the warmup had a total anomaly
+        self.greedy_baseline_jfi = max(0.40, warmup_stats.get('jfi', 0.5))
         
         # 5. Handover to RL
         rl_params = {
@@ -291,30 +297,27 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         return obs
 
     def _calculate_reward(self):
-        """
-        Calculate the 3-Pillar Reward:
-        1. Fairness vs 2. Wait Time (The Primary Tug-of-War)
-        3. Expirations (The Secondary Optimization)
-        """
-        # Pass the simulator's current time to get the exact 30-minute window
         stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
 
-        # 1. The Fairness Anchor
-        r_fairness = (stats['fairness'] - 0.5) * 10.0
-        if stats['fairness'] < 0.75:
-            r_fairness -= 20.0  # The Cliff
+        # 1. The Dynamic Fairness Anchor (Exponential Curve)
+        current_jfi = stats['fairness']
+        jfi_improvement = current_jfi - self.greedy_baseline_jfi
+
+        if jfi_improvement >= 0:
+            r_fairness = jfi_improvement * 20.0
+        else:
+            r_fairness = -10.0 * (np.exp(abs(jfi_improvement) * 5.0) - 1.0)
 
         # 2. The Efficiency Anchor
         r_latency = -stats['latency'] / 5.0
 
-        # 3. The Starvation/Expiration Anchor
-        # E.g., -0.1 points for every task that died in the last 30 minutes
-        r_starvation = -(stats['recent_expirations'] / 10.0)
+        # 3. The Starvation/Expiration Anchor (Relaxed & Capped)
+        # Denominator increased to 20.0 to relax sensitivity.
+        # Penalty is capped at -5.0 to ensure JFI/Latency dominance.
+        r_starvation = -min(3.0, stats['recent_expirations'] / 20)
 
-        # 4. Total Reward Calculation
-        # reward_weights = [Fairness_Wt, Starvation_Wt, Latency_Wt]
         reward = (self.reward_weights[0] * r_fairness) + \
                  (self.reward_weights[1] * r_starvation) + \
                  (self.reward_weights[2] * r_latency)
 
-        return reward
+        return float(reward)
