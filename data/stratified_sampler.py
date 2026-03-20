@@ -58,12 +58,12 @@ def stratified_temporal_sample(
     print()
     
     # ========================================================================
-    # STEP 2: Sample tasks stratified across temporal bins
+    # STEP 2: Sample tasks stratified across temporal bins (PROPORTIONAL)
     # ========================================================================
     print("[STEP 2] Sampling tasks stratified across temporal bins...")
     
     bin_duration = task_duration / num_bins
-    tasks_per_bin = target_tasks // num_bins
+    total_raw_tasks = len(sorted_tasks)
     
     sampled_tasks = []
     task_bin_counts = []
@@ -74,7 +74,11 @@ def stratified_temporal_sample(
         
         bin_tasks = [t for t in sorted_tasks if bin_start <= t.release_time < bin_end]
         
-        n_to_sample = min(tasks_per_bin, len(bin_tasks))
+        # Proportional: if this bin has 5% of day's tasks, it gets 5% of target_tasks
+        bin_weight = len(bin_tasks) / total_raw_tasks if total_raw_tasks > 0 else 0
+        n_to_sample = int(target_tasks * bin_weight)
+        n_to_sample = min(n_to_sample, len(bin_tasks))
+        
         bin_sample = random.sample(bin_tasks, n_to_sample)
         sampled_tasks.extend(bin_sample)
         
@@ -121,8 +125,16 @@ def stratified_temporal_sample(
     print(f"     Duration: {(overlap_end - overlap_start) / 3600:.2f} hours")
     print()
     
+    # Precompute total worker slots across all bins (for proportional math)
+    total_worker_slots = sum(
+        1 for i in range(num_bins)
+        for w in sorted_workers
+        if (w.release_time <= overlap_start + (i + 1) * bin_duration
+            and w.deadline >= overlap_start + i * bin_duration)
+    )
+    
     # ========================================================================
-    # STEP 4: Sample workers stratified across temporal bins
+    # STEP 4: Sample workers stratified across temporal bins (PROPORTIONAL)
     # ========================================================================
     worker_samples = {}
     
@@ -132,7 +144,6 @@ def stratified_temporal_sample(
     for worker_count in worker_counts:
         print(f"[STEP 4.{worker_counts.index(worker_count) + 1}] Sampling {worker_count:,} workers...")
         
-        workers_per_bin = worker_count // num_bins
         sampled_workers = []
         sampled_workers_set = set()  # O(1) lookup set to fix O(N^2) list traversal
         worker_bin_counts = []
@@ -146,7 +157,9 @@ def stratified_temporal_sample(
                 if (w.release_time <= bin_end and w.deadline >= bin_start)
             ]
             
-            n_to_sample = min(workers_per_bin, len(bin_workers))
+            # Proportional: if this bin has X% of worker slots, it gets X% of worker_count
+            bin_weight = len(bin_workers) / total_worker_slots if total_worker_slots > 0 else 0
+            n_to_sample = int(worker_count * bin_weight)
             
             # Fast O(1) duplicate check
             available_for_sampling = [w for w in bin_workers if w not in sampled_workers_set]

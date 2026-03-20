@@ -66,7 +66,7 @@ def make_env(data_root, day_folders, rank=0, step_duration_minutes=5, reward_wei
 
 def create_env(dataset="didi", step_duration_minutes=5, reward_weights=None, 
                data_root=None, day_folders=None, warmup_duration_minutes=30,
-               episode_duration_hours=4):
+               episode_duration_hours=8):
     """Create and wrap environment for training (legacy single-env mode)."""
     env = AdaptiveSpatialCrowdsourcingEnv(
         dataset=dataset,
@@ -172,7 +172,7 @@ def main():
             data_root=data_root,
             day_folders=train_days,
             warmup_duration_minutes=30,
-            episode_duration_hours=4
+            episode_duration_hours=8
         )
         env = Monitor(env, log_dir)
     else:
@@ -183,7 +183,7 @@ def main():
             make_env(data_root, train_days, i, step_duration_minutes=5, 
                     reward_weights=[1.0, 1.0, 1.0],
                     warmup_duration_minutes=30,
-                    episode_duration_hours=4) 
+                    episode_duration_hours=8) 
             for i in range(num_cpu)
         ])
         print(f"   ✅ Parallel environment created with {num_cpu} workers")
@@ -221,7 +221,7 @@ def main():
         data_root=data_root,
         day_folders=test_days,
         warmup_duration_minutes=30,
-        episode_duration_hours=4
+        episode_duration_hours=8
     )
     eval_env = Monitor(eval_env, os.path.join(log_dir, "eval"))
     
