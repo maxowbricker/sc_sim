@@ -82,6 +82,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         
         self.simulator = None
         self.current_step_idx = 0
+        self.episode_count = 0
         self.last_action = np.array([1.0, 0.225], dtype=np.float32)
         
         # Delta Tracking Memory
@@ -197,6 +198,9 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         
         # 6. Set Hard End Time
         self.episode_end_time = self.simulator.current_time + self.episode_duration_seconds
+        
+        self.episode_count += 1
+        print(f"   ▶️ [Episode {self.episode_count}] Started RL Phase | Tasks: {len(self.tasks):,} | Workers: {len(self.workers):,}")
         
         obs = self._get_observation()
         
