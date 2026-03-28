@@ -16,7 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.loader import load_workers_tasks
 from simulator.simulation import EventSimulator
-from config import get_simulation_config, get_strategy_params, create_composite_config
+from config import get_simulation_config, get_strategy_params
 
 class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     """
@@ -83,7 +83,10 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.simulator = None
         self.current_step_idx = 0
         self.episode_count = 0
-        self.last_action = np.array([1.0, 0.225], dtype=np.float32)
+        _cd = get_strategy_params("composite")
+        self.last_action = np.array(
+            [float(_cd["fairness_weight"]), float(_cd["starvation_weight"])], dtype=np.float32
+        )
         
         # Delta Tracking Memory
         self.prev_jfi = 1.0
@@ -95,16 +98,10 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         # Initialize a temporary sim to get spaces
         config = get_simulation_config()
         config['assignment_strategy'] = 'composite'
-        config['strategy_params'] = {
-            'fairness_weight': 1.0,
-            'starvation_weight': 0.225,
-            'utility_weight': self.lambda3_fixed,
-            'gamma': self.gamma_fixed,
-            'k': self.k_fixed,
-            'soft_threshold': self.threshold_fixed,
-            'normalize_scores': True,
-            'enable_deferral_tracking': False
-        }
+        _sp = get_strategy_params("composite")
+        _sp["normalize_scores"] = True
+        _sp["enable_deferral_tracking"] = False
+        config["strategy_params"] = _sp
         self.simulator = EventSimulator(self.workers, self.tasks, sim_config=config)
         self.simulator.reset()
         
@@ -131,8 +128,12 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         return load_workers_tasks(self.dataset, root_path=full_path)
         
     def reset(self, seed=None, options=None):
+        options = options or {}
         super().reset(seed=seed)
-        
+        if seed is not None:
+            random.seed(seed)
+            np.random.seed(seed)
+
         # 1. Load Data (Random Day)
         if self.day_folders:
             selected_day = random.choice(self.day_folders)
@@ -150,10 +151,13 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         total_duration_needed = self.warmup_duration_seconds + self.episode_duration_seconds
         max_start = latest - total_duration_needed
         
-        if max_start < earliest:
+        if options.get("start_time") is not None:
+            start_time = float(options["start_time"])
+        elif max_start < earliest:
             start_time = earliest
         else:
             start_time = random.uniform(earliest, max_start)
+        self._eval_drop_in_start_time = start_time
         
         # 3. Initialize Simulator in 'GREEDY' mode for Warmup
         warmup_config = get_simulation_config()
@@ -173,21 +177,17 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         # Set a minimum floor of 0.40 just in case the warmup had a total anomaly
         self.greedy_baseline_jfi = max(0.40, warmup_stats.get('jfi', 0.5))
         
-        # 5. Handover to RL
-        rl_params = {
-            'fairness_weight': 1.0,   
-            'starvation_weight': 0.225, 
-            'utility_weight': self.lambda3_fixed,
-            'gamma': self.gamma_fixed,
-            'k': self.k_fixed,
-            'soft_threshold': self.threshold_fixed,
-            'normalize_scores': True,
-            'enable_deferral_tracking': True  
-        }
+        # 5. Handover to composite (same params as config.py baseline for fair eval vs static)
+        rl_params = get_strategy_params('composite')
+        rl_params['normalize_scores'] = True
+        rl_params['enable_deferral_tracking'] = True
         self.simulator.switch_strategy('composite', rl_params)
         
         self.current_step_idx = 0
-        self.last_action = np.array([1.0, 0.225], dtype=np.float32)
+        self.last_action = np.array(
+            [float(rl_params['fairness_weight']), float(rl_params['starvation_weight'])],
+            dtype=np.float32,
+        )
         
         # Reset Delta Tracking Memory for new episode
         self.prev_jfi = 1.0
