@@ -257,3 +257,4 @@ cython_debug/
 /*.csv
 /rl_logs_sb3/*
 /rl_logs_final/*
+/traces/*
