@@ -258,3 +258,4 @@ cython_debug/
 /rl_logs_sb3/*
 /rl_logs_final/*
 /traces/*
+*.txt

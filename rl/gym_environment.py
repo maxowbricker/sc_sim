@@ -34,7 +34,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     
     def __init__(self, dataset="didi", step_duration_minutes=5, reward_weights=None, 
                  data_root=None, day_folders=None, warmup_duration_minutes=30, 
-                 episode_duration_hours=4, **kwargs):
+                 episode_duration_hours=8, **kwargs):
         """
         Initialize the environment.
         """
@@ -48,7 +48,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         
         # Warmup and episode configuration
         self.warmup_duration_seconds = warmup_duration_minutes * 60  # 30 minutes warmup
-        self.episode_duration_seconds = episode_duration_hours * 60 * 60  # 4 hour episodes
+        self.episode_duration_seconds = episode_duration_hours * 60 * 60  # RL phase length
         self.episode_end_time = None  # Will be set in reset()
         
         # For dynamic loading: Load ONE day initially just to define observation space shape

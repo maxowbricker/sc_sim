@@ -38,7 +38,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from rl.gym_environment import AdaptiveSpatialCrowdsourcingEnv
 
 def make_env(data_root, day_folders, rank=0, step_duration_minutes=5, reward_weights=None,
-             warmup_duration_minutes=30, episode_duration_hours=4):
+             warmup_duration_minutes=30, episode_duration_hours=8):
     """
     Utility function for multiprocessed env.
     
@@ -49,7 +49,7 @@ def make_env(data_root, day_folders, rank=0, step_duration_minutes=5, reward_wei
         step_duration_minutes: Duration of each simulation step (default: 5 minutes)
         reward_weights: Weights for reward components
         warmup_duration_minutes: Duration of warmup phase (default: 30 minutes)
-        episode_duration_hours: Duration of RL episode after warmup (default: 4 hours)
+        episode_duration_hours: Duration of RL episode after warmup (default: 8 hours)
     """
     def _init():
         env = AdaptiveSpatialCrowdsourcingEnv(

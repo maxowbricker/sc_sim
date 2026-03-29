@@ -59,7 +59,7 @@ def _write_readable_steps_txt(log_rows, csv_path: str) -> str:
 def run_static_baseline(day, data_root, eval_seed: int = 42):
     """
     Same protocol as RL: greedy warmup → composite with config weights, fixed λ1/λ2 for
-    episode_duration_hours × 5-min steps. Uses the same eval_seed as RL for identical
+    episode_duration_hours × 5-min steps (default 8 h in gym env). Uses the same eval_seed as RL for identical
     drop-in time and RNG (fair vs run_rl_agent).
     """
     print(f"\n[1/2] 🏃 Static baseline (aligned env: warmup + fixed config λ) for {day}...")
