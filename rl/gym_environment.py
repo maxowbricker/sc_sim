@@ -81,8 +81,8 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.k_fixed = composite_defaults['k']
         self.threshold_fixed = composite_defaults['soft_threshold']
         
-        # Define Observation Space (19 Scalars)
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(19,), dtype=np.float32)
+        # 17 scalars: assignment delay channels removed (release→assign is ~always 0 in discrete-event sim)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(17,), dtype=np.float32)
         
         self.simulator = None
         self.current_step_idx = 0
@@ -95,7 +95,6 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         # Delta Tracking Memory
         self.prev_jfi = 1.0
         self.prev_wait = 0.0
-        self.prev_delay = 0.0
         self.prev_backlog = 0.0
         self.prev_arrival_rate = 0.0
         
@@ -194,7 +193,6 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         # Reset Delta Tracking Memory for new episode
         self.prev_jfi = 1.0
         self.prev_wait = 0.0
-        self.prev_delay = 0.0
         self.prev_backlog = 0.0
         self.prev_arrival_rate = 0.0
         
@@ -249,35 +247,25 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         
     def _get_observation(self):
         """
-        Extract 19 features from simulator state, including critical trend deltas.
-        All scaling denominators come from config.get_observation_static_scaling() (OBSERVATION_STATIC_SCALING).
+        Extract 17 features from simulator state (assignment delay omitted: ~0 in discrete-event sim).
+        Scaling: config.get_observation_static_scaling() / OBSERVATION_STATIC_SCALING.
         """
         sim_obs = self.simulator.metrics.get_observation_data(self.simulator.state, self.simulator.current_time)
         
-        # Current Values
         curr_jfi = sim_obs['jfi']
         curr_wait = sim_obs['step_avg_wait']
-        curr_delay = sim_obs['step_avg_assignment_delay']
         curr_backlog = sim_obs['backlog_peak']
         curr_arrival = sim_obs['task_arrival_rate']
         
-        # Calculate Deltas
         delta_jfi = curr_jfi - self.prev_jfi
         delta_wait = curr_wait - self.prev_wait
-        delta_delay = curr_delay - self.prev_delay
         delta_backlog = curr_backlog - self.prev_backlog
         delta_arrival = curr_arrival - self.prev_arrival_rate
         
-        # Update Memory for next step
         self.prev_jfi = curr_jfi
         self.prev_wait = curr_wait
-        self.prev_delay = curr_delay
         self.prev_backlog = curr_backlog
         self.prev_arrival_rate = curr_arrival
-        
-        # curr_delay and delta_delay are in seconds; ref_wait_minutes is in minutes - convert
-        delay_min = curr_delay / 60.0
-        delta_delay_min = delta_delay / 60.0
 
         _o = self.obs_scaling
         eps = 1e-8
@@ -289,19 +277,17 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
             curr_backlog / max(_o["ref_backlog"], eps),         # 3
             curr_jfi,                                           # 4
             delta_jfi / max(_o["max_abs_jfi_delta"], eps),      # 5
-            curr_wait / max(_o["ref_wait_minutes"], eps),           # 6
-            delta_wait / max(_o["max_abs_wait_delta"], eps),        # 7
-            delay_min / max(_o["ref_wait_minutes"], eps),           # 8
-            delta_delay_min / max(_o["max_abs_delay_delta"], eps),  # 9
-            delta_backlog / max(_o["max_abs_backlog_delta"], eps),  # 10
-            delta_arrival / max(_o["max_abs_arrival_delta"], eps),  # 11
-            sim_obs['is_midweek'],                              # 12
-            sim_obs['is_mon_fri'],                              # 13
-            sim_obs['is_weekend'],                              # 14
-            sim_obs['time_sin'],                                # 15
-            sim_obs['time_cos'],                                # 16
-            self.last_action[0],                                # 17
-            self.last_action[1]                                 # 18
+            curr_wait / max(_o["ref_wait_minutes"], eps),       # 6
+            delta_wait / max(_o["max_abs_wait_delta"], eps),    # 7
+            delta_backlog / max(_o["max_abs_backlog_delta"], eps),  # 8
+            delta_arrival / max(_o["max_abs_arrival_delta"], eps),  # 9
+            sim_obs['is_midweek'],                              # 10
+            sim_obs['is_mon_fri'],                              # 11
+            sim_obs['is_weekend'],                              # 12
+            sim_obs['time_sin'],                                # 13
+            sim_obs['time_cos'],                                # 14
+            self.last_action[0],                                # 15
+            self.last_action[1],                                # 16
         ], dtype=np.float32)
         
         return obs

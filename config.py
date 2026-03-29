@@ -36,9 +36,8 @@ OBSERVATION_STATIC_SCALING = {
     "ref_backlog": 200,
     "max_abs_jfi_delta": 0.03,
     "max_abs_arrival_delta": 40.0,
-    # Deltas for wait / assignment-delay / backlog (placeholders — tune from rollouts)
+    # Deltas for wait / backlog (tune from rollouts). Assignment delay not in obs (see gym env).
     "max_abs_wait_delta": 0.5,
-    "max_abs_delay_delta": 1.0,
     "max_abs_backlog_delta": 30.0,
 }
 
