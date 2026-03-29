@@ -28,6 +28,20 @@ DATA_SAMPLING = {
     "random_state": 42,                     
 }
 
+# Single source of truth for rl/gym_environment.py observation normalization (PPO magnitude parity).
+# ref_* = typical scale for absolute features; max_abs_*_delta = typical one-step change (tune from traces).
+# worker_count_divisor defaults to DATA_SAMPLING["target_workers"] inside get_observation_static_scaling().
+OBSERVATION_STATIC_SCALING = {
+    "ref_wait_minutes": 2.0,
+    "ref_backlog": 200,
+    "max_abs_jfi_delta": 0.03,
+    "max_abs_arrival_delta": 40.0,
+    # Deltas for wait / assignment-delay / backlog (placeholders — tune from rollouts)
+    "max_abs_wait_delta": 0.5,
+    "max_abs_delay_delta": 1.0,
+    "max_abs_backlog_delta": 30.0,
+}
+
 # ============================================================================
 # STRATEGY-SPECIFIC PARAMETERS
 # ============================================================================
@@ -124,6 +138,15 @@ def get_strategy_params(strategy_name: Optional[str] = None) -> Dict[str, Any]:
 def get_data_sampling_config() -> Dict[str, Any]:
     """Get parameters for data loading and sampling."""
     return DATA_SAMPLING.copy()
+
+def get_observation_static_scaling() -> Dict[str, Any]:
+    """Full observation scaling dict for the RL env (refs, deltas, worker divisor)."""
+    out = dict(OBSERVATION_STATIC_SCALING)
+    out.setdefault(
+        "worker_count_divisor",
+        float(max(DATA_SAMPLING.get("target_workers", 10000), 1)),
+    )
+    return out
 
 def create_composite_config(**overrides: Any) -> Dict[str, Any]:
     """

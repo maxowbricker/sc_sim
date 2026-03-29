@@ -16,7 +16,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.loader import load_workers_tasks
 from simulator.simulation import EventSimulator
-from config import get_simulation_config, get_strategy_params
+from config import (
+    get_simulation_config,
+    get_strategy_params,
+    get_observation_static_scaling,
+)
 
 class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     """
@@ -105,11 +109,9 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.simulator = EventSimulator(self.workers, self.tasks, sim_config=config)
         self.simulator.reset()
         
-        # Baseline for normalization
-        self.baseline_wait_time = 3.82  
-        self.baseline_backlog = 1285    
         self.greedy_baseline_jfi = 0.5  # dynamically set in reset() according to the greedy baseline
-        
+        self.obs_scaling = get_observation_static_scaling()
+
     def _load_day_data(self, day_folder):
         if self.data_root:
             if not os.path.isabs(self.data_root):
@@ -172,10 +174,10 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         # 4. Run Warmup (Pure Greedy)
         self.simulator.step(duration_seconds=self.warmup_duration_seconds)
         
-        # --- NEW: Capture the Dynamic Greedy Baseline ---
+        # Capture the JFI of the greedy baseline
         warmup_stats = self.simulator.metrics.current_step_stats
-        # Set a minimum floor of 0.40 just in case the warmup had a total anomaly
-        self.greedy_baseline_jfi = max(0.40, warmup_stats.get('jfi', 0.5))
+        # Compare RL to the exact warmup physics (no artificial floor)
+        self.greedy_baseline_jfi = warmup_stats.get('jfi', 0.5)
         
         # 5. Handover to composite (same params as config.py baseline for fair eval vs static)
         rl_params = get_strategy_params('composite')
@@ -248,6 +250,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     def _get_observation(self):
         """
         Extract 19 features from simulator state, including critical trend deltas.
+        All scaling denominators come from config.get_observation_static_scaling() (OBSERVATION_STATIC_SCALING).
         """
         sim_obs = self.simulator.metrics.get_observation_data(self.simulator.state, self.simulator.current_time)
         
@@ -272,23 +275,26 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.prev_backlog = curr_backlog
         self.prev_arrival_rate = curr_arrival
         
-        # curr_delay and delta_delay are in seconds; baseline_wait_time is in minutes - convert
+        # curr_delay and delta_delay are in seconds; ref_wait_minutes is in minutes - convert
         delay_min = curr_delay / 60.0
         delta_delay_min = delta_delay / 60.0
-            
+
+        _o = self.obs_scaling
+        eps = 1e-8
+
         obs = np.array([
             sim_obs['deferred_ratio'],                          # 0
             sim_obs['worker_availability_ratio'],               # 1
-            sim_obs['total_workers'] / 10000.0,                 # 2. Perfect 10k normalization
-            curr_backlog / self.baseline_backlog,               # 3
+            sim_obs['total_workers'] / max(_o["worker_count_divisor"], eps),  # 2
+            curr_backlog / max(_o["ref_backlog"], eps),         # 3
             curr_jfi,                                           # 4
-            delta_jfi,                                          # 5. Momentum
-            curr_wait / self.baseline_wait_time,                # 6
-            delta_wait / self.baseline_wait_time,               # 7. Momentum
-            delay_min / self.baseline_wait_time,                # 8. Time to Match (minutes)
-            delta_delay_min / self.baseline_wait_time,          # 9. Momentum
-            delta_backlog / self.baseline_backlog,              # 10. Momentum
-            delta_arrival,                                      # 11. Spike Indicator
+            delta_jfi / max(_o["max_abs_jfi_delta"], eps),      # 5
+            curr_wait / max(_o["ref_wait_minutes"], eps),           # 6
+            delta_wait / max(_o["max_abs_wait_delta"], eps),        # 7
+            delay_min / max(_o["ref_wait_minutes"], eps),           # 8
+            delta_delay_min / max(_o["max_abs_delay_delta"], eps),  # 9
+            delta_backlog / max(_o["max_abs_backlog_delta"], eps),  # 10
+            delta_arrival / max(_o["max_abs_arrival_delta"], eps),  # 11
             sim_obs['is_midweek'],                              # 12
             sim_obs['is_mon_fri'],                              # 13
             sim_obs['is_weekend'],                              # 14

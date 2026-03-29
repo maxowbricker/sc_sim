@@ -170,9 +170,14 @@ class MetricsManager:
         
         workers = list(state.all_workers_map.values())
         self.fairness_tracker.update_worker_stats(workers)
-        
-        # Calculate directly math functions
-        task_counts = [w.completed_tasks for w in workers]
+
+        # Fairness only over workers who have been online (idle time accrued) or completed work.
+        # Avoids inflating n with workers not yet on shift.
+        active_workers = [w for w in workers if w.total_idle_time > 0 or w.completed_tasks > 0]
+        if not active_workers:
+            active_workers = workers
+
+        task_counts = [w.completed_tasks for w in active_workers]
         jfi = jains_fairness_index(task_counts)
         utility_diff = utility_difference(task_counts)
         
