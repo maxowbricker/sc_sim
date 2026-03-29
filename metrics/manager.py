@@ -46,6 +46,7 @@ class MetricsManager:
             'jfi': 1.0,
             'backlog': 0,
             'avg_wait': 0.0,
+            'step_avg_assignment_delay': 0.0,
             'utility_diff': 0.0,
             'completed_in_step': 0,
             'deferred_ratio': 0.0,
@@ -186,7 +187,22 @@ class MetricsManager:
         total_backlog = active_backlog + deferred_backlog
         self._backlog_peak = max(self._backlog_peak, total_backlog)
         
-        avg_wait = float(np.mean(self.step_wait_times)) if self.step_wait_times else 0.0
+        # If no completions this step, carry forward last measured averages (avoid fake 0.0 → RL reward exploit)
+        avg_wait = (
+            float(np.mean(self.step_wait_times))
+            if self.step_wait_times
+            else self.current_step_stats.get('avg_wait', 0.0)
+        )
+        recent_delays = (
+            self._assignment_delays[-max(1, self.step_completed_tasks_count) :]
+            if self._assignment_delays
+            else []
+        )
+        step_avg_assignment_delay = (
+            float(np.mean(recent_delays))
+            if recent_delays
+            else self.current_step_stats.get('step_avg_assignment_delay', 0.0)
+        )
         deferred_ratio = deferred_backlog / max(1, self.total_tasks_released)
         
         available_workers = len(state.available_workers)
@@ -227,6 +243,7 @@ class MetricsManager:
             'jfi': jfi,
             'backlog': total_backlog,
             'avg_wait': avg_wait,
+            'step_avg_assignment_delay': step_avg_assignment_delay,
             'utility_diff': utility_diff,
             'completed_in_step': self.step_completed_tasks_count,
             'deferred_ratio': deferred_ratio,
@@ -292,11 +309,10 @@ class MetricsManager:
         is_midweek = float(1 <= weekday <= 3)
         is_mon_fri = float(weekday == 0 or weekday == 4)
 
-        # Assignment Delay (Time to Match)
-        # Safely get the average delay of tasks completed in this step
-        recent_delays = self._assignment_delays[-max(1, self.step_completed_tasks_count):] if self._assignment_delays else []
-        step_avg_delay = float(np.mean(recent_delays)) if recent_delays else 0.0
-        
+        # Assignment delay (sec): computed in snapshot_step while step counts are valid; do not re-slice here
+        # (step_completed_tasks_count is reset to 0 after each snapshot).
+        step_avg_delay = float(stats.get('step_avg_assignment_delay', 0.0))
+
         # Raw Task Arrival Rate (Tasks per minute)
         # We divide by 5.0 minutes (the standard step duration)
         task_arrival_rate = (self.step_tasks_released / 5.0) 
