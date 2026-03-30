@@ -177,8 +177,6 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         warmup_stats = self.simulator.metrics.current_step_stats
         # Compare RL to the exact warmup physics (no artificial floor)
         self.greedy_baseline_jfi = warmup_stats.get('jfi', 0.5)
-        # Reward uses momentum (delta JFI); anchor first step to post-warmup JFI (not a static day-long bar)
-        self.reward_prev_jfi = float(self.greedy_baseline_jfi)
 
         # 5. Handover to composite (same params as config.py baseline for fair eval vs static)
         rl_params = get_strategy_params('composite')
@@ -297,17 +295,14 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     def _calculate_reward(self):
         stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
 
-        # 1. Fairness: momentum ΔJFI; ~p99 step bump (+0.03) → ~+1.0 raw
-        current_jfi = stats['fairness']
-        delta_jfi = current_jfi - self.reward_prev_jfi
-        self.reward_prev_jfi = current_jfi
-        r_fairness = delta_jfi * 33.3
+        # 1. Absolute fairness (JFI in [0,1]; e.g. 0.65 → +32.5/step before weights)
+        r_fairness = stats['fairness'] * 50.0
 
-        # 2. Latency: 2.0 min wait → -1.0; 10 min → -5.0
-        r_latency = -stats['latency'] * 0.5
+        # 2. Absolute efficiency (e.g. 2 min wait → -4.0 before weights)
+        r_latency = -stats['latency'] * 2.0
 
-        # 3. Starvation: cap so expirations do not dwarf JFI/latency
-        r_starvation = -min(3.0, stats['recent_expirations'] * 0.5)
+        # 3. Absolute starvation (e.g. 1 expiration → -0.5 before weights)
+        r_starvation = -stats['recent_expirations'] * 0.5
 
         reward = (self.reward_weights[0] * r_fairness) + \
                  (self.reward_weights[1] * r_starvation) + \
