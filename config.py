@@ -29,15 +29,16 @@ DATA_SAMPLING = {
 }
 
 # Single source of truth for rl/gym_environment.py observation normalization (PPO magnitude parity).
-# ref_* = typical scale for absolute features; max_abs_*_delta = typical one-step change (tune from traces).
+# ref_* = divisor for level features (rough typical scale). max_abs_*_delta = divisor for one-step *deltas*
+# so that normal steps land near [-1, 1]; values are not clipped—larger true deltas just exceed ±1.
+# Tune from composite_lambda1_pareto sweep: ΔJFI p99≈0.03, spikes≈0.08–0.10; Δ(step mean wait) p99 often ~few–15 min.
 # worker_count_divisor defaults to DATA_SAMPLING["target_workers"] inside get_observation_static_scaling().
 OBSERVATION_STATIC_SCALING = {
     "ref_wait_minutes": 2.0,
     "ref_backlog": 200,
-    "max_abs_jfi_delta": 0.03,
+    "max_abs_jfi_delta": 0.05,
     "max_abs_arrival_delta": 40.0,
-    # Deltas for wait / backlog (tune from rollouts). Assignment delay not in obs (see gym env).
-    "max_abs_wait_delta": 0.5,
+    "max_abs_wait_delta": 10.0,
     "max_abs_backlog_delta": 30.0,
 }
 

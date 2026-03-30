@@ -177,7 +177,9 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         warmup_stats = self.simulator.metrics.current_step_stats
         # Compare RL to the exact warmup physics (no artificial floor)
         self.greedy_baseline_jfi = warmup_stats.get('jfi', 0.5)
-        
+        # Reward uses momentum (delta JFI); anchor first step to post-warmup JFI (not a static day-long bar)
+        self.reward_prev_jfi = float(self.greedy_baseline_jfi)
+
         # 5. Handover to composite (same params as config.py baseline for fair eval vs static)
         rl_params = get_strategy_params('composite')
         rl_params['normalize_scores'] = True
@@ -295,22 +297,17 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     def _calculate_reward(self):
         stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
 
-        # 1. The Dynamic Fairness Anchor (Exponential Curve)
+        # 1. Fairness: momentum ΔJFI; ~p99 step bump (+0.03) → ~+1.0 raw
         current_jfi = stats['fairness']
-        jfi_improvement = current_jfi - self.greedy_baseline_jfi
+        delta_jfi = current_jfi - self.reward_prev_jfi
+        self.reward_prev_jfi = current_jfi
+        r_fairness = delta_jfi * 33.3
 
-        if jfi_improvement >= 0:
-            r_fairness = jfi_improvement * 20.0
-        else:
-            r_fairness = -10.0 * (np.exp(abs(jfi_improvement) * 5.0) - 1.0)
+        # 2. Latency: 2.0 min wait → -1.0; 10 min → -5.0
+        r_latency = -stats['latency'] * 0.5
 
-        # 2. The Efficiency Anchor
-        r_latency = -stats['latency'] / 5.0
-
-        # 3. The Starvation/Expiration Anchor (Relaxed & Capped)
-        # Denominator increased to 20.0 to relax sensitivity.
-        # Penalty is capped at -5.0 to ensure JFI/Latency dominance.
-        r_starvation = -min(3.0, stats['recent_expirations'] / 20)
+        # 3. Starvation: cap so expirations do not dwarf JFI/latency
+        r_starvation = -min(3.0, stats['recent_expirations'] * 0.5)
 
         reward = (self.reward_weights[0] * r_fairness) + \
                  (self.reward_weights[1] * r_starvation) + \
