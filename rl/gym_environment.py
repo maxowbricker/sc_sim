@@ -308,4 +308,11 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
                  (self.reward_weights[1] * r_starvation) + \
                  (self.reward_weights[2] * r_latency)
 
-        return float(reward)
+        # --- THE NORMALIZATION FIX ---
+        # The greedy baseline naturally hovers around +23.0 per step.
+        # By subtracting 20.0, a "greedy" step yields +3.0.
+        # If the agent messes up and causes a traffic jam, it drops into the negatives.
+        # We then divide by 2.0 to keep the gradients stable.
+        normalized_reward = (reward - 20.0) / 2.0
+
+        return float(normalized_reward)

@@ -5,7 +5,7 @@
     "gamma": 0.95,
     "gae_lambda": 0.9,
     "clip_range": 0.1,
-    "ent_coef": 2.5094442293864363e-07,
+    "ent_coef": 0.015,
     "vf_coef": 0.6838914383665611,
     "max_grad_norm": 1.0,
     "net_arch_type": "large"
