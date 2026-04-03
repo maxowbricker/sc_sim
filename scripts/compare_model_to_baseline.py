@@ -1,8 +1,10 @@
 """
 Compare RL Agent vs. Static Baseline (FATP/Composite)
 
-Use --log-weights PATH.csv to record λ1, λ2 per step; also writes PATH_steps.txt (Step 1: λ1=..., λ2=...).
-Use --print-weights to print the same lines to the terminal (good with --quiet).
+Use --log-weights PATH.txt for a single human-readable step trace (Step N: λ1=..., λ2=..., λ3=...).
+Use --log-weights PATH.csv for CSV plus PATH_steps.txt (legacy).
+
+Use --metrics-out PATH.txt to save the static vs RL metric table without parsing console output.
 
 Example: --model rl_logs_sb3/recent_run_21/rl_final_results/ppo_sc_final.zip
 (do not use the literal placeholder path/to/model.zip)
@@ -41,19 +43,53 @@ def resolve_model_load_path(model_path: str) -> str:
     return load_path
 
 
-def _write_readable_steps_txt(log_rows, csv_path: str) -> str:
-    """Write traces/foo_steps.txt with Step N: λ1=..., λ2=... next to traces/foo.csv."""
-    base = os.path.splitext(csv_path)[0]
-    txt_path = base + "_steps.txt"
+def _write_readable_steps_txt(log_rows, txt_path: str) -> str:
+    """Write Step N: λ1=..., λ2=... lines to txt_path."""
+    _dir = os.path.dirname(txt_path)
+    if _dir:
+        os.makedirs(_dir, exist_ok=True)
     with open(txt_path, "w", encoding="utf-8") as f:
-        f.write("# RL policy output per environment step (λ1 = fairness, λ2 = starvation, λ3 = fixed utility anchor)\n")
-        f.write("# Columns match the CSV row order.\n\n")
+        f.write(
+            "# RL policy output per environment step (λ1 = fairness, λ2 = starvation, λ3 = utility anchor)\n"
+            "# One line per env step.\n\n"
+        )
         for i, row in enumerate(log_rows, start=1):
             f.write(
                 f"Step {i}: λ1={row['lambda1']:.6f}, λ2={row['lambda2']:.6f}, λ3={row['lambda3']:.6f} "
                 f"(reward={row['reward']:.4f}, sim_time={row['sim_time']})\n"
             )
     return txt_path
+
+
+def _write_metrics_txt(path: str, static_stats: dict, rl_stats: dict) -> None:
+    """Save the static vs RL comparison table as plain text."""
+    jfi_delta = rl_stats["final_jains_fairness_index"] - static_stats["final_jains_fairness_index"]
+    backlog_delta = rl_stats["backlog_peak"] - static_stats["backlog_peak"]
+    wait_delta = rl_stats["avg_wait_time_minutes"] - static_stats["avg_wait_time_minutes"]
+    jfi_trend = "🟢" if jfi_delta > 0 else "🔴"
+    backlog_trend = "🟢" if backlog_delta < 0 else "🔴"
+    wait_trend = "🟢" if wait_delta < 0 else "🔴"
+    lines = [
+        "Static baseline vs RL agent (same day, eval_seed, protocol as console run)\n",
+        "=" * 60 + "\n",
+        f"{'Metric':<20} | {'Static Baseline':<15} | {'RL Agent':<15} | {'Improvement'}\n",
+        "-" * 60 + "\n",
+        f"{'JFI (Fairness)':<20} | {static_stats['final_jains_fairness_index']:<15.4f} | "
+        f"{rl_stats['final_jains_fairness_index']:<15.4f} | {jfi_trend} {jfi_delta:+.4f}\n",
+        f"{'Peak Backlog':<20} | {static_stats['backlog_peak']:<15.0f} | "
+        f"{rl_stats['backlog_peak']:<15.0f} | {backlog_trend} {backlog_delta:+.0f}\n",
+        f"{'Avg Wait Time (m)':<20} | {static_stats['avg_wait_time_minutes']:<15.2f} | "
+        f"{rl_stats['avg_wait_time_minutes']:<15.2f} | {wait_trend} {wait_delta:+.2f}\n",
+        "=" * 60 + "\n",
+    ]
+    out = path
+    if not os.path.isabs(out):
+        out = os.path.join(PROJECT_ROOT, out.lstrip("./"))
+    _dir = os.path.dirname(out)
+    if _dir:
+        os.makedirs(_dir, exist_ok=True)
+    with open(out, "w", encoding="utf-8") as f:
+        f.writelines(lines)
 
 
 def run_static_baseline(day, data_root, eval_seed: int = 42):
@@ -144,17 +180,22 @@ def run_rl_agent(
         out = weights_log_path
         if not os.path.isabs(out):
             out = os.path.join(PROJECT_ROOT, out.lstrip("./"))
-        _dir = os.path.dirname(out)
-        if _dir:
-            os.makedirs(_dir, exist_ok=True)
-        fieldnames = ["env_step", "sim_time", "lambda1", "lambda2", "lambda3", "reward"]
-        with open(out, "w", newline="") as cf:
-            w = csv.DictWriter(cf, fieldnames=fieldnames)
-            w.writeheader()
-            w.writerows(log_rows)
-        txt_out = _write_readable_steps_txt(log_rows, out)
-        print(f"      📝 Weight trace CSV: {out} ({len(log_rows)} steps)")
-        print(f"      📝 Step-by-step text: {txt_out}")
+        if out.lower().endswith(".txt"):
+            _write_readable_steps_txt(log_rows, out)
+            print(f"      📝 Weight trace: {out} ({len(log_rows)} steps)")
+        else:
+            _dir = os.path.dirname(out)
+            if _dir:
+                os.makedirs(_dir, exist_ok=True)
+            fieldnames = ["env_step", "sim_time", "lambda1", "lambda2", "lambda3", "reward"]
+            with open(out, "w", newline="") as cf:
+                w = csv.DictWriter(cf, fieldnames=fieldnames)
+                w.writeheader()
+                w.writerows(log_rows)
+            base = os.path.splitext(out)[0]
+            txt_out = _write_readable_steps_txt(log_rows, base + "_steps.txt")
+            print(f"      📝 Weight trace CSV: {out} ({len(log_rows)} steps)")
+            print(f"      📝 Step-by-step text: {txt_out}")
 
     # NEW: Get the true final results for the whole day
     stats = env.simulator.get_final_results()
@@ -174,8 +215,15 @@ def main():
         "--log-weights",
         type=str,
         default=None,
-        metavar="CSV_PATH",
-        help="Write λ1/λ2/λ3, sim_time, reward per env step to this CSV (project-root relative OK)",
+        metavar="PATH",
+        help="Per-step λ trace: use .txt for one readable file, or .csv for CSV plus *_steps.txt (legacy)",
+    )
+    parser.add_argument(
+        "--metrics-out",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Write static vs RL metric table to this .txt (project-root relative OK)",
     )
     parser.add_argument(
         "--rl-only",
@@ -255,6 +303,13 @@ def main():
     wait_trend = "🟢" if wait_delta < 0 else "🔴"
     print(f"{'Avg Wait Time (m)':<20} | {static_stats['avg_wait_time_minutes']:<15.2f} | {rl_stats['avg_wait_time_minutes']:<15.2f} | {wait_trend} {wait_delta:+.2f}")
     print("="*60 + "\n")
+
+    if args.metrics_out:
+        _write_metrics_txt(args.metrics_out, static_stats, rl_stats)
+        mo = args.metrics_out
+        if not os.path.isabs(mo):
+            mo = os.path.join(PROJECT_ROOT, mo.lstrip("./"))
+        print(f"   📝 Metrics written to: {mo}")
 
 if __name__ == "__main__":
     main()
