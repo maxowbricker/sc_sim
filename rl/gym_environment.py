@@ -295,24 +295,22 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     def _calculate_reward(self):
         stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
 
-        # 1. Absolute fairness (JFI in [0,1]; e.g. 0.65 → +32.5/step before weights)
-        r_fairness = stats['fairness'] * 50.0
+        # 1. Fairness: Boosted from 50.0 to 100.0
+        # A 0.1 improvement in JFI now yields +10.0 points/step instead of +5.0.
+        r_fairness = stats['fairness'] * 100.0
 
-        # 2. Absolute efficiency (e.g. 2 min wait → -4.0 before weights)
+        # 2. Latency: Keep at 2.0
+        # This makes the "Exchange Rate" much more favorable for fairness.
         r_latency = -stats['latency'] * 2.0
 
-        # 3. Absolute starvation (e.g. 1 expiration → -0.5 before weights)
+        # 3. Starvation: Keep at 0.5
         r_starvation = -stats['recent_expirations'] * 0.5
 
         reward = (self.reward_weights[0] * r_fairness) + \
                  (self.reward_weights[1] * r_starvation) + \
                  (self.reward_weights[2] * r_latency)
 
-        # --- THE NORMALIZATION FIX ---
-        # The greedy baseline naturally hovers around +23.0 per step.
-        # By subtracting 20.0, a "greedy" step yields +3.0.
-        # If the agent messes up and causes a traffic jam, it drops into the negatives.
-        # We then divide by 2.0 to keep the gradients stable.
-        normalized_reward = (reward - 20.0) / 2.0
+        # Shift to center around 0 based on new r_fairness scale
+        normalized_reward = (reward - 50.0) / 5.0
 
         return float(normalized_reward)
