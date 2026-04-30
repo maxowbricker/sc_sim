@@ -116,7 +116,7 @@ def _write_environment_spec_standalone(log_dir: Path) -> None:
             "step_duration_minutes": 5.0,
             "warmup_duration_seconds": 30 * 60,
             "episode_duration_seconds": 8 * 60 * 60,
-            "sla_wait_time_minutes": 2.8,
+            "sla_wait_time_minutes": 3.0,
             "sla_violation_penalty": 20.0,
             "obs_scaling": _json_safe(get_observation_static_scaling()),
         },

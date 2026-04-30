@@ -267,7 +267,7 @@ def write_environment_spec(log_dir: str, env) -> None:
                 "warmup_duration_seconds": int(inner.warmup_duration_seconds),
                 "episode_duration_seconds": int(inner.episode_duration_seconds),
                 "sla_wait_time_minutes": float(
-                    getattr(inner, "sla_wait_time_minutes", 2.8)
+                    getattr(inner, "sla_wait_time_minutes", 3.0)
                 ),
                 "sla_violation_penalty": float(
                     getattr(inner, "sla_violation_penalty", 20.0)

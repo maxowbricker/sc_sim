@@ -41,7 +41,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     
     def __init__(self, dataset="didi", step_duration_minutes=5, reward_weights=None,
                  data_root=None, day_folders=None, warmup_duration_minutes=30,
-                 episode_duration_hours=8, sla_wait_time_minutes=2.8,
+                 episode_duration_hours=8, sla_wait_time_minutes=3.0,
                  sla_violation_penalty=20.0, **kwargs):
         """
         Initialize the environment.
