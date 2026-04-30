@@ -32,21 +32,31 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     
     Uses normalized weight space: all weights are scaled by 4.0 from original physics tuning.
     This makes training more stable for neural networks and improves interpretability.
+
+    Reward uses a piecewise SLA on step-average wait (minutes): no latency penalty at or below
+    sla_wait_time_minutes; above that, a penalty grows linearly with the SLA violation magnitude.
     """
     
     metadata = {"render_modes": ["human"]}
     
-    def __init__(self, dataset="didi", step_duration_minutes=5, reward_weights=None, 
-                 data_root=None, day_folders=None, warmup_duration_minutes=30, 
-                 episode_duration_hours=8, **kwargs):
+    def __init__(self, dataset="didi", step_duration_minutes=5, reward_weights=None,
+                 data_root=None, day_folders=None, warmup_duration_minutes=30,
+                 episode_duration_hours=8, sla_wait_time_minutes=2.8,
+                 sla_violation_penalty=20.0, **kwargs):
         """
         Initialize the environment.
+
+        sla_wait_time_minutes: step-average wait (minutes) below which no latency penalty
+            is applied (SLA "safe zone"). Above this, a piecewise penalty fires.
+        sla_violation_penalty: points per minute beyond the SLA, before reward_weights[2].
         """
         super().__init__()
         
         self.dataset = dataset
         self.step_duration = step_duration_minutes * 60  # seconds
         self.reward_weights = reward_weights or [1.0, 1.0, 1.0]
+        self.sla_wait_time_minutes = float(sla_wait_time_minutes)
+        self.sla_violation_penalty = float(sla_violation_penalty)
         self.data_root = data_root
         self.day_folders = day_folders
         
@@ -294,23 +304,23 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
 
     def _calculate_reward(self):
         stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
+        latency = float(stats["latency"])
 
-        # 1. Fairness: Boosted from 50.0 to 100.0
-        # A 0.1 improvement in JFI now yields +10.0 points/step instead of +5.0.
-        r_fairness = stats['fairness'] * 100.0
+        r_fairness = stats["fairness"] * 100.0
+        r_starvation = -stats["recent_expirations"] * 0.5
+        sla = self.sla_wait_time_minutes
 
-        # 2. Latency: Keep at 2.0
-        # This makes the "Exchange Rate" much more favorable for fairness.
-        r_latency = -stats['latency'] * 2.0
+        if latency <= sla:
+            # Safe zone: no marginal penalty for wait; push fairness without linear latency fear.
+            reward = (self.reward_weights[0] * r_fairness) + (
+                self.reward_weights[1] * r_starvation
+            )
+        else:
+            violation = latency - sla
+            r_latency = -self.sla_violation_penalty * violation
+            reward = (self.reward_weights[0] * r_fairness) + (
+                self.reward_weights[1] * r_starvation
+            ) + (self.reward_weights[2] * r_latency)
 
-        # 3. Starvation: Keep at 0.5
-        r_starvation = -stats['recent_expirations'] * 0.5
-
-        reward = (self.reward_weights[0] * r_fairness) + \
-                 (self.reward_weights[1] * r_starvation) + \
-                 (self.reward_weights[2] * r_latency)
-
-        # Shift to center around 0 based on new r_fairness scale
         normalized_reward = (reward - 50.0) / 5.0
-
         return float(normalized_reward)
