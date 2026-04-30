@@ -252,6 +252,7 @@ def write_environment_spec(log_dir: str, env) -> None:
             "episode_duration_seconds": int(_ga("episode_duration_seconds")),
             "sla_wait_time_minutes": float(_ga("sla_wait_time_minutes")),
             "sla_violation_penalty": float(_ga("sla_violation_penalty")),
+            "delta_jfi_reward_scale": float(_ga("delta_jfi_reward_scale")),
         }
         try:
             spec["env_runtime"]["obs_scaling"] = _json_safe(_ga("obs_scaling"))
@@ -271,6 +272,9 @@ def write_environment_spec(log_dir: str, env) -> None:
                 ),
                 "sla_violation_penalty": float(
                     getattr(inner, "sla_violation_penalty", 20.0)
+                ),
+                "delta_jfi_reward_scale": float(
+                    getattr(inner, "delta_jfi_reward_scale", 1000.0)
                 ),
                 "obs_scaling": _json_safe(getattr(inner, "obs_scaling", None))
                 if getattr(inner, "obs_scaling", None) is not None

@@ -118,6 +118,7 @@ def _write_environment_spec_standalone(log_dir: Path) -> None:
             "episode_duration_seconds": 8 * 60 * 60,
             "sla_wait_time_minutes": 3.0,
             "sla_violation_penalty": 20.0,
+            "delta_jfi_reward_scale": 1000.0,
             "obs_scaling": _json_safe(get_observation_static_scaling()),
         },
     }
