@@ -17,8 +17,8 @@ Examples:
     # Use Optuna-tuned hyperparameters (default: rl/best_hyperparameters.json)
     python rl/train_sb3.py --hyperparams best_hyperparameters.json --timesteps 50000
 
-Each run folder gets: gym_environment_snapshot.py, hyperparams_snapshot.json, environment_spec.json
-(obs/action spaces, reward_weights, timing), run_manifest.json, BASELINE_EVAL_README.txt.
+Each run folder gets: gym_environment_snapshot.py, train_sb3_snapshot.py, hyperparams_snapshot.json,
+environment_spec.json (obs/action spaces, reward_weights, timing), run_manifest.json, BASELINE_EVAL_README.txt.
 After training, compare_model_to_baseline runs for final + best models (unless --no-post-eval), writing
 baseline_eval_*.txt (full console log), baseline_*_model_weight_outputs.txt (per-step λ),
 baseline_*_model_metrics.txt (static vs RL table).
@@ -105,6 +105,8 @@ def write_run_artifacts(log_dir: str, project_root: Path, args, hyperparams_path
     gym_src = project_root / "rl" / "gym_environment.py"
     gym_dst = Path(log_dir) / "gym_environment_snapshot.py"
     hp_dst = Path(log_dir) / "hyperparams_snapshot.json"
+    train_src = project_root / "rl" / "train_sb3.py"
+    train_dst = Path(log_dir) / "train_sb3_snapshot.py"
 
     if gym_src.is_file():
         shutil.copy2(gym_src, gym_dst)
@@ -115,6 +117,11 @@ def write_run_artifacts(log_dir: str, project_root: Path, args, hyperparams_path
         shutil.copy2(hyperparams_path, hp_dst)
     else:
         print(f"   ⚠️  Could not snapshot hyperparams {hyperparams_path} (missing)")
+
+    if train_src.is_file():
+        shutil.copy2(train_src, train_dst)
+    else:
+        print(f"   ⚠️  Could not snapshot {train_src} (missing)")
 
     manifest = {
         "run_folder": os.path.basename(log_dir),
@@ -127,8 +134,12 @@ def write_run_artifacts(log_dir: str, project_root: Path, args, hyperparams_path
             "hyperparams_snapshot": "hyperparams_snapshot.json"
             if hyperparams_path.is_file()
             else None,
+            "train_sb3_snapshot": "train_sb3_snapshot.py"
+            if train_dst.is_file()
+            else None,
             "gym_sha256": _sha256_file(gym_dst) if gym_dst.is_file() else None,
             "hyperparams_sha256": _sha256_file(hp_dst) if hp_dst.is_file() else None,
+            "train_sb3_sha256": _sha256_file(train_dst) if train_dst.is_file() else None,
         },
         "training": {
             "timesteps": args.timesteps,
@@ -154,7 +165,10 @@ def write_run_artifacts(log_dir: str, project_root: Path, args, hyperparams_path
         "Training normally fills this folder automatically (baseline_eval_*.txt, weight_outputs, metrics). "
         "Re-run manually if needed.\n\n"
         "Layout (same day / --eval-seed for fair comparison):\n"
-        "  environment_spec.json    (obs/action space + reward_weights; full reward code in gym snapshot)\n"
+        "  gym_environment_snapshot.py  (reward function, observation, stepping logic at train time)\n"
+        "  train_sb3_snapshot.py        (training loop at train time)\n"
+        "  hyperparams_snapshot.json    (PPO hyperparameters)\n"
+        "  environment_spec.json        (obs/action space + reward_weights; full reward code in gym snapshot)\n"
         "  baseline_final_model_weight_outputs.txt, baseline_best_model_weight_outputs.txt (per-step λ)\n"
         "  baseline_final_model_metrics.txt, baseline_best_model_metrics.txt (static vs RL table)\n"
         "  baseline_eval_final.txt, baseline_eval_best.txt (full stdout from compare script)\n\n"
@@ -180,6 +194,7 @@ def write_run_artifacts(log_dir: str, project_root: Path, args, hyperparams_path
     print(
         f"   Run artifacts: {gym_dst.name}, "
         f"{hp_dst.name if hp_dst.is_file() else 'no hyperparams'}, "
+        f"{train_dst.name if train_dst.is_file() else 'no train_sb3 snapshot'}, "
         f"{manifest_path.name}, {note.name}"
     )
 
