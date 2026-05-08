@@ -32,37 +32,21 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     
     Uses normalized weight space: all weights are scaled by 4.0 from original physics tuning.
     This makes training more stable for neural networks and improves interpretability.
-
-    Fairness shaping is momentum-style: ΔJFI vs the previous RL step (*delta_jfi_reward_scale*),
-    encouraging improvement rather than a flat payout for mediocre absolute JFI.
-
-    Latency uses a piecewise SLA on step-average wait (minutes): no penalty at or below
-    sla_wait_time_minutes; above that, a linear violation penalty.
     """
     
     metadata = {"render_modes": ["human"]}
     
-    def __init__(self, dataset="didi", step_duration_minutes=5, reward_weights=None,
-                 data_root=None, day_folders=None, warmup_duration_minutes=30,
-                 episode_duration_hours=8, sla_wait_time_minutes=3.0,
-                 sla_violation_penalty=20.0, delta_jfi_reward_scale=1000.0, **kwargs):
+    def __init__(self, dataset="didi", step_duration_minutes=5, reward_weights=None, 
+                 data_root=None, day_folders=None, warmup_duration_minutes=30, 
+                 episode_duration_hours=8, **kwargs):
         """
         Initialize the environment.
-
-        sla_wait_time_minutes: step-average wait (minutes) below which no latency penalty
-            is applied (SLA "safe zone"). Above this, a piecewise penalty fires.
-        sla_violation_penalty: points per minute beyond the SLA, before reward_weights[2].
-        delta_jfi_reward_scale: multiplies ΔJFI (fairness minus previous RL step fairness)
-            before reward_weights[0]; default 1000 → +0.02 JFI improves raw fairness term by ~20.
         """
         super().__init__()
         
         self.dataset = dataset
         self.step_duration = step_duration_minutes * 60  # seconds
         self.reward_weights = reward_weights or [1.0, 1.0, 1.0]
-        self.sla_wait_time_minutes = float(sla_wait_time_minutes)
-        self.sla_violation_penalty = float(sla_violation_penalty)
-        self.delta_jfi_reward_scale = float(delta_jfi_reward_scale)
         self.data_root = data_root
         self.day_folders = day_folders
         
@@ -125,7 +109,6 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.simulator.reset()
         
         self.greedy_baseline_jfi = 0.5  # dynamically set in reset() according to the greedy baseline
-        self.reward_prev_jfi = 0.0  # JFI anchor for ΔJFI reward term; reset() sets per episode
         self.obs_scaling = get_observation_static_scaling()
 
     def _load_day_data(self, day_folder):
@@ -218,9 +201,6 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         
         self.episode_count += 1
         print(f"   ▶️ [Episode {self.episode_count}] Started RL Phase | Tasks: {len(self.tasks):,} | Workers: {len(self.workers):,}")
-
-        reward_stats0 = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
-        self.reward_prev_jfi = float(reward_stats0["fairness"])
         
         obs = self._get_observation()
         
@@ -314,26 +294,23 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
 
     def _calculate_reward(self):
         stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
-        latency = float(stats["latency"])
-        fairness = float(stats["fairness"])
 
-        delta_jfi = fairness - self.reward_prev_jfi
-        self.reward_prev_jfi = fairness
+        # 1. Fairness: Boosted from 50.0 to 100.0
+        # A 0.1 improvement in JFI now yields +10.0 points/step instead of +5.0.
+        r_fairness = stats['fairness'] * 100.0
 
-        r_fairness = delta_jfi * self.delta_jfi_reward_scale
-        r_starvation = -stats["recent_expirations"] * 0.5
-        sla = self.sla_wait_time_minutes
+        # 2. Latency: Keep at 2.0
+        # This makes the "Exchange Rate" much more favorable for fairness.
+        r_latency = -stats['latency'] * 2.0
 
-        if latency <= sla:
-            reward = (self.reward_weights[0] * r_fairness) + (
-                self.reward_weights[1] * r_starvation
-            )
-        else:
-            violation = latency - sla
-            r_latency = -self.sla_violation_penalty * violation
-            reward = (self.reward_weights[0] * r_fairness) + (
-                self.reward_weights[1] * r_starvation
-            ) + (self.reward_weights[2] * r_latency)
+        # 3. Starvation: Keep at 0.5
+        r_starvation = -stats['recent_expirations'] * 0.5
 
-        normalized_reward = reward / 5.0
+        reward = (self.reward_weights[0] * r_fairness) + \
+                 (self.reward_weights[1] * r_starvation) + \
+                 (self.reward_weights[2] * r_latency)
+
+        # Shift to center around 0 based on new r_fairness scale
+        normalized_reward = (reward - 50.0) / 5.0
+
         return float(normalized_reward)

@@ -244,16 +244,28 @@ def write_environment_spec(log_dir: str, env) -> None:
         def _ga(name: str):
             return env.get_attr(name, 0)[0]
 
+        def _ga_opt(name: str, default):
+            try:
+                return env.get_attr(name, 0)[0]
+            except Exception:
+                return default
+
         spec["env_runtime"] = {
             "reward_weights": list(_ga("reward_weights")),
             "lambda3_fixed": float(_ga("lambda3_fixed")),
             "step_duration_minutes": float(_ga("step_duration")) / 60.0,
             "warmup_duration_seconds": int(_ga("warmup_duration_seconds")),
             "episode_duration_seconds": int(_ga("episode_duration_seconds")),
-            "sla_wait_time_minutes": float(_ga("sla_wait_time_minutes")),
-            "sla_violation_penalty": float(_ga("sla_violation_penalty")),
-            "delta_jfi_reward_scale": float(_ga("delta_jfi_reward_scale")),
         }
+        _sla = _ga_opt("sla_wait_time_minutes", None)
+        _pen = _ga_opt("sla_violation_penalty", None)
+        _djs = _ga_opt("delta_jfi_reward_scale", None)
+        if _sla is not None:
+            spec["env_runtime"]["sla_wait_time_minutes"] = float(_sla)
+        if _pen is not None:
+            spec["env_runtime"]["sla_violation_penalty"] = float(_pen)
+        if _djs is not None:
+            spec["env_runtime"]["delta_jfi_reward_scale"] = float(_djs)
         try:
             spec["env_runtime"]["obs_scaling"] = _json_safe(_ga("obs_scaling"))
         except Exception:
