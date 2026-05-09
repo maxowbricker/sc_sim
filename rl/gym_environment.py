@@ -308,29 +308,42 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
 
     def _calculate_reward(self):
         """
-        Calculate reward as the pure linear advantage of composite over the greedy oracle.
+        Calculate reward using the Bounded "Dynamic SLA" approach.
 
-        The oracle runs greedy from the exact same state, so reward = 
-        composite_advantage - greedy_advantage
+        The agent gets massive points for beating the greedy oracle's fairness.
+        Latency is only penalized if noticeably slower than the oracle (> 0.1 min buffer).
+        Otherwise, the agent is free to chase fairness without latency constraint.
         """
         composite_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
         oracle_stats = self.oracle_reward_stats or composite_stats  # Fallback if oracle wasn't run
 
-        # Fairness Advantage (Higher RL JFI is better)
+        # 1. FAIRNESS ADVANTAGE (The Goal)
+        # Positive = RL is fairer than Oracle. Negative = RL is worse.
         fairness_adv = composite_stats['fairness'] - oracle_stats['fairness']
         r_fairness = fairness_adv * 100.0
 
-        # Latency Advantage (Lower RL Latency is better, so Greedy - RL)
-        # E.g., Greedy = 4m, RL = 3m -> +1m advantage
-        latency_adv = oracle_stats['latency'] - composite_stats['latency']
-        r_latency = latency_adv * 5.0
+        # 2. DYNAMIC LATENCY SLA (The Constraint)
+        # How much slower are we compared to the oracle baseline right now?
+        latency_diff = composite_stats['latency'] - oracle_stats['latency']
 
-        # Starvation Advantage (Fewer RL expirations is better)
+        # Give the agent a 6-second (0.1 min) buffer to avoid micro-penalties
+        if latency_diff <= 0.1:
+            # SAFE ZONE: We are faster than oracle, or virtually tied.
+            r_latency = 0.0
+        else:
+            # DANGER ZONE: We are noticeably slower than oracle.
+            # E.g., Oracle is 2.5m, RL is 3.0m -> latency_diff = 0.5 -> Penalty = -5.0
+            r_latency = -10.0 * latency_diff
+
+        # 3. STARVATION ADVANTAGE
+        # Positive = RL let fewer tasks expire than Oracle
         starvation_adv = oracle_stats['recent_expirations'] - composite_stats['recent_expirations']
         r_starvation = starvation_adv * 1.0
 
-        # Combine and Normalize
+        # Combine
         reward = r_fairness + r_latency + r_starvation
+
+        # Normalize: Advantage naturally centers near 0, so no "- 50.0" shift is needed.
         normalized_reward = reward / 5.0
 
         return float(normalized_reward)
