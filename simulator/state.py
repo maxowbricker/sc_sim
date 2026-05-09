@@ -92,3 +92,68 @@ class StateManager:
             
         self.available_workers.add(worker)
         self.spatial_index.add(worker)
+
+    # ------------------------------------------------------------------
+    # Oracle state serialisation
+    # ------------------------------------------------------------------
+
+    def snapshot(self) -> dict:
+        """Snapshot all mutable StateManager fields as primitive IDs.
+
+        Object references (Worker, Task) are stored as their IDs so the
+        snapshot is cheap and independent of the live objects.  Restore
+        reconstructs references from the same all_workers_map/all_tasks_map
+        dictionaries, which are never mutated during a run.
+        """
+        return {
+            'available_worker_ids': {w.id for w in self.available_workers},
+            'active_task_ids': {t.id for t in self.active_tasks},
+            'deferred_task_ids': {t.id for t in self.deferred_tasks},
+            'assigned_task_ids': {t.id for t in self.assigned_tasks},
+            'assigned_worker_ids': {w.id for w in self.assigned_workers},
+            'completed_task_ids': {t.id for t in self.completed_tasks},
+            # Per-worker primitive state
+            'workers': {w_id: w.get_state_dict() for w_id, w in self.all_workers_map.items()},
+            # Per-task primitive state
+            'tasks': {t_id: t.get_state_dict() for t_id, t in self.all_tasks_map.items()},
+        }
+
+    def restore(self, snap: dict) -> None:
+        """Overwrite mutable state from a snapshot produced by ``snapshot``.
+
+        Rebuilds both spatial indices from scratch (fast — grid insert is O(1)
+        per item) rather than trying to serialise the index structures.
+        """
+        wmap = self.all_workers_map
+        tmap = self.all_tasks_map
+
+        # 1. Restore primitive fields on every Worker and Task
+        for w_id, wstate in snap['workers'].items():
+            wmap[w_id].restore_from_dict(wstate)
+        for t_id, tstate in snap['tasks'].items():
+            tmap[t_id].restore_from_dict(tstate)
+
+        # 2. Restore assigned_task / assigned_worker cross-references
+        for w_id, wstate in snap['workers'].items():
+            at_id = wstate['assigned_task_id']
+            wmap[w_id].assigned_task = tmap[at_id] if at_id is not None else None
+        for t_id, tstate in snap['tasks'].items():
+            aw_id = tstate['assigned_worker_id']
+            tmap[t_id].assigned_worker = wmap[aw_id] if aw_id is not None else None
+
+        # 3. Rebuild the dynamic pool sets from snapshotted ID sets
+        self.available_workers = {wmap[i] for i in snap['available_worker_ids']}
+        self.active_tasks      = {tmap[i] for i in snap['active_task_ids']}
+        self.deferred_tasks    = {tmap[i] for i in snap['deferred_task_ids']}
+        self.assigned_tasks    = {tmap[i] for i in snap['assigned_task_ids']}
+        self.assigned_workers  = {wmap[i] for i in snap['assigned_worker_ids']}
+        self.completed_tasks   = {tmap[i] for i in snap['completed_task_ids']}
+
+        # 4. Rebuild spatial indices from restored object state
+        self.spatial_index = GridSpatialIndex(lat_attr='start_lat', lon_attr='start_lon')
+        for w in self.available_workers:
+            self.spatial_index.add(w)
+
+        self.deferred_task_index = GridSpatialIndex(lat_attr='pickup_lat', lon_attr='pickup_lon')
+        for t in self.deferred_tasks:
+            self.deferred_task_index.add(t)

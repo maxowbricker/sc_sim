@@ -64,3 +64,36 @@ class Worker:
 
         self.total_idle_time += time_delta_seconds
 
+    # ------------------------------------------------------------------
+    # Oracle state serialisation (primitives only — no object refs)
+    # ------------------------------------------------------------------
+
+    def get_state_dict(self) -> dict:
+        """Return all mutable fields as a dict of primitives for fast snapshot."""
+        return {
+            'start_lat': self.start_lat,
+            'start_lon': self.start_lon,
+            'available': self.available,
+            'total_idle_time': self.total_idle_time,
+            'last_state_ts': self.last_state_ts,
+            'fairness_ewma': self.fairness_ewma,
+            'last_active_ts': self.last_active_ts,
+            'completed_tasks': self.completed_tasks,
+            'assigned_task_id': self.assigned_task.id if self.assigned_task is not None else None,
+        }
+
+    def restore_from_dict(self, d: dict) -> None:
+        """Overwrite mutable fields from a snapshot dict.
+
+        Note: assigned_task is restored at the StateManager level (because
+        it requires a task object reference), so it is not set here.
+        """
+        self.start_lat = d['start_lat']
+        self.start_lon = d['start_lon']
+        self.available = d['available']
+        self.total_idle_time = d['total_idle_time']
+        self.last_state_ts = d['last_state_ts']
+        self.fairness_ewma = d['fairness_ewma']
+        self.last_active_ts = d['last_active_ts']
+        self.completed_tasks = d['completed_tasks']
+

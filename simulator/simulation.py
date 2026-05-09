@@ -237,6 +237,57 @@ class EventSimulator:
         })
         return obs_data
 
+    # ------------------------------------------------------------------
+    # Oracle state serialisation
+    # ------------------------------------------------------------------
+
+    def snapshot_state(self) -> dict:
+        """Capture a full, self-contained snapshot of live simulator state.
+
+        All mutable fields are copied by value so the snapshot is independent
+        of the live simulation.  The event queue is trivially cheap to copy
+        because it is a plain list of (float, str, int) tuples.
+
+        Returns
+        -------
+        dict
+            Opaque snapshot dict suitable for passing to ``restore_state``.
+        """
+        return {
+            'current_time': self.current_time,
+            'end_time': self.end_time,
+            'event_count': self.event_count,
+            'step_start_time': self.step_start_time,
+            # event_queue is a heap of plain (float, str, int) tuples — copy is O(N)
+            'event_queue': list(self.event_queue),
+            # StateManager: pools + per-object primitive fields
+            'state': self.state.snapshot(),
+            # MetricsManager: all step and global accumulators
+            'metrics': self.metrics.snapshot_metrics(),
+        }
+
+    def restore_state(self, snap: dict) -> None:
+        """Overwrite live simulator state from a snapshot dict.
+
+        After this call the simulator is in exactly the state it was in when
+        ``snapshot_state`` was called, so you can replay the same step with a
+        different strategy and get a fair comparison.
+
+        Parameters
+        ----------
+        snap : dict
+            Snapshot produced by ``snapshot_state``.
+        """
+        self.current_time = snap['current_time']
+        self.end_time = snap['end_time']
+        self.event_count = snap['event_count']
+        self.step_start_time = snap['step_start_time']
+        # Restore the heap — heapq invariant is preserved because the original
+        # list was already a valid heap and we're restoring it intact.
+        self.event_queue = list(snap['event_queue'])
+        self.state.restore(snap['state'])
+        self.metrics.restore_metrics(snap['metrics'])
+
     def get_final_results(self):
         results = self.metrics.get_final_results()
         completed = results.get('completed_tasks', 0)

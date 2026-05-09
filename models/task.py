@@ -51,3 +51,34 @@ class Task:
     def assign_to_worker(self, worker):
         self.assigned_worker = worker
         self.assigned = True
+
+    # ------------------------------------------------------------------
+    # Oracle state serialisation (primitives only — no object refs)
+    # ------------------------------------------------------------------
+
+    def get_state_dict(self) -> dict:
+        """Return all mutable fields as a dict of primitives for fast snapshot."""
+        return {
+            'assigned': self.assigned,
+            'is_completed': self.is_completed,
+            'finish_time': self.finish_time,
+            'start_time': self.start_time,
+            'pickup_km': self.pickup_km,
+            'drop_km': self.drop_km,
+            'deferral_count': self.deferral_count,
+            'assigned_worker_id': self.assigned_worker.id if self.assigned_worker is not None else None,
+        }
+
+    def restore_from_dict(self, d: dict) -> None:
+        """Overwrite mutable fields from a snapshot dict.
+
+        Note: assigned_worker is restored at the StateManager level (because
+        it requires a worker object reference), so it is not set here.
+        """
+        self.assigned = d['assigned']
+        self.is_completed = d['is_completed']
+        self.finish_time = d['finish_time']
+        self.start_time = d['start_time']
+        self.pickup_km = d['pickup_km']
+        self.drop_km = d['drop_km']
+        self.deferral_count = d['deferral_count']

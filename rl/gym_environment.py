@@ -98,6 +98,9 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.prev_backlog = 0.0
         self.prev_arrival_rate = 0.0
         
+        # Oracle Reward Stats (will be set in step())
+        self.oracle_reward_stats = None
+        
         # Initialize a temporary sim to get spaces
         config = get_simulation_config()
         config['assignment_strategy'] = 'composite'
@@ -219,18 +222,29 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         
         self.last_action = action
         
-        # 2. Run simulation
+        # 2. Run Oracle (Greedy Baseline) to get "reality check" stats
+        oracle_snap = self.simulator.snapshot_state()
+        self.simulator.switch_strategy('greedy')
+        self.simulator.step(duration_seconds=self.step_duration)
+        oracle_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
+        self.oracle_reward_stats = oracle_stats  # Store for reward calculation
+        
+        # 3. Restore to pre-oracle state
+        self.simulator.restore_state(oracle_snap)
+        
+        # 4. Run simulation with composite strategy
+        self.simulator.switch_strategy('composite', self.simulator.strategy_params)
         done = self.simulator.step(duration_seconds=self.step_duration)
         self.current_step_idx += 1
         
-        # 3. Check termination
+        # 5. Check termination
         if self.episode_end_time and self.simulator.current_time >= self.episode_end_time:
             done = True
             
         terminated = done
         truncated = False
         
-        # 4. Get observation & calculate reward
+        # 6. Get observation & calculate reward
         obs = self._get_observation()
         reward = self._calculate_reward()
         
@@ -293,24 +307,37 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         return obs
 
     def _calculate_reward(self):
-        stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
-
-        # 1. Fairness: Boosted from 50.0 to 100.0
-        # A 0.1 improvement in JFI now yields +10.0 points/step instead of +5.0.
-        r_fairness = stats['fairness'] * 100.0
-
-        # 2. Latency: Keep at 2.0
-        # This makes the "Exchange Rate" much more favorable for fairness.
-        r_latency = -stats['latency'] * 2.0
-
-        # 3. Starvation: Keep at 0.5
-        r_starvation = -stats['recent_expirations'] * 0.5
-
-        reward = (self.reward_weights[0] * r_fairness) + \
-                 (self.reward_weights[1] * r_starvation) + \
-                 (self.reward_weights[2] * r_latency)
-
-        # Shift to center around 0 based on new r_fairness scale
-        normalized_reward = (reward - 50.0) / 5.0
-
-        return float(normalized_reward)
+        """
+        Calculate reward as the advantage of composite over the greedy oracle.
+        
+        The oracle runs greedy from the exact same state, so reward = 
+        composite_performance - greedy_performance.
+        """
+        composite_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
+        oracle_stats = self.oracle_reward_stats or composite_stats  # Fallback if oracle wasn't run
+        
+        # Calculate component rewards for COMPOSITE (what the agent did)
+        r_fairness_comp = composite_stats['fairness'] * 100.0
+        r_latency_comp = -composite_stats['latency'] * 2.0
+        r_starvation_comp = -composite_stats['recent_expirations'] * 0.5
+        
+        reward_composite = (self.reward_weights[0] * r_fairness_comp) + \
+                          (self.reward_weights[1] * r_starvation_comp) + \
+                          (self.reward_weights[2] * r_latency_comp)
+        
+        # Calculate component rewards for ORACLE (greedy baseline)
+        r_fairness_oracle = oracle_stats['fairness'] * 100.0
+        r_latency_oracle = -oracle_stats['latency'] * 2.0
+        r_starvation_oracle = -oracle_stats['recent_expirations'] * 0.5
+        
+        reward_oracle = (self.reward_weights[0] * r_fairness_oracle) + \
+                        (self.reward_weights[1] * r_starvation_oracle) + \
+                        (self.reward_weights[2] * r_latency_oracle)
+        
+        # Advantage: How much better/worse did composite do compared to greedy?
+        advantage = reward_composite - reward_oracle
+        
+        # Normalize the advantage to a reasonable range (~[-2, 2])
+        normalized_advantage = advantage / 5.0
+        
+        return float(normalized_advantage)

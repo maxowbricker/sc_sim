@@ -280,6 +280,76 @@ class MetricsManager:
                 break  # Stop searching once we hit tasks older than 30 mins
         return count
 
+    # ------------------------------------------------------------------
+    # Oracle state serialisation
+    # ------------------------------------------------------------------
+
+    def snapshot_metrics(self) -> dict:
+        """Snapshot all state needed to restore the metrics manager after a
+        greedy oracle run.  Copies lists/dicts by value so the snapshot is
+        independent of the live object.
+        """
+        return {
+            # Step accumulators (reset each step)
+            'step_completed_tasks_count': self.step_completed_tasks_count,
+            'step_wait_times': list(self.step_wait_times),
+            'step_travel_dist': self.step_travel_dist,
+            'step_start_time': self.step_start_time,
+            'step_tasks_released': self.step_tasks_released,
+            'step_deferrals_below_threshold': self.step_deferrals_below_threshold,
+            'step_deferrals_no_candidates': self.step_deferrals_no_candidates,
+            'step_total_deferrals': self.step_total_deferrals,
+            # Current step stats dict (RL observation source)
+            'current_step_stats': dict(self.current_step_stats),
+            # Global accumulators (must be preserved so final results remain
+            # anchored to the composite run, not the greedy oracle run)
+            'total_tasks_released': self.total_tasks_released,
+            '_completed_tasks': self._completed_tasks,
+            '_total_travel_km': self._total_travel_km,
+            '_empty_km': self._empty_km,
+            '_passenger_km': self._passenger_km,
+            '_total_wait_min': self._total_wait_min,
+            '_wait_times': list(self._wait_times),
+            '_backlog_peak': self._backlog_peak,
+            '_assignment_delays': list(self._assignment_delays),
+            '_summary_minimal': {
+                'service_times': list(self._summary_minimal['service_times']),
+                'pickup_distances': list(self._summary_minimal['pickup_distances']),
+                'expired_tasks': list(self._summary_minimal['expired_tasks']),
+            },
+        }
+
+    def restore_metrics(self, snap: dict) -> None:
+        """Overwrite all mutable fields from a snapshot produced by
+        ``snapshot_metrics``.  The fairness_tracker is *not* restored here
+        because it only affects final diagnostics, not the per-step reward
+        signal.  If you need full fairness-tracker fidelity, call
+        ``snapshot_metrics`` before and after and handle it separately.
+        """
+        self.step_completed_tasks_count = snap['step_completed_tasks_count']
+        self.step_wait_times = list(snap['step_wait_times'])
+        self.step_travel_dist = snap['step_travel_dist']
+        self.step_start_time = snap['step_start_time']
+        self.step_tasks_released = snap['step_tasks_released']
+        self.step_deferrals_below_threshold = snap['step_deferrals_below_threshold']
+        self.step_deferrals_no_candidates = snap['step_deferrals_no_candidates']
+        self.step_total_deferrals = snap['step_total_deferrals']
+        self.current_step_stats = dict(snap['current_step_stats'])
+        self.total_tasks_released = snap['total_tasks_released']
+        self._completed_tasks = snap['_completed_tasks']
+        self._total_travel_km = snap['_total_travel_km']
+        self._empty_km = snap['_empty_km']
+        self._passenger_km = snap['_passenger_km']
+        self._total_wait_min = snap['_total_wait_min']
+        self._wait_times = list(snap['_wait_times'])
+        self._backlog_peak = snap['_backlog_peak']
+        self._assignment_delays = list(snap['_assignment_delays'])
+        self._summary_minimal = {
+            'service_times': list(snap['_summary_minimal']['service_times']),
+            'pickup_distances': list(snap['_summary_minimal']['pickup_distances']),
+            'expired_tasks': list(snap['_summary_minimal']['expired_tasks']),
+        }
+
     # --- RL INTERFACE ---
     
     def get_reward_stats(self, current_time) -> Dict[str, float]:
