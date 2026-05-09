@@ -85,6 +85,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(17,), dtype=np.float32)
         
         self.simulator = None
+        self.shadow_simulator = None  # Twin greedy simulator for reward comparison
         self.current_step_idx = 0
         self.episode_count = 0
         _cd = get_strategy_params("composite")
@@ -97,6 +98,9 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.prev_wait = 0.0
         self.prev_backlog = 0.0
         self.prev_arrival_rate = 0.0
+
+        # Twin simulator reward stats (set each step)
+        self.shadow_reward_stats = None
         
         # Initialize a temporary sim to get spaces
         config = get_simulation_config()
@@ -160,25 +164,34 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
             start_time = random.uniform(earliest, max_start)
         self._eval_drop_in_start_time = start_time
         
-        # 3. Initialize Simulator in 'GREEDY' mode for Warmup
+        # 3. Initialize both simulators in 'GREEDY' mode for warmup
         warmup_config = get_simulation_config()
         warmup_config['assignment_strategy'] = 'greedy'
         warmup_config['strategy_params'] = {
             'enable_deferral_tracking': False
         }
-        
+
+        # Main RL simulator
         self.simulator = EventSimulator(self.workers, self.tasks, sim_config=warmup_config)
         self.simulator.reset(start_time=start_time)
-        
-        # 4. Run Warmup (Pure Greedy)
+
+        # Twin (shadow) simulator — identical starting state, stays greedy throughout
+        shadow_config = get_simulation_config()
+        shadow_config['assignment_strategy'] = 'greedy'
+        shadow_config['strategy_params'] = {'enable_deferral_tracking': False}
+        self.shadow_simulator = EventSimulator(self.workers, self.tasks, sim_config=shadow_config)
+        self.shadow_simulator.reset(start_time=start_time)
+
+        # 4. Run Warmup (Pure Greedy) on both
         self.simulator.step(duration_seconds=self.warmup_duration_seconds)
-        
+        self.shadow_simulator.step(duration_seconds=self.warmup_duration_seconds)
+
         # Capture the JFI of the greedy baseline
         warmup_stats = self.simulator.metrics.current_step_stats
         # Compare RL to the exact warmup physics (no artificial floor)
         self.greedy_baseline_jfi = warmup_stats.get('jfi', 0.5)
 
-        # 5. Handover to composite (same params as config.py baseline for fair eval vs static)
+        # 5. Handover main sim to composite; shadow stays greedy forever
         rl_params = get_strategy_params('composite')
         rl_params['normalize_scores'] = True
         rl_params['enable_deferral_tracking'] = True
@@ -218,8 +231,14 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.simulator.strategy_params['utility_weight'] = float(lambda3)
         
         self.last_action = action
-        
-        # 2. Run simulation
+
+        # 2. Step shadow (greedy twin) first, capture its stats as the baseline
+        self.shadow_simulator.step(duration_seconds=self.step_duration)
+        self.shadow_reward_stats = self.shadow_simulator.metrics.get_reward_stats(
+            self.shadow_simulator.current_time
+        )
+
+        # 3. Run main simulation (composite, agent-controlled)
         done = self.simulator.step(duration_seconds=self.step_duration)
         self.current_step_idx += 1
         
@@ -293,24 +312,34 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         return obs
 
     def _calculate_reward(self):
-        stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
+        """
+        Calculate reward as the advantage of composite over the greedy twin.
 
-        # 1. Fairness: Boosted from 50.0 to 100.0
-        # A 0.1 improvement in JFI now yields +10.0 points/step instead of +5.0.
-        r_fairness = stats['fairness'] * 100.0
+        The twin simulator runs greedy in parallel from the same starting state,
+        diverging over time as each sim makes different assignment decisions.
+        Reward = composite_score - greedy_score (advantage over the twin).
+        """
+        composite_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
+        shadow_stats = self.shadow_reward_stats or composite_stats  # Fallback at step 0
 
-        # 2. Latency: Keep at 2.0
-        # This makes the "Exchange Rate" much more favorable for fairness.
-        r_latency = -stats['latency'] * 2.0
+        # Composite (agent) score
+        r_fairness_comp   = composite_stats['fairness'] * 100.0
+        r_latency_comp    = -composite_stats['latency'] * 2.0
+        r_starvation_comp = -composite_stats['recent_expirations'] * 0.5
+        reward_composite  = (self.reward_weights[0] * r_fairness_comp) + \
+                            (self.reward_weights[1] * r_starvation_comp) + \
+                            (self.reward_weights[2] * r_latency_comp)
 
-        # 3. Starvation: Keep at 0.5
-        r_starvation = -stats['recent_expirations'] * 0.5
+        # Greedy twin score
+        r_fairness_shadow   = shadow_stats['fairness'] * 100.0
+        r_latency_shadow    = -shadow_stats['latency'] * 2.0
+        r_starvation_shadow = -shadow_stats['recent_expirations'] * 0.5
+        reward_shadow       = (self.reward_weights[0] * r_fairness_shadow) + \
+                              (self.reward_weights[1] * r_starvation_shadow) + \
+                              (self.reward_weights[2] * r_latency_shadow)
 
-        reward = (self.reward_weights[0] * r_fairness) + \
-                 (self.reward_weights[1] * r_starvation) + \
-                 (self.reward_weights[2] * r_latency)
+        # Advantage: positive = agent beat greedy twin, negative = greedy beat agent
+        advantage = reward_composite - reward_shadow
 
-        # Shift to center around 0 based on new r_fairness scale
-        normalized_reward = (reward - 50.0) / 5.0
-
-        return float(normalized_reward)
+        # Normalise to a stable range (~[-2, 2])
+        return float(advantage / 5.0)
