@@ -313,33 +313,30 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
 
     def _calculate_reward(self):
         """
-        Calculate reward as the advantage of composite over the greedy twin.
+        Calculate reward as the pure linear advantage of composite over the greedy twin.
 
         The twin simulator runs greedy in parallel from the same starting state,
         diverging over time as each sim makes different assignment decisions.
-        Reward = composite_score - greedy_score (advantage over the twin).
+        Pure Linear Advantage: reward = composite_advantage - greedy_advantage
         """
         composite_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
         shadow_stats = self.shadow_reward_stats or composite_stats  # Fallback at step 0
 
-        # Composite (agent) score
-        r_fairness_comp   = composite_stats['fairness'] * 100.0
-        r_latency_comp    = -composite_stats['latency'] * 2.0
-        r_starvation_comp = -composite_stats['recent_expirations'] * 0.5
-        reward_composite  = (self.reward_weights[0] * r_fairness_comp) + \
-                            (self.reward_weights[1] * r_starvation_comp) + \
-                            (self.reward_weights[2] * r_latency_comp)
+        # Fairness Advantage (Higher RL JFI is better)
+        fairness_adv = composite_stats['fairness'] - shadow_stats['fairness']
+        r_fairness = fairness_adv * 100.0
 
-        # Greedy twin score
-        r_fairness_shadow   = shadow_stats['fairness'] * 100.0
-        r_latency_shadow    = -shadow_stats['latency'] * 2.0
-        r_starvation_shadow = -shadow_stats['recent_expirations'] * 0.5
-        reward_shadow       = (self.reward_weights[0] * r_fairness_shadow) + \
-                              (self.reward_weights[1] * r_starvation_shadow) + \
-                              (self.reward_weights[2] * r_latency_shadow)
+        # Latency Advantage (Lower RL Latency is better, so Greedy - RL)
+        # E.g., Greedy = 4m, RL = 3m -> +1m advantage
+        latency_adv = shadow_stats['latency'] - composite_stats['latency']
+        r_latency = latency_adv * 5.0
 
-        # Advantage: positive = agent beat greedy twin, negative = greedy beat agent
-        advantage = reward_composite - reward_shadow
+        # Starvation Advantage (Fewer RL expirations is better)
+        starvation_adv = shadow_stats['recent_expirations'] - composite_stats['recent_expirations']
+        r_starvation = starvation_adv * 1.0
 
-        # Normalise to a stable range (~[-2, 2])
-        return float(advantage / 5.0)
+        # Combine and Normalize
+        reward = r_fairness + r_latency + r_starvation
+        normalized_reward = reward / 5.0
+
+        return float(normalized_reward)
