@@ -308,36 +308,29 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
 
     def _calculate_reward(self):
         """
-        Calculate reward as the advantage of composite over the greedy oracle.
-        
+        Calculate reward as the pure linear advantage of composite over the greedy oracle.
+
         The oracle runs greedy from the exact same state, so reward = 
-        composite_performance - greedy_performance.
+        composite_advantage - greedy_advantage
         """
         composite_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
         oracle_stats = self.oracle_reward_stats or composite_stats  # Fallback if oracle wasn't run
-        
-        # Calculate component rewards for COMPOSITE (what the agent did)
-        r_fairness_comp = composite_stats['fairness'] * 100.0
-        r_latency_comp = -composite_stats['latency'] * 2.0
-        r_starvation_comp = -composite_stats['recent_expirations'] * 0.5
-        
-        reward_composite = (self.reward_weights[0] * r_fairness_comp) + \
-                          (self.reward_weights[1] * r_starvation_comp) + \
-                          (self.reward_weights[2] * r_latency_comp)
-        
-        # Calculate component rewards for ORACLE (greedy baseline)
-        r_fairness_oracle = oracle_stats['fairness'] * 100.0
-        r_latency_oracle = -oracle_stats['latency'] * 2.0
-        r_starvation_oracle = -oracle_stats['recent_expirations'] * 0.5
-        
-        reward_oracle = (self.reward_weights[0] * r_fairness_oracle) + \
-                        (self.reward_weights[1] * r_starvation_oracle) + \
-                        (self.reward_weights[2] * r_latency_oracle)
-        
-        # Advantage: How much better/worse did composite do compared to greedy?
-        advantage = reward_composite - reward_oracle
-        
-        # Normalize the advantage to a reasonable range (~[-2, 2])
-        normalized_advantage = advantage / 5.0
-        
-        return float(normalized_advantage)
+
+        # Fairness Advantage (Higher RL JFI is better)
+        fairness_adv = composite_stats['fairness'] - oracle_stats['fairness']
+        r_fairness = fairness_adv * 100.0
+
+        # Latency Advantage (Lower RL Latency is better, so Greedy - RL)
+        # E.g., Greedy = 4m, RL = 3m -> +1m advantage
+        latency_adv = oracle_stats['latency'] - composite_stats['latency']
+        r_latency = latency_adv * 5.0
+
+        # Starvation Advantage (Fewer RL expirations is better)
+        starvation_adv = oracle_stats['recent_expirations'] - composite_stats['recent_expirations']
+        r_starvation = starvation_adv * 1.0
+
+        # Combine and Normalize
+        reward = r_fairness + r_latency + r_starvation
+        normalized_reward = reward / 5.0
+
+        return float(normalized_reward)
