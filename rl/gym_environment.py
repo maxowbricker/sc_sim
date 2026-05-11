@@ -320,7 +320,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         Otherwise, the agent is free to chase fairness without latency constraint.
         """
         composite_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
-        shadow_stats = self.shadow_reward_stats or composite_stats  # Fallback at step 0
+        shadow_stats = self.shadow_reward_stats
 
         # 1. FAIRNESS ADVANTAGE (The Goal)
         # Positive = RL is fairer than Shadow. Negative = RL is worse.
