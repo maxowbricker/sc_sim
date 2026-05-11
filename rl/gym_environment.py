@@ -315,7 +315,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         Otherwise, the agent is free to chase fairness without latency constraint.
         """
         composite_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
-        oracle_stats = self.oracle_reward_stats or composite_stats  # Fallback if oracle wasn't run
+        oracle_stats = self.oracle_reward_stats
 
         # 1. FAIRNESS ADVANTAGE (The Goal)
         # Positive = RL is fairer than Oracle. Negative = RL is worse.
