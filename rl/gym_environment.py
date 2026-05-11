@@ -222,13 +222,18 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         
         self.last_action = action
         
-        # 2. Run Oracle (Greedy Baseline) to get "reality check" stats
+        # 2. Run Oracle (Static Composite Baseline) to get "competitor ghost" stats.
+        # The oracle uses the fixed static composite weights [fairness=1.0, starvation=0.2, utility=1.0]
+        # rather than greedy, so the reward signal is "can RL beat the static heuristic?" directly.
         oracle_snap = self.simulator.snapshot_state()
-        self.simulator.switch_strategy('greedy')
+        static_composite_params = get_strategy_params('composite')
+        static_composite_params['normalize_scores'] = True
+        static_composite_params['enable_deferral_tracking'] = False
+        self.simulator.switch_strategy('composite', static_composite_params)
         self.simulator.step(duration_seconds=self.step_duration)
         oracle_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
         self.oracle_reward_stats = oracle_stats  # Store for reward calculation
-        
+
         # 3. Restore to pre-oracle state
         self.simulator.restore_state(oracle_snap)
         
@@ -308,31 +313,34 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
 
     def _calculate_reward(self):
         """
-        Calculate reward as asymmetric linear advantage vs oracle.
-        
-        ASYMMETRIC LINEAR APPROACH:
-        - Fairness: Massively scaled (1000x) to overpower latency leash.
-        - Latency: Capped at 0 — no reward for beating oracle, only penalty when slower.
-        - Starvation: Capped at 0 — no reward for fewer expirations than oracle.
+        Calculate reward as symmetric advantage vs static composite oracle.
+
+        SYMMETRIC STATIC-COMPOSITE ADVANTAGE:
+        - Oracle is now the static composite [λ1=1.0, λ2=0.2, λ3=1.0], not greedy.
+        - The agent's goal is to beat the static heuristic it is designed to replace.
+        - Since the static composite also incurs fairness-driven latency costs, beating its
+          wait time is a valid, rewardable achievement (symmetric latency term).
+        - Fairness is scaled 1000x so it dominates — the primary signal is "be fairer
+          and/or faster than the fixed-weight baseline."
         """
         composite_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
         oracle_stats = self.oracle_reward_stats
 
-        # 1. MASSIVELY SCALED FAIRNESS (The Carrot)
-        # 10x boost to make fairness lucrative enough to justify latency penalty
+        # 1. FAIRNESS ADVANTAGE (The Primary Goal)
+        # Positive if RL is fairer than the Static Composite oracle
         fairness_adv = composite_stats['fairness'] - oracle_stats['fairness']
         r_fairness = fairness_adv * 1000.0
 
-        # 2. ASYMMETRIC LATENCY (The Stick)
-        # No positive reward for beating oracle; only penalty when slower.
-        # oracle_latency - composite_latency: positive if RL is slower, negative if faster
+        # 2. SYMMETRIC LATENCY ADVANTAGE
+        # Positive if RL is FASTER than the Static Composite; negative if SLOWER.
+        # Unlike greedy, the static composite naturally incurs latency, so beating it is meaningful.
         latency_adv = oracle_stats['latency'] - composite_stats['latency']
-        r_latency = min(0.0, latency_adv) * 5.0  # Cap at 0, so negative latency_adv → penalty
+        r_latency = latency_adv * 10.0
 
-        # 3. ASYMMETRIC STARVATION
-        # No positive reward for fewer expirations; only penalty if more.
+        # 3. STARVATION ADVANTAGE
+        # Positive if RL lets fewer tasks expire than the Static Composite
         starvation_adv = oracle_stats['recent_expirations'] - composite_stats['recent_expirations']
-        r_starvation = min(0.0, starvation_adv) * 1.0  # Cap at 0
+        r_starvation = starvation_adv * 1.0
 
         # Combine and Normalize
         reward = r_fairness + r_latency + r_starvation
