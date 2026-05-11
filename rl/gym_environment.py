@@ -308,26 +308,31 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
 
     def _calculate_reward(self):
         """
-        Calculate reward as the pure linear advantage of composite over the greedy oracle.
-
-        The oracle runs greedy from the exact same state, so reward = 
-        composite_advantage - greedy_advantage
+        Calculate reward as asymmetric linear advantage vs oracle.
+        
+        ASYMMETRIC LINEAR APPROACH:
+        - Fairness: Massively scaled (1000x) to overpower latency leash.
+        - Latency: Capped at 0 — no reward for beating oracle, only penalty when slower.
+        - Starvation: Capped at 0 — no reward for fewer expirations than oracle.
         """
         composite_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
         oracle_stats = self.oracle_reward_stats
 
-        # Fairness Advantage (Higher RL JFI is better)
+        # 1. MASSIVELY SCALED FAIRNESS (The Carrot)
+        # 10x boost to make fairness lucrative enough to justify latency penalty
         fairness_adv = composite_stats['fairness'] - oracle_stats['fairness']
-        r_fairness = fairness_adv * 100.0
+        r_fairness = fairness_adv * 1000.0
 
-        # Latency Advantage (Lower RL Latency is better, so Greedy - RL)
-        # E.g., Greedy = 4m, RL = 3m -> +1m advantage
+        # 2. ASYMMETRIC LATENCY (The Stick)
+        # No positive reward for beating oracle; only penalty when slower.
+        # oracle_latency - composite_latency: positive if RL is slower, negative if faster
         latency_adv = oracle_stats['latency'] - composite_stats['latency']
-        r_latency = latency_adv * 5.0
+        r_latency = min(0.0, latency_adv) * 5.0  # Cap at 0, so negative latency_adv → penalty
 
-        # Starvation Advantage (Fewer RL expirations is better)
+        # 3. ASYMMETRIC STARVATION
+        # No positive reward for fewer expirations; only penalty if more.
         starvation_adv = oracle_stats['recent_expirations'] - composite_stats['recent_expirations']
-        r_starvation = starvation_adv * 1.0
+        r_starvation = min(0.0, starvation_adv) * 1.0  # Cap at 0
 
         # Combine and Normalize
         reward = r_fairness + r_latency + r_starvation
