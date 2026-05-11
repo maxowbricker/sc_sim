@@ -320,7 +320,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         Pure Linear Advantage: reward = composite_advantage - greedy_advantage
         """
         composite_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
-        shadow_stats = self.shadow_reward_stats or composite_stats  # Fallback at step 0
+        shadow_stats = self.shadow_reward_stats
 
         # Fairness Advantage (Higher RL JFI is better)
         fairness_adv = composite_stats['fairness'] - shadow_stats['fairness']
