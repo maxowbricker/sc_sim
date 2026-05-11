@@ -308,32 +308,35 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
 
     def _calculate_reward(self):
         """
-        Calculate reward using the Bounded "Dynamic SLA" approach.
+        Calculate reward using the Capped Dynamic SLA approach.
 
-        The agent gets massive points for beating the greedy oracle's fairness.
-        Latency is only penalized if noticeably slower than the oracle (> 0.1 min buffer).
-        Otherwise, the agent is free to chase fairness without latency constraint.
+        CARROT (Fairness): Massively scaled (1000x) to make fairness lucrative.
+        STICK (Latency): Dynamic SLA with 0.1 min buffer, but penalty CAPPED at -10.0.
+        
+        The cap ensures that even if RL is very slow, the penalty is bounded,
+        making massive fairness gains mathematically profitable.
         """
         composite_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
         oracle_stats = self.oracle_reward_stats
 
-        # 1. FAIRNESS ADVANTAGE (The Goal)
-        # Positive = RL is fairer than Oracle. Negative = RL is worse.
+        # 1. SCALED FAIRNESS ADVANTAGE (The Massive Carrot)
+        # 10x boost to make fairness lucrative enough to justify latency penalty
         fairness_adv = composite_stats['fairness'] - oracle_stats['fairness']
-        r_fairness = fairness_adv * 100.0
+        r_fairness = fairness_adv * 1000.0
 
-        # 2. DYNAMIC LATENCY SLA (The Constraint)
+        # 2. CAPPED DYNAMIC LATENCY SLA (The Forgiving Stick)
         # How much slower are we compared to the oracle baseline right now?
         latency_diff = composite_stats['latency'] - oracle_stats['latency']
 
-        # Give the agent a 6-second (0.1 min) buffer to avoid micro-penalties
         if latency_diff <= 0.1:
-            # SAFE ZONE: We are faster than oracle, or virtually tied.
+            # SAFE ZONE: Within 0.1 min (6 seconds) of oracle, no penalty
             r_latency = 0.0
         else:
-            # DANGER ZONE: We are noticeably slower than oracle.
-            # E.g., Oracle is 2.5m, RL is 3.0m -> latency_diff = 0.5 -> Penalty = -5.0
-            r_latency = -10.0 * latency_diff
+            # DANGER ZONE: Slower than oracle by > 0.1 min
+            # Penalty grows, but cannot exceed -10.0 points (capped floor)
+            # E.g., latency_diff = 2.0 → raw = -20.0 → capped = -10.0
+            raw_penalty = -10.0 * latency_diff
+            r_latency = max(-10.0, raw_penalty)
 
         # 3. STARVATION ADVANTAGE
         # Positive = RL let fewer tasks expire than Oracle
@@ -343,7 +346,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         # Combine
         reward = r_fairness + r_latency + r_starvation
 
-        # Normalize: Advantage naturally centers near 0, so no "- 50.0" shift is needed.
+        # Normalize
         normalized_reward = reward / 5.0
 
         return float(normalized_reward)
