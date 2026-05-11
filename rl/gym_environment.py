@@ -314,7 +314,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         composite_advantage - greedy_advantage
         """
         composite_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
-        oracle_stats = self.oracle_reward_stats or composite_stats  # Fallback if oracle wasn't run
+        oracle_stats = self.oracle_reward_stats
 
         # Fairness Advantage (Higher RL JFI is better)
         fairness_adv = composite_stats['fairness'] - oracle_stats['fairness']
