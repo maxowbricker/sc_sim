@@ -67,10 +67,11 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.workers = workers
         self.tasks = tasks
         
-        # Define Action Space: Continuous [λ1, λ2]
-        self.action_space = spaces.Box(low=np.array([0.0, 0.0], dtype=np.float32), 
-                                        high=np.array([2.0, 0.5], dtype=np.float32), 
-                                        dtype=np.float32)
+        # Define Action Space: Symmetric [-1, 1] × [-1, 1]
+        # Mapped in step() to physical ranges:
+        #   λ1: [-1, 1] → [0.0, 2.0]  (network output 0 → λ1 = 1.0, the Optuna optimum)
+        #   λ2: [-1, 1] → [0.0, 0.5]  (network output 0 → λ2 = 0.25)
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
         
         # Fetch defaults from config.py to ensure a single source of truth
         composite_defaults = get_strategy_params('composite')
@@ -81,8 +82,8 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.k_fixed = composite_defaults['k']
         self.threshold_fixed = composite_defaults['soft_threshold']
         
-        # 17 scalars: assignment delay channels removed (release→assign is ~always 0 in discrete-event sim)
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(17,), dtype=np.float32)
+        # 15 scalars: last_action removed from obs to break self-fulfilling-prophecy collapse
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(15,), dtype=np.float32)
         
         self.simulator = None
         self.shadow_simulator = None  # Twin greedy simulator for reward comparison
@@ -98,6 +99,10 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.prev_wait = 0.0
         self.prev_backlog = 0.0
         self.prev_arrival_rate = 0.0
+
+        # Delta JFI tracking for reward (both RL and twin share same prev_jfi start point)
+        self._delta_jfi_rl = 0.0
+        self._delta_jfi_twin = 0.0
 
         # Twin simulator reward stats (set each step)
         self.shadow_reward_stats = None
@@ -208,6 +213,8 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.prev_wait = 0.0
         self.prev_backlog = 0.0
         self.prev_arrival_rate = 0.0
+        self._delta_jfi_rl = 0.0
+        self._delta_jfi_twin = 0.0
         
         # 6. Set Hard End Time
         self.episode_end_time = self.simulator.current_time + self.episode_duration_seconds
@@ -222,15 +229,17 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     def step(self, action):
         # Flatten action for DummyVecEnv compatibility
         action = np.ravel(action)
-        lambda1, lambda2 = action
+        # Map symmetric [-1, 1] to physical weight ranges:
+        lambda1 = float(np.clip(action[0], -1.0, 1.0)) + 1.0        # → [0.0, 2.0]
+        lambda2 = (float(np.clip(action[1], -1.0, 1.0)) + 1.0) * 0.25  # → [0.0, 0.5]
         lambda3 = self.lambda3_fixed
-        
+
+        self.last_action = np.array([lambda1, lambda2], dtype=np.float32)
+
         # 1. Apply action
-        self.simulator.strategy_params['fairness_weight'] = float(lambda1)
-        self.simulator.strategy_params['starvation_weight'] = float(lambda2)
-        self.simulator.strategy_params['utility_weight'] = float(lambda3)
-        
-        self.last_action = action
+        self.simulator.strategy_params['fairness_weight'] = lambda1
+        self.simulator.strategy_params['starvation_weight'] = lambda2
+        self.simulator.strategy_params['utility_weight'] = lambda3
 
         # 2. Step shadow (greedy twin) first, capture its stats as the baseline
         self.shadow_simulator.step(duration_seconds=self.step_duration)
@@ -241,15 +250,21 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         # 3. Run main simulation (composite, agent-controlled)
         done = self.simulator.step(duration_seconds=self.step_duration)
         self.current_step_idx += 1
-        
-        # 3. Check termination
+
+        # 4. Compute delta JFI BEFORE _get_observation() updates self.prev_jfi.
+        # Both RL and twin start each step from the same prev_jfi reference point.
+        _rl_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
+        self._delta_jfi_rl   = _rl_stats['fairness']                  - self.prev_jfi
+        self._delta_jfi_twin = self.shadow_reward_stats['fairness']    - self.prev_jfi
+
+        # 5. Check termination
         if self.episode_end_time and self.simulator.current_time >= self.episode_end_time:
             done = True
             
         terminated = done
         truncated = False
         
-        # 4. Get observation & calculate reward
+        # 6. Get observation & calculate reward
         obs = self._get_observation()
         reward = self._calculate_reward()
         
@@ -266,7 +281,9 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         
     def _get_observation(self):
         """
-        Extract 17 features from simulator state (assignment delay omitted: ~0 in discrete-event sim).
+        Extract 15 features from simulator state.
+        last_action removed: including it creates a self-fulfilling prophecy where
+        the agent observes λ1=0 every step and never explores non-zero values.
         Scaling: config.get_observation_static_scaling() / OBSERVATION_STATIC_SCALING.
         """
         sim_obs = self.simulator.metrics.get_observation_data(self.simulator.state, self.simulator.current_time)
@@ -290,53 +307,56 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         eps = 1e-8
 
         obs = np.array([
-            sim_obs['deferred_ratio'],                          # 0
-            sim_obs['worker_availability_ratio'],               # 1
+            sim_obs['deferred_ratio'],                              # 0
+            sim_obs['worker_availability_ratio'],                   # 1
             sim_obs['total_workers'] / max(_o["worker_count_divisor"], eps),  # 2
-            curr_backlog / max(_o["ref_backlog"], eps),         # 3
-            curr_jfi,                                           # 4
-            delta_jfi / max(_o["max_abs_jfi_delta"], eps),      # 5
-            curr_wait / max(_o["ref_wait_minutes"], eps),       # 6
-            delta_wait / max(_o["max_abs_wait_delta"], eps),    # 7
+            curr_backlog / max(_o["ref_backlog"], eps),             # 3
+            curr_jfi,                                               # 4
+            delta_jfi / max(_o["max_abs_jfi_delta"], eps),          # 5
+            curr_wait / max(_o["ref_wait_minutes"], eps),           # 6
+            delta_wait / max(_o["max_abs_wait_delta"], eps),        # 7
             delta_backlog / max(_o["max_abs_backlog_delta"], eps),  # 8
             delta_arrival / max(_o["max_abs_arrival_delta"], eps),  # 9
-            sim_obs['is_midweek'],                              # 10
-            sim_obs['is_mon_fri'],                              # 11
-            sim_obs['is_weekend'],                              # 12
-            sim_obs['time_sin'],                                # 13
-            sim_obs['time_cos'],                                # 14
-            self.last_action[0],                                # 15
-            self.last_action[1],                                # 16
+            sim_obs['is_midweek'],                                  # 10
+            sim_obs['is_mon_fri'],                                  # 11
+            sim_obs['is_weekend'],                                  # 12
+            sim_obs['time_sin'],                                    # 13
+            sim_obs['time_cos'],                                    # 14
         ], dtype=np.float32)
         
         return obs
 
     def _calculate_reward(self):
         """
-        Calculate reward as the pure linear advantage of composite over the greedy twin.
+        Delta-JFI Advantage vs Greedy Twin Simulator.
 
-        The twin simulator runs greedy in parallel from the same starting state,
-        diverging over time as each sim makes different assignment decisions.
-        Pure Linear Advantage: reward = composite_advantage - greedy_advantage
+        Uses step-over-step JFI change rather than absolute JFI level to fix the
+        credit-assignment problem. Because the twin diverges from the RL sim over the
+        full 8 hours, cumulative JFI differences reflect long-term fairness gains — but
+        they lag the action that caused them by 3-5 steps. Delta JFI is attributable to
+        THIS step's assignment decisions.
+
+        Both RL and twin share the same prev_jfi reference (computed before either step runs),
+        so the delta advantage is a clean measure of which strategy moved JFI more this step.
+
+        - Fairness (delta): 200x scale. Positive = RL improved JFI more than twin this step.
+        - Latency: Asymmetric — no reward for beating twin, only penalty when slower.
+        - Starvation: Asymmetric — no reward for fewer expirations, only penalty if more.
         """
         composite_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
-        shadow_stats = self.shadow_reward_stats
+        shadow_stats = self.shadow_reward_stats or composite_stats
 
-        # Fairness Advantage (Higher RL JFI is better)
-        fairness_adv = composite_stats['fairness'] - shadow_stats['fairness']
-        r_fairness = fairness_adv * 100.0
+        # 1. DELTA JFI ADVANTAGE (The Carrot — step-attributable fairness signal)
+        fairness_delta_adv = self._delta_jfi_rl - self._delta_jfi_twin
+        r_fairness = fairness_delta_adv * 200.0
 
-        # Latency Advantage (Lower RL Latency is better, so Greedy - RL)
-        # E.g., Greedy = 4m, RL = 3m -> +1m advantage
+        # 2. ASYMMETRIC LATENCY (The Stick — penalise being slower, not reward being faster)
         latency_adv = shadow_stats['latency'] - composite_stats['latency']
-        r_latency = latency_adv * 5.0
+        r_latency = min(0.0, latency_adv) * 5.0
 
-        # Starvation Advantage (Fewer RL expirations is better)
+        # 3. ASYMMETRIC STARVATION
         starvation_adv = shadow_stats['recent_expirations'] - composite_stats['recent_expirations']
-        r_starvation = starvation_adv * 1.0
+        r_starvation = min(0.0, starvation_adv) * 1.0
 
-        # Combine and Normalize
         reward = r_fairness + r_latency + r_starvation
-        normalized_reward = reward / 5.0
-
-        return float(normalized_reward)
+        return float(reward / 5.0)
