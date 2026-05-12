@@ -67,10 +67,11 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.workers = workers
         self.tasks = tasks
         
-        # Define Action Space: Continuous [λ1, λ2]
-        self.action_space = spaces.Box(low=np.array([0.0, 0.0], dtype=np.float32), 
-                                        high=np.array([2.0, 0.5], dtype=np.float32), 
-                                        dtype=np.float32)
+        # Define Action Space: Symmetric [-1, 1] × [-1, 1]
+        # Mapped in step() to physical ranges:
+        #   λ1: [-1, 1] → [0.0, 2.0]  (network output 0 → λ1 = 1.0, the Optuna optimum)
+        #   λ2: [-1, 1] → [0.0, 0.5]  (network output 0 → λ2 = 0.25)
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
         
         # Fetch defaults from config.py to ensure a single source of truth
         composite_defaults = get_strategy_params('composite')
@@ -81,8 +82,8 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.k_fixed = composite_defaults['k']
         self.threshold_fixed = composite_defaults['soft_threshold']
         
-        # 17 scalars: assignment delay channels removed (release→assign is ~always 0 in discrete-event sim)
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(17,), dtype=np.float32)
+        # 15 scalars: last_action removed from obs to break self-fulfilling-prophecy collapse
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(15,), dtype=np.float32)
         
         self.simulator = None
         self.current_step_idx = 0
@@ -97,6 +98,9 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.prev_wait = 0.0
         self.prev_backlog = 0.0
         self.prev_arrival_rate = 0.0
+
+        # Δ JFI for reward (computed in step() before _get_observation() updates self.prev_jfi)
+        self._delta_jfi_rl = 0.0
         
         # Initialize a temporary sim to get spaces
         config = get_simulation_config()
@@ -195,6 +199,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.prev_wait = 0.0
         self.prev_backlog = 0.0
         self.prev_arrival_rate = 0.0
+        self._delta_jfi_rl = 0.0
         
         # 6. Set Hard End Time
         self.episode_end_time = self.simulator.current_time + self.episode_duration_seconds
@@ -209,28 +214,34 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
     def step(self, action):
         # Flatten action for DummyVecEnv compatibility
         action = np.ravel(action)
-        lambda1, lambda2 = action
+        # Map symmetric [-1, 1] to physical weight ranges:
+        lambda1 = float(np.clip(action[0], -1.0, 1.0)) + 1.0        # → [0.0, 2.0]
+        lambda2 = (float(np.clip(action[1], -1.0, 1.0)) + 1.0) * 0.25  # → [0.0, 0.5]
         lambda3 = self.lambda3_fixed
-        
+
+        self.last_action = np.array([lambda1, lambda2], dtype=np.float32)
+
         # 1. Apply action
-        self.simulator.strategy_params['fairness_weight'] = float(lambda1)
-        self.simulator.strategy_params['starvation_weight'] = float(lambda2)
-        self.simulator.strategy_params['utility_weight'] = float(lambda3)
-        
-        self.last_action = action
+        self.simulator.strategy_params['fairness_weight'] = lambda1
+        self.simulator.strategy_params['starvation_weight'] = lambda2
+        self.simulator.strategy_params['utility_weight'] = lambda3
         
         # 2. Run simulation
         done = self.simulator.step(duration_seconds=self.step_duration)
         self.current_step_idx += 1
+
+        # 3. Compute Δ JFI BEFORE _get_observation() updates self.prev_jfi
+        _stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
+        self._delta_jfi_rl = _stats['fairness'] - self.prev_jfi
         
-        # 3. Check termination
+        # 4. Check termination
         if self.episode_end_time and self.simulator.current_time >= self.episode_end_time:
             done = True
             
         terminated = done
         truncated = False
         
-        # 4. Get observation & calculate reward
+        # 5. Get observation & calculate reward
         obs = self._get_observation()
         reward = self._calculate_reward()
         
@@ -247,7 +258,9 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         
     def _get_observation(self):
         """
-        Extract 17 features from simulator state (assignment delay omitted: ~0 in discrete-event sim).
+        Extract 15 features from simulator state.
+        last_action removed: including it creates a self-fulfilling prophecy where
+        the agent observes λ1=0 every step and never explores non-zero values.
         Scaling: config.get_observation_static_scaling() / OBSERVATION_STATIC_SCALING.
         """
         sim_obs = self.simulator.metrics.get_observation_data(self.simulator.state, self.simulator.current_time)
@@ -271,46 +284,55 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         eps = 1e-8
 
         obs = np.array([
-            sim_obs['deferred_ratio'],                          # 0
-            sim_obs['worker_availability_ratio'],               # 1
+            sim_obs['deferred_ratio'],                              # 0
+            sim_obs['worker_availability_ratio'],                   # 1
             sim_obs['total_workers'] / max(_o["worker_count_divisor"], eps),  # 2
-            curr_backlog / max(_o["ref_backlog"], eps),         # 3
-            curr_jfi,                                           # 4
-            delta_jfi / max(_o["max_abs_jfi_delta"], eps),      # 5
-            curr_wait / max(_o["ref_wait_minutes"], eps),       # 6
-            delta_wait / max(_o["max_abs_wait_delta"], eps),    # 7
+            curr_backlog / max(_o["ref_backlog"], eps),             # 3
+            curr_jfi,                                               # 4
+            delta_jfi / max(_o["max_abs_jfi_delta"], eps),          # 5
+            curr_wait / max(_o["ref_wait_minutes"], eps),           # 6
+            delta_wait / max(_o["max_abs_wait_delta"], eps),        # 7
             delta_backlog / max(_o["max_abs_backlog_delta"], eps),  # 8
             delta_arrival / max(_o["max_abs_arrival_delta"], eps),  # 9
-            sim_obs['is_midweek'],                              # 10
-            sim_obs['is_mon_fri'],                              # 11
-            sim_obs['is_weekend'],                              # 12
-            sim_obs['time_sin'],                                # 13
-            sim_obs['time_cos'],                                # 14
-            self.last_action[0],                                # 15
-            self.last_action[1],                                # 16
+            sim_obs['is_midweek'],                                  # 10
+            sim_obs['is_mon_fri'],                                  # 11
+            sim_obs['is_weekend'],                                  # 12
+            sim_obs['time_sin'],                                    # 13
+            sim_obs['time_cos'],                                    # 14
         ], dtype=np.float32)
         
         return obs
 
     def _calculate_reward(self):
+        """
+        Delta-JFI reward — standard environment (no Oracle/Twin). Trial D control group.
+
+        Uses step-over-step JFI change (Δ JFI) as the fairness signal instead of
+        absolute JFI level. This is the key change that enabled λ1 exploration in
+        run_20260501_135623 (max λ1 = 0.357, the highest ever recorded).
+
+        The Δ JFI is computed in step() before _get_observation() updates self.prev_jfi,
+        so the delta is correctly attributable to the action taken in this step.
+
+        Latency and starvation keep their original absolute penalty formulas (they respond
+        immediately and don't suffer from the same credit-assignment delay as JFI).
+        """
         stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
 
-        # 1. Fairness: Boosted from 50.0 to 100.0
-        # A 0.1 improvement in JFI now yields +10.0 points/step instead of +5.0.
-        r_fairness = stats['fairness'] * 100.0
+        # 1. DELTA JFI (The Carrot — immediate, step-attributable signal)
+        # self._delta_jfi_rl set in step() before obs update. Scale 1000x so a +0.001
+        # JFI improvement this step yields +0.2 reward (same scale as run_20260501_135623).
+        r_fairness = self._delta_jfi_rl * 1000.0
 
-        # 2. Latency: Keep at 2.0
-        # This makes the "Exchange Rate" much more favorable for fairness.
+        # 2. LATENCY — absolute penalty (responds immediately, no credit-assignment issue)
         r_latency = -stats['latency'] * 2.0
 
-        # 3. Starvation: Keep at 0.5
+        # 3. STARVATION — absolute penalty
         r_starvation = -stats['recent_expirations'] * 0.5
 
         reward = (self.reward_weights[0] * r_fairness) + \
                  (self.reward_weights[1] * r_starvation) + \
                  (self.reward_weights[2] * r_latency)
 
-        # Shift to center around 0 based on new r_fairness scale
-        normalized_reward = (reward - 50.0) / 5.0
-
-        return float(normalized_reward)
+        # No (reward - 50) shift: Δ JFI naturally centres near 0
+        return float(reward / 5.0)
