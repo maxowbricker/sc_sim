@@ -61,27 +61,49 @@ def _write_readable_steps_txt(log_rows, txt_path: str) -> str:
     return txt_path
 
 
-def _write_metrics_txt(path: str, static_stats: dict, rl_stats: dict) -> None:
-    """Save the static vs RL comparison table as plain text."""
+def _write_metrics_txt(path: str, static_stats: dict, rl_stats: dict, greedy_stats: dict = None) -> None:
+    """Save the static vs RL (vs greedy) comparison table as plain text."""
     jfi_delta = rl_stats["final_jains_fairness_index"] - static_stats["final_jains_fairness_index"]
     backlog_delta = rl_stats["backlog_peak"] - static_stats["backlog_peak"]
     wait_delta = rl_stats["avg_wait_time_minutes"] - static_stats["avg_wait_time_minutes"]
     jfi_trend = "🟢" if jfi_delta > 0 else "🔴"
     backlog_trend = "🟢" if backlog_delta < 0 else "🔴"
     wait_trend = "🟢" if wait_delta < 0 else "🔴"
-    lines = [
-        "Static baseline vs RL agent (same day, eval_seed, protocol as console run)\n",
-        "=" * 60 + "\n",
-        f"{'Metric':<20} | {'Static Baseline':<15} | {'RL Agent':<15} | {'Improvement'}\n",
-        "-" * 60 + "\n",
-        f"{'JFI (Fairness)':<20} | {static_stats['final_jains_fairness_index']:<15.4f} | "
-        f"{rl_stats['final_jains_fairness_index']:<15.4f} | {jfi_trend} {jfi_delta:+.4f}\n",
-        f"{'Peak Backlog':<20} | {static_stats['backlog_peak']:<15.0f} | "
-        f"{rl_stats['backlog_peak']:<15.0f} | {backlog_trend} {backlog_delta:+.0f}\n",
-        f"{'Avg Wait Time (m)':<20} | {static_stats['avg_wait_time_minutes']:<15.2f} | "
-        f"{rl_stats['avg_wait_time_minutes']:<15.2f} | {wait_trend} {wait_delta:+.2f}\n",
-        "=" * 60 + "\n",
-    ]
+    
+    if greedy_stats is None:
+        # Original two-column format
+        lines = [
+            "Static baseline vs RL agent (same day, eval_seed, protocol as console run)\n",
+            "=" * 60 + "\n",
+            f"{'Metric':<20} | {'Static Baseline':<15} | {'RL Agent':<15} | {'Improvement'}\n",
+            "-" * 60 + "\n",
+            f"{'JFI (Fairness)':<20} | {static_stats['final_jains_fairness_index']:<15.4f} | "
+            f"{rl_stats['final_jains_fairness_index']:<15.4f} | {jfi_trend} {jfi_delta:+.4f}\n",
+            f"{'Peak Backlog':<20} | {static_stats['backlog_peak']:<15.0f} | "
+            f"{rl_stats['backlog_peak']:<15.0f} | {backlog_trend} {backlog_delta:+.0f}\n",
+            f"{'Avg Wait Time (m)':<20} | {static_stats['avg_wait_time_minutes']:<15.2f} | "
+            f"{rl_stats['avg_wait_time_minutes']:<15.2f} | {wait_trend} {wait_delta:+.2f}\n",
+            "=" * 60 + "\n",
+        ]
+    else:
+        # Three-column format: Static | RL | Greedy
+        lines = [
+            "Static baseline vs RL agent vs Greedy (same day, eval_seed, protocol as console run)\n",
+            "=" * 80 + "\n",
+            f"{'Metric':<20} | {'Static':<12} | {'RL Agent':<12} | {'Greedy':<12} | {'RL vs Static'}\n",
+            "-" * 80 + "\n",
+            f"{'JFI (Fairness)':<20} | {static_stats['final_jains_fairness_index']:<12.4f} | "
+            f"{rl_stats['final_jains_fairness_index']:<12.4f} | "
+            f"{greedy_stats['final_jains_fairness_index']:<12.4f} | {jfi_trend} {jfi_delta:+.4f}\n",
+            f"{'Peak Backlog':<20} | {static_stats['backlog_peak']:<12.0f} | "
+            f"{rl_stats['backlog_peak']:<12.0f} | "
+            f"{greedy_stats['backlog_peak']:<12.0f} | {backlog_trend} {backlog_delta:+.0f}\n",
+            f"{'Avg Wait Time (m)':<20} | {static_stats['avg_wait_time_minutes']:<12.2f} | "
+            f"{rl_stats['avg_wait_time_minutes']:<12.2f} | "
+            f"{greedy_stats['avg_wait_time_minutes']:<12.2f} | {wait_trend} {wait_delta:+.2f}\n",
+            "=" * 80 + "\n",
+        ]
+    
     out = path
     if not os.path.isabs(out):
         out = os.path.join(PROJECT_ROOT, out.lstrip("./"))
@@ -128,6 +150,36 @@ def run_static_baseline(day, data_root, eval_seed: int = 42):
     print(f"      ✅ Finished in {time.time() - t0:.2f} seconds.")
     return stats
 
+
+def run_greedy_full_episode(day, data_root, eval_seed: int = 42):
+    """
+    Run a full 8-hour greedy episode (no weighting, pure greedy assignment).
+    """
+    print(f"\n[Greedy] 🟢 Running pure greedy assignment for {day}...")
+    print(f"      eval_seed={eval_seed}")
+    t0 = time.time()
+
+    random.seed(eval_seed)
+    np.random.seed(eval_seed)
+
+    env = AdaptiveSpatialCrowdsourcingEnv(data_root=data_root, day_folders=[day])
+    obs, _ = env.reset(seed=eval_seed)
+
+    env.simulator.switch_strategy("greedy", {})
+    print(f"      🟢 Pure greedy (no weights)")
+
+    done = False
+    while not done:
+        obs, reward, terminated, truncated, info = env.step(
+            np.array([0.0, 0.0], dtype=np.float32)  # Dummy action, not used in greedy
+        )
+        done = terminated or truncated
+
+    stats = env.simulator.get_final_results()
+    print(f"      ✅ Finished in {time.time() - t0:.2f} seconds.")
+    return stats
+
+
 def run_rl_agent(
     model_path,
     day,
@@ -159,11 +211,11 @@ def run_rl_agent(
         step_num += 1
         action, _ = model.predict(obs, deterministic=True)
         a = np.ravel(action)  # Handle (2,) or (1,2) from DummyVecEnv
-        if not quiet:
-            print(f"      🤖 Agent chose weights: λ1 (Fairness)={a[0]:.2f}, λ2 (Starvation)={a[1]:.2f}")
         obs, reward, terminated, truncated, info = env.step(a)
+        lam = info.get("lambdas", [float(a[0]), float(a[1]), env.lambda3_fixed])
+        if not quiet:
+            print(f"      🤖 Agent chose weights: λ1 (Fairness)={lam[0]:.2f}, λ2 (Starvation)={lam[1]:.2f}")
         if weights_log_path is not None:
-            lam = info.get("lambdas", [float(a[0]), float(a[1]), env.lambda3_fixed])
             log_rows.append({
                 "env_step": info.get("step", len(log_rows) + 1),
                 "sim_time": info.get("current_time"),
@@ -266,6 +318,9 @@ def main():
     static_stats = None
     if not args.rl_only:
         static_stats = run_static_baseline(args.day, args.data_root, eval_seed=args.eval_seed)
+    
+    greedy_stats = run_greedy_full_episode(args.day, args.data_root, eval_seed=args.eval_seed)
+    
     rl_stats = run_rl_agent(
         args.model,
         args.day,
@@ -290,22 +345,22 @@ def main():
     backlog_delta = rl_stats['backlog_peak'] - static_stats['backlog_peak']
     wait_delta = rl_stats['avg_wait_time_minutes'] - static_stats['avg_wait_time_minutes']
 
-    print("\n" + "="*60)
-    print(f"{'Metric':<20} | {'Static Baseline':<15} | {'RL Agent':<15} | {'Improvement'}")
-    print("-" * 60)
+    print("\n" + "="*80)
+    print(f"{'Metric':<20} | {'Static':<12} | {'RL Agent':<12} | {'Greedy':<12} | {'RL vs Static'}")
+    print("-" * 80)
 
     jfi_trend = "🟢" if jfi_delta > 0 else "🔴"
-    print(f"{'JFI (Fairness)':<20} | {static_stats['final_jains_fairness_index']:<15.4f} | {rl_stats['final_jains_fairness_index']:<15.4f} | {jfi_trend} {jfi_delta:+.4f}")
+    print(f"{'JFI (Fairness)':<20} | {static_stats['final_jains_fairness_index']:<12.4f} | {rl_stats['final_jains_fairness_index']:<12.4f} | {greedy_stats['final_jains_fairness_index']:<12.4f} | {jfi_trend} {jfi_delta:+.4f}")
 
     backlog_trend = "🟢" if backlog_delta < 0 else "🔴"
-    print(f"{'Peak Backlog':<20} | {static_stats['backlog_peak']:<15.0f} | {rl_stats['backlog_peak']:<15.0f} | {backlog_trend} {backlog_delta:+.0f}")
+    print(f"{'Peak Backlog':<20} | {static_stats['backlog_peak']:<12.0f} | {rl_stats['backlog_peak']:<12.0f} | {greedy_stats['backlog_peak']:<12.0f} | {backlog_trend} {backlog_delta:+.0f}")
 
     wait_trend = "🟢" if wait_delta < 0 else "🔴"
-    print(f"{'Avg Wait Time (m)':<20} | {static_stats['avg_wait_time_minutes']:<15.2f} | {rl_stats['avg_wait_time_minutes']:<15.2f} | {wait_trend} {wait_delta:+.2f}")
-    print("="*60 + "\n")
+    print(f"{'Avg Wait Time (m)':<20} | {static_stats['avg_wait_time_minutes']:<12.2f} | {rl_stats['avg_wait_time_minutes']:<12.2f} | {greedy_stats['avg_wait_time_minutes']:<12.2f} | {wait_trend} {wait_delta:+.2f}")
+    print("="*80 + "\n")
 
     if args.metrics_out:
-        _write_metrics_txt(args.metrics_out, static_stats, rl_stats)
+        _write_metrics_txt(args.metrics_out, static_stats, rl_stats, greedy_stats)
         mo = args.metrics_out
         if not os.path.isabs(mo):
             mo = os.path.join(PROJECT_ROOT, mo.lstrip("./"))
