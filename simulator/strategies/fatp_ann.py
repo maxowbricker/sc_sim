@@ -16,17 +16,15 @@ Event Handlers:
 """
 
 from simulator.strategies import register
-import pandas as pd
 from math import fabs, cos, radians, exp
-from datetime import timedelta
 
 AVG_SPEED_KMH = 30
 
 def _ensure_timestamp(now):
-    """Convert float timestamp to pd.Timestamp if needed."""
-    if isinstance(now, (int, float)):
-        return pd.Timestamp.fromtimestamp(now)
-    return now
+    """Force timestamp to be a raw float for the optimized simulator."""
+    if hasattr(now, "timestamp"):
+        return now.timestamp()
+    return float(now)
 
 
 # ============================================================================
