@@ -138,12 +138,13 @@ def main():
     # Sort for visual progression from greedy -> fairness -> balanced
     sort_order = ['Greedy', 'Random', 'Static-Composite', 'RL-Best', 'RL-Final', 'FATP-ANN', 'LAF']
     summary = summary.reindex([x for x in sort_order if x in summary.index])
-    
-    print(summary.to_markdown())
-    
-    # Save to CSV for easy copy-pasting into LaTeX tables
+
+    # 1. SAVE FIRST (The Safety Net)
     summary.to_csv("final_6day_eval_results.csv")
     print("\n✅ Saved to 'final_6day_eval_results.csv'")
+
+    # 2. PRINT SECOND
+    print(summary.to_markdown())
 
 if __name__ == "__main__":
     main()
