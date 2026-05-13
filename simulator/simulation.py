@@ -33,6 +33,15 @@ class EventSimulator:
     """
     Event-driven simulator that supports step-based execution for RL control.
     """
+
+    @staticmethod
+    def _coerce_assignments(result):
+        """Strategies may return one (task, worker, _) tuple or a list of tuples."""
+        if result is None:
+            return []
+        if isinstance(result, list):
+            return result
+        return [result]
     
     def __init__(self, workers, tasks, sim_config: Optional[Dict] = None):
         self.initial_workers = workers
@@ -183,8 +192,7 @@ class EventSimulator:
             self.state.release_worker(worker)
             
             assignment = self.free_worker_handler(self.state, self.current_time, worker, **self.strategy_params)
-            if assignment:
-                assigned_task, assigned_worker, _ = assignment
+            for assigned_task, assigned_worker, _ in self._coerce_assignments(assignment):
                 self.metrics.on_task_assigned(assigned_task, assigned_worker, self.current_time)
                 heappush(self.event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
 
@@ -195,8 +203,7 @@ class EventSimulator:
             
             if self.state.available_workers:
                 assignments = self.new_task_handler(self.state, self.current_time, [task], **self.strategy_params)
-                if assignments:
-                    assigned_task, assigned_worker, _ = assignments[0]
+                for assigned_task, assigned_worker, _ in self._coerce_assignments(assignments):
                     self.metrics.on_task_assigned(assigned_task, assigned_worker, self.current_time)
                     heappush(self.event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
             else:
@@ -212,8 +219,7 @@ class EventSimulator:
                 self.state.complete_task(task, worker, self.current_time)
                 
                 assignment = self.free_worker_handler(self.state, self.current_time, worker, **self.strategy_params)
-                if assignment:
-                    assigned_task, assigned_worker, _ = assignment
+                for assigned_task, assigned_worker, _ in self._coerce_assignments(assignment):
                     self.metrics.on_task_assigned(assigned_task, assigned_worker, self.current_time)
                     heappush(self.event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
 

@@ -38,7 +38,8 @@ def _auto_import_builtins() -> None:
         "laf", 
         "ewma_only", 
         "random_assign", 
-        "fatp_ann"
+        "fatp_ann",
+        "mmd_batch",
     )
     
     for mod in builtin_strategies:

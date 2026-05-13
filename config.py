@@ -13,7 +13,7 @@ Strictly contains active parameters used by the physics engine and strategies.
 SIMULATION_CONFIG = {
     "dataset": "didi",                          # "didi" | "synthetic"
     "data_root_path": None,                     # Override data directory (None = auto)
-    "assignment_strategy": "composite",         # "greedy" | "composite" | "fatp_ann" | "ewma_only" | "random_assign"
+    "assignment_strategy": "composite",         # "greedy" | "composite" | "fatp_ann" | "ewma_only" | "random_assign" | "mmd_batch"
 }
 
 # ============================================================================
