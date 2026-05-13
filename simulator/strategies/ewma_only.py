@@ -123,8 +123,8 @@ def _commit_assignment(task, worker, now):
     pickup_travel_hours = pickup_distance / AVG_SPEED_KMH
     service_travel_hours = drop_distance / AVG_SPEED_KMH
     
-    task.start_time = now + pd.to_timedelta(pickup_travel_hours, unit="h")
-    task.finish_time = task.start_time + pd.to_timedelta(service_travel_hours, unit="h")
+    task.start_time = now + (pickup_travel_hours * 3600)
+    task.finish_time = task.start_time + (service_travel_hours * 3600)
     
     task.assign_to_worker(worker)
     worker.assign_task(task)
@@ -167,8 +167,8 @@ def assign_new_tasks_ewma_only(state, now, tasks_to_assign, gamma=0.3, **_):
                                       task.pickup_lat, task.pickup_lon)
             
             # Feasibility check: pickup before expiry, finish before worker shift ends
-            pickup_eta = now + pd.to_timedelta(pickup_dist / AVG_SPEED_KMH, unit="h")
-            finish_eta = now + pd.to_timedelta((pickup_dist + drop_dist) / AVG_SPEED_KMH, unit="h")
+            pickup_eta = now + ((pickup_dist / AVG_SPEED_KMH) * 3600)
+            finish_eta = now + (((pickup_dist + drop_dist) / AVG_SPEED_KMH) * 3600)
             
             if pickup_eta > task.expire_time or finish_eta > worker.deadline:
                 continue
@@ -226,8 +226,8 @@ def match_worker_ewma_only(state, now, worker, **_):
         # Feasibility check
         drop_dist = manhattan_km(task.pickup_lat, task.pickup_lon,
                                 task.dropoff_lat, task.dropoff_lon)
-        pickup_eta = now + pd.to_timedelta(pickup_dist / AVG_SPEED_KMH, unit="h")
-        finish_eta = now + pd.to_timedelta((pickup_dist + drop_dist) / AVG_SPEED_KMH, unit="h")
+        pickup_eta = now + ((pickup_dist / AVG_SPEED_KMH) * 3600)
+        finish_eta = now + (((pickup_dist + drop_dist) / AVG_SPEED_KMH) * 3600)
         
         if pickup_eta > task.expire_time or finish_eta > worker.deadline:
             continue

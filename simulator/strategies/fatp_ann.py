@@ -102,26 +102,25 @@ def _calculate_utility(task, worker_lat, worker_lon, worker_time, mu, alpha_scal
     Args:
         task: Task object
         worker_lat, worker_lon: Worker's current location
-        worker_time: Worker's current time (pd.Timestamp or float)
+        worker_time: Worker's current time (float in seconds)
         mu: Decay factor
         alpha_scale: Scaling factor for base utility
     
     Returns:
         float: Calculated utility value
     """
-    worker_time = _ensure_timestamp(worker_time)
     # Calculate completion time
     pickup_dist = manhattan_km(worker_lat, worker_lon, task.pickup_lat, task.pickup_lon)
     service_dist = manhattan_km(task.pickup_lat, task.pickup_lon, 
                                 task.dropoff_lat, task.dropoff_lon)
     
     total_hours = (pickup_dist + service_dist) / AVG_SPEED_KMH
-    completion_time = worker_time + pd.to_timedelta(total_hours, unit="h")
+    completion_time = worker_time + (total_hours * 3600)
     
     # Calculate time penalty (wait time since release)
-    # Convert task.release_time to Timestamp if it's a float
-    release_time = pd.Timestamp.fromtimestamp(task.release_time) if isinstance(task.release_time, (int, float)) else task.release_time
-    wait_time_hours = (completion_time - release_time).total_seconds() / 3600.0
+    # Convert task.release_time to float if it's a Timestamp
+    release_time_float = task.release_time if isinstance(task.release_time, (int, float)) else task.release_time.timestamp()
+    wait_time_hours = (completion_time - release_time_float) / 3600.0
     
     # Calculate utility with exponential decay
     base_utility = task.base_utility * alpha_scale
@@ -153,8 +152,8 @@ def _is_valid_assignment(worker, task, now):
                                task.dropoff_lat, task.dropoff_lon)
     
     # Calculate ETAs
-    pickup_eta = (now + pd.to_timedelta(pickup_dist / AVG_SPEED_KMH, unit="h")).timestamp()
-    finish_eta = (now + pd.to_timedelta((pickup_dist + service_dist) / AVG_SPEED_KMH, unit="h")).timestamp()
+    pickup_eta = now + ((pickup_dist / AVG_SPEED_KMH) * 3600)
+    finish_eta = now + (((pickup_dist + service_dist) / AVG_SPEED_KMH) * 3600)
     
     # Check constraints
     if pickup_eta > task.expire_time:
@@ -173,13 +172,12 @@ def _is_valid_from_shadow(task, shadow_location, shadow_time, worker):
     Args:
         task: Task object
         shadow_location: Tuple (lat, lon) of worker's hypothetical location
-        shadow_time: pd.Timestamp of worker's hypothetical time
+        shadow_time: float timestamp of worker's hypothetical time
         worker: Worker object (for deadline)
     
     Returns:
         bool: True if assignment is valid from shadow state
     """
-    shadow_time = _ensure_timestamp(shadow_time)
     shadow_lat, shadow_lon = shadow_location
     
     pickup_dist = manhattan_km(shadow_lat, shadow_lon, 
@@ -188,8 +186,8 @@ def _is_valid_from_shadow(task, shadow_location, shadow_time, worker):
                                task.dropoff_lat, task.dropoff_lon)
     
     # Calculate ETAs from shadow state
-    pickup_eta = (shadow_time + pd.to_timedelta(pickup_dist / AVG_SPEED_KMH, unit="h")).timestamp()
-    finish_eta = (shadow_time + pd.to_timedelta((pickup_dist + service_dist) / AVG_SPEED_KMH, unit="h")).timestamp()
+    pickup_eta = shadow_time + ((pickup_dist / AVG_SPEED_KMH) * 3600)
+    finish_eta = shadow_time + (((pickup_dist + service_dist) / AVG_SPEED_KMH) * 3600)
     
     # Check constraints
     if pickup_eta > task.expire_time:
@@ -208,12 +206,11 @@ def _commit_assignment(task, worker, now):
     Args:
         task: Task object to assign
         worker: Worker object to assign to
-        now: Current simulation timestamp
+        now: Current simulation timestamp (float in seconds)
     
     Returns:
         The assigned task object
     """
-    now = _ensure_timestamp(now)
     pickup_distance = manhattan_km(worker.start_lat, worker.start_lon, 
                                    task.pickup_lat, task.pickup_lon)
     drop_distance = manhattan_km(task.pickup_lat, task.pickup_lon, 
@@ -226,8 +223,8 @@ def _commit_assignment(task, worker, now):
     pickup_travel_hours = pickup_distance / AVG_SPEED_KMH
     service_travel_hours = drop_distance / AVG_SPEED_KMH
     
-    task.start_time = (now + pd.to_timedelta(pickup_travel_hours, unit="h")).timestamp()
-    task.finish_time = (pd.Timestamp.fromtimestamp(task.start_time) + pd.to_timedelta(service_travel_hours, unit="h")).timestamp()
+    task.start_time = now + (pickup_travel_hours * 3600)
+    task.finish_time = task.start_time + (service_travel_hours * 3600)
     
     task.assign_to_worker(worker)
     worker.assign_task(task)
@@ -404,7 +401,7 @@ def match_worker_fatp_ann(state, now, worker,
         service_dist = manhattan_km(best_task.pickup_lat, best_task.pickup_lon,
                                     best_task.dropoff_lat, best_task.dropoff_lon)
         
-        shadow_time = shadow_time + pd.to_timedelta((pickup_dist + service_dist) / AVG_SPEED_KMH, unit="h")
+        shadow_time = shadow_time + (((pickup_dist + service_dist) / AVG_SPEED_KMH) * 3600)
         shadow_location = (best_task.dropoff_lat, best_task.dropoff_lon)
     
     # Step 3: Return first task (simulation expects single task return)
