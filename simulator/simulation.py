@@ -256,6 +256,9 @@ class EventSimulator:
         results['task_assignment_ratio'] = completed / self.total_tasks_count if self.total_tasks_count else 0
         results['total_tasks'] = self.total_tasks_count
         results['avg_wait_time_minutes'] = results['total_wait_min'] / completed if completed else 0
+        results['avg_pickup_distance_km'] = (
+            results.get('empty_km', 0) / completed if completed > 0 else 0.0
+        )
         results['std_wait_time_minutes'] = safe_std(results.get('wait_times', []))
         results['p90_wait_time_minutes'] = safe_percentile(results.get('wait_times', []), 90)
         results['max_wait_time_minutes'] = safe_max(results.get('wait_times', []))

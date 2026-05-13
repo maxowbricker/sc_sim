@@ -13,6 +13,7 @@ import datetime  # Built-in for faster timestamp processing
 from metrics.fairness import (
     jains_fairness_index,
     utility_difference,
+    gini_coefficient,
     FairnessMetricsTracker,
 )
 from metrics.tracker import MetricTracker
@@ -44,6 +45,7 @@ class MetricsManager:
         # RL State - The "Source of Truth" for the Agent
         self.current_step_stats = {
             'jfi': 1.0,
+            'gini': 0.0,
             'backlog': 0,
             'avg_wait': 0.0,
             'step_avg_assignment_delay': 0.0,
@@ -180,6 +182,7 @@ class MetricsManager:
 
         task_counts = [w.completed_tasks for w in active_workers]
         jfi = jains_fairness_index(task_counts)
+        gini = gini_coefficient(task_counts)
         utility_diff = utility_difference(task_counts)
         
         active_backlog = len(state.active_tasks)
@@ -241,6 +244,7 @@ class MetricsManager:
         
         self.current_step_stats = {
             'jfi': jfi,
+            'gini': gini,
             'backlog': total_backlog,
             'avg_wait': avg_wait,
             'step_avg_assignment_delay': step_avg_assignment_delay,
@@ -367,6 +371,7 @@ class MetricsManager:
             'backlog_peak': self._backlog_peak,
             'assignment_delays': self._assignment_delays,
             'final_jains_fairness_index': self.current_step_stats.get('jfi', 1.0),
+            'final_gini_coefficient': self.current_step_stats.get('gini', 0.0),
             'final_utility_difference_tasks': self.current_step_stats.get('utility_diff', 0.0),
             
             **fairness_summary,

@@ -236,3 +236,21 @@ class FairnessMetricsTracker:
         
         fl_value = fairness_loss_supervisor_definition(worker_stats_for_fl)
         return fl_value, ior_stats
+ 
+
+def gini_coefficient(task_counts: List[int]) -> float:
+    """
+    Calculate the Gini coefficient of a frequency distribution (e.g., worker task counts).
+    Returns a value between 0.0 (perfect equality) and 1.0 (maximum inequality).
+    """
+    x = np.array(task_counts, dtype=np.float64)
+    if x.size == 0 or np.sum(x) == 0:
+        return 0.0
+
+    x = np.sort(x)
+    n = x.size
+    index = np.arange(1, n + 1)
+
+    # Vectorized Gini calculation
+    gini = ((np.sum((2 * index - n - 1) * x)) / (n * np.sum(x)))
+    return float(gini)

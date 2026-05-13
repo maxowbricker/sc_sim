@@ -66,9 +66,17 @@ def _write_metrics_txt(path: str, static_stats: dict, rl_stats: dict, greedy_sta
     jfi_delta = rl_stats["final_jains_fairness_index"] - static_stats["final_jains_fairness_index"]
     backlog_delta = rl_stats["backlog_peak"] - static_stats["backlog_peak"]
     wait_delta = rl_stats["avg_wait_time_minutes"] - static_stats["avg_wait_time_minutes"]
+    pickup_delta = rl_stats.get("avg_pickup_distance_km", 0.0) - static_stats.get(
+        "avg_pickup_distance_km", 0.0
+    )
+    gini_delta = rl_stats.get("final_gini_coefficient", 0.0) - static_stats.get(
+        "final_gini_coefficient", 0.0
+    )
     jfi_trend = "🟢" if jfi_delta > 0 else "🔴"
     backlog_trend = "🟢" if backlog_delta < 0 else "🔴"
     wait_trend = "🟢" if wait_delta < 0 else "🔴"
+    pickup_trend = "🟢" if pickup_delta < 0 else "🔴"
+    gini_trend = "🟢" if gini_delta < 0 else "🔴"
     
     if greedy_stats is None:
         # Original two-column format
@@ -79,10 +87,16 @@ def _write_metrics_txt(path: str, static_stats: dict, rl_stats: dict, greedy_sta
             "-" * 60 + "\n",
             f"{'JFI (Fairness)':<20} | {static_stats['final_jains_fairness_index']:<15.4f} | "
             f"{rl_stats['final_jains_fairness_index']:<15.4f} | {jfi_trend} {jfi_delta:+.4f}\n",
+            f"{'Gini coefficient':<20} | {static_stats.get('final_gini_coefficient', 0.0):<15.4f} | "
+            f"{rl_stats.get('final_gini_coefficient', 0.0):<15.4f} | "
+            f"{gini_trend} {gini_delta:+.4f}\n",
             f"{'Peak Backlog':<20} | {static_stats['backlog_peak']:<15.0f} | "
             f"{rl_stats['backlog_peak']:<15.0f} | {backlog_trend} {backlog_delta:+.0f}\n",
             f"{'Avg Wait Time (m)':<20} | {static_stats['avg_wait_time_minutes']:<15.2f} | "
             f"{rl_stats['avg_wait_time_minutes']:<15.2f} | {wait_trend} {wait_delta:+.2f}\n",
+            f"{'Avg pickup dist (km)':<20} | {static_stats.get('avg_pickup_distance_km', 0.0):<15.2f} | "
+            f"{rl_stats.get('avg_pickup_distance_km', 0.0):<15.2f} | "
+            f"{pickup_trend} {pickup_delta:+.2f}\n",
             "=" * 60 + "\n",
         ]
     else:
@@ -95,12 +109,20 @@ def _write_metrics_txt(path: str, static_stats: dict, rl_stats: dict, greedy_sta
             f"{'JFI (Fairness)':<20} | {static_stats['final_jains_fairness_index']:<12.4f} | "
             f"{rl_stats['final_jains_fairness_index']:<12.4f} | "
             f"{greedy_stats['final_jains_fairness_index']:<12.4f} | {jfi_trend} {jfi_delta:+.4f}\n",
+            f"{'Gini coefficient':<20} | {static_stats.get('final_gini_coefficient', 0.0):<12.4f} | "
+            f"{rl_stats.get('final_gini_coefficient', 0.0):<12.4f} | "
+            f"{greedy_stats.get('final_gini_coefficient', 0.0):<12.4f} | "
+            f"{gini_trend} {gini_delta:+.4f}\n",
             f"{'Peak Backlog':<20} | {static_stats['backlog_peak']:<12.0f} | "
             f"{rl_stats['backlog_peak']:<12.0f} | "
             f"{greedy_stats['backlog_peak']:<12.0f} | {backlog_trend} {backlog_delta:+.0f}\n",
             f"{'Avg Wait Time (m)':<20} | {static_stats['avg_wait_time_minutes']:<12.2f} | "
             f"{rl_stats['avg_wait_time_minutes']:<12.2f} | "
             f"{greedy_stats['avg_wait_time_minutes']:<12.2f} | {wait_trend} {wait_delta:+.2f}\n",
+            f"{'Avg pickup dist (km)':<20} | {static_stats.get('avg_pickup_distance_km', 0.0):<12.2f} | "
+            f"{rl_stats.get('avg_pickup_distance_km', 0.0):<12.2f} | "
+            f"{greedy_stats.get('avg_pickup_distance_km', 0.0):<12.2f} | "
+            f"{pickup_trend} {pickup_delta:+.2f}\n",
             "=" * 80 + "\n",
         ]
     
@@ -335,8 +357,10 @@ def main():
         print("\n" + "="*60)
         print("RL-only run complete (no baseline comparison).")
         print(f"  final_jains_fairness_index: {rl_stats.get('final_jains_fairness_index', 'n/a')}")
+        print(f"  final_gini_coefficient: {rl_stats.get('final_gini_coefficient', 'n/a')}")
         print(f"  backlog_peak: {rl_stats.get('backlog_peak', 'n/a')}")
         print(f"  avg_wait_time_minutes: {rl_stats.get('avg_wait_time_minutes', 'n/a')}")
+        print(f"  avg_pickup_distance_km: {rl_stats.get('avg_pickup_distance_km', 'n/a')}")
         print("="*60 + "\n")
         return
 
@@ -352,11 +376,27 @@ def main():
     jfi_trend = "🟢" if jfi_delta > 0 else "🔴"
     print(f"{'JFI (Fairness)':<20} | {static_stats['final_jains_fairness_index']:<12.4f} | {rl_stats['final_jains_fairness_index']:<12.4f} | {greedy_stats['final_jains_fairness_index']:<12.4f} | {jfi_trend} {jfi_delta:+.4f}")
 
+    gini_delta = rl_stats.get("final_gini_coefficient", 0.0) - static_stats.get("final_gini_coefficient", 0.0)
+    gini_trend = "🟢" if gini_delta < 0 else "🔴"
+    print(
+        f"{'Gini coefficient':<20} | {static_stats.get('final_gini_coefficient', 0.0):<12.4f} | "
+        f"{rl_stats.get('final_gini_coefficient', 0.0):<12.4f} | "
+        f"{greedy_stats.get('final_gini_coefficient', 0.0):<12.4f} | {gini_trend} {gini_delta:+.4f}"
+    )
+
     backlog_trend = "🟢" if backlog_delta < 0 else "🔴"
     print(f"{'Peak Backlog':<20} | {static_stats['backlog_peak']:<12.0f} | {rl_stats['backlog_peak']:<12.0f} | {greedy_stats['backlog_peak']:<12.0f} | {backlog_trend} {backlog_delta:+.0f}")
 
     wait_trend = "🟢" if wait_delta < 0 else "🔴"
     print(f"{'Avg Wait Time (m)':<20} | {static_stats['avg_wait_time_minutes']:<12.2f} | {rl_stats['avg_wait_time_minutes']:<12.2f} | {greedy_stats['avg_wait_time_minutes']:<12.2f} | {wait_trend} {wait_delta:+.2f}")
+
+    pickup_delta = rl_stats.get("avg_pickup_distance_km", 0.0) - static_stats.get("avg_pickup_distance_km", 0.0)
+    pickup_trend = "🟢" if pickup_delta < 0 else "🔴"
+    print(
+        f"{'Avg pickup dist (km)':<20} | {static_stats.get('avg_pickup_distance_km', 0.0):<12.2f} | "
+        f"{rl_stats.get('avg_pickup_distance_km', 0.0):<12.2f} | "
+        f"{greedy_stats.get('avg_pickup_distance_km', 0.0):<12.2f} | {pickup_trend} {pickup_delta:+.2f}"
+    )
     print("="*80 + "\n")
 
     if args.metrics_out:
