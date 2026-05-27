@@ -12,6 +12,7 @@ import datetime  # Built-in for faster timestamp processing
 
 from metrics.fairness import (
     jains_fairness_index,
+    jfi_completion_rate,
     utility_difference,
     FairnessMetricsTracker,
 )
@@ -42,8 +43,11 @@ class MetricsManager:
             strategy_params['deferral_tracker'] = self.deferral_tracker
         
         # RL State - The "Source of Truth" for the Agent
+        self._sim_start_time: Optional[float] = None
+
         self.current_step_stats = {
             'jfi': 1.0,
+            'jfi_rate': 1.0,
             'backlog': 0,
             'avg_wait': 0.0,
             'step_avg_assignment_delay': 0.0,
@@ -180,6 +184,9 @@ class MetricsManager:
 
         task_counts = [w.completed_tasks for w in active_workers]
         jfi = jains_fairness_index(task_counts)
+        if self._sim_start_time is None:
+            self._sim_start_time = min(float(w.release_time) for w in workers) if workers else float(current_time)
+        jfi_rate = jfi_completion_rate(active_workers, self._sim_start_time, float(current_time))
         utility_diff = utility_difference(task_counts)
         
         active_backlog = len(state.active_tasks)
@@ -241,6 +248,7 @@ class MetricsManager:
         
         self.current_step_stats = {
             'jfi': jfi,
+            'jfi_rate': jfi_rate,
             'backlog': total_backlog,
             'avg_wait': avg_wait,
             'step_avg_assignment_delay': step_avg_assignment_delay,
@@ -355,6 +363,7 @@ class MetricsManager:
     def get_reward_stats(self, current_time) -> Dict[str, float]:
         return {
             'fairness': self.current_step_stats['jfi'],
+            'jfi_rate': self.current_step_stats.get('jfi_rate', 1.0),
             'latency': self.current_step_stats['avg_wait'],
             'recent_expirations': self.get_recent_expirations(current_time, window_minutes=30)
         }

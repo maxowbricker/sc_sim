@@ -110,6 +110,7 @@ class EventSimulator:
                 raise ValueError("Cannot infer start_time: No workers or tasks provided.")
 
         self.current_time = start_time
+        self.metrics._sim_start_time = start_time
         self.end_time = end_time
         self.event_count = 0
         self.step_start_time = None

@@ -72,6 +72,28 @@ def calculate_ideal_fair_assignment(total_tasks: int, num_workers: int) -> List[
     return ideal
 
 
+def worker_online_seconds(worker: Worker, sim_start: float, sim_end: float) -> float:
+    """Seconds worker was on-shift within [sim_start, sim_end]."""
+    start = max(float(worker.release_time), float(sim_start))
+    end = min(float(worker.deadline), float(sim_end))
+    return max(0.0, end - start)
+
+
+def jfi_completion_rate(
+    workers: List[Worker],
+    sim_start: float,
+    sim_end: float,
+) -> float:
+    """Jain index on completed_tasks / online_seconds (supply-aware)."""
+    if not workers:
+        return 1.0
+    rates = [
+        w.completed_tasks / max(worker_online_seconds(w, sim_start, sim_end), 1.0)
+        for w in workers
+    ]
+    return jains_fairness_index(rates)
+
+
 # Heavy Evaluation Tracking (Disabled during DRL training)
 
 def fairness_loss_supervisor_definition(worker_stats: Dict[str, Dict]) -> float:
