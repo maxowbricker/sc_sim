@@ -260,7 +260,6 @@ def write_environment_spec(log_dir: str, env) -> None:
             return env.get_attr(name, 0)[0]
 
         spec["env_runtime"] = {
-            "reward_mode": _ga("reward_mode"),
             "reward_weights": list(_ga("reward_weights")),
             "lambda3_fixed": float(_ga("lambda3_fixed")),
             "step_duration_minutes": float(_ga("step_duration")) / 60.0,
@@ -287,7 +286,6 @@ def write_environment_spec(log_dir: str, env) -> None:
         inner = _unwrap_env_instance(env)
         if inner is not None:
             spec["env_runtime"] = {
-                "reward_mode": getattr(inner, "reward_mode", "oracle_delta_jfi"),
                 "reward_weights": list(inner.reward_weights),
                 "lambda3_fixed": float(inner.lambda3_fixed),
                 "step_duration_minutes": float(inner.step_duration) / 60.0,
@@ -510,7 +508,7 @@ def run_post_training_baseline_eval(
 
 
 def make_env(data_root, day_folders, rank=0, step_duration_minutes=5, reward_weights=None,
-             warmup_duration_minutes=30, episode_duration_hours=8, reward_mode="oracle_delta_jfi"):
+             warmup_duration_minutes=30, episode_duration_hours=8):
     """
     Utility function for multiprocessed env.
     
@@ -531,15 +529,14 @@ def make_env(data_root, day_folders, rank=0, step_duration_minutes=5, reward_wei
             data_root=data_root,
             day_folders=day_folders,
             warmup_duration_minutes=warmup_duration_minutes,
-            episode_duration_hours=episode_duration_hours,
-            reward_mode=reward_mode,
+            episode_duration_hours=episode_duration_hours
         )
         return env
     return _init
 
 def create_env(dataset="didi", step_duration_minutes=5, reward_weights=None, 
                data_root=None, day_folders=None, warmup_duration_minutes=30,
-               episode_duration_hours=8, reward_mode="oracle_delta_jfi"):
+               episode_duration_hours=8):
     """Create and wrap environment for training (legacy single-env mode)."""
     env = AdaptiveSpatialCrowdsourcingEnv(
         dataset=dataset,
@@ -548,8 +545,7 @@ def create_env(dataset="didi", step_duration_minutes=5, reward_weights=None,
         data_root=data_root,
         day_folders=day_folders,
         warmup_duration_minutes=warmup_duration_minutes,
-        episode_duration_hours=episode_duration_hours,
-        reward_mode=reward_mode,
+        episode_duration_hours=episode_duration_hours
     )
     return env
 
@@ -575,16 +571,6 @@ def main():
                        help="Disable parallel environments (use single env)")
     parser.add_argument("--hyperparams", type=str, default=None,
                        help="Path to best_hyperparameters.json from Optuna tuning (default: rl/best_hyperparameters.json)")
-    parser.add_argument(
-        "--reward-mode",
-        type=str,
-        default="oracle_delta_jfi",
-        choices=("oracle_delta_jfi", "oracle_delta_jfi_rate"),
-        help=(
-            "Oracle twin fairness signal: count-JFI delta (A, run_20260522) or "
-            "supply-aware JFI_rate delta (B)"
-        ),
-    )
     parser.add_argument(
         "--eval-day",
         type=str,
@@ -690,8 +676,7 @@ def main():
             data_root=data_root,
             day_folders=train_days,
             warmup_duration_minutes=30,
-            episode_duration_hours=8,
-            reward_mode=args.reward_mode,
+            episode_duration_hours=8
         )
         env = Monitor(env, log_dir)
     else:
@@ -702,8 +687,7 @@ def main():
             make_env(data_root, train_days, i, step_duration_minutes=5, 
                     reward_weights=[1.0, 1.0, 1.0],
                     warmup_duration_minutes=30,
-                    episode_duration_hours=8,
-                    reward_mode=args.reward_mode) 
+                    episode_duration_hours=8) 
             for i in range(num_cpu)
         ])
         print(f"   ✅ Parallel environment created with {num_cpu} workers")
@@ -743,8 +727,7 @@ def main():
         data_root=data_root,
         day_folders=test_days,
         warmup_duration_minutes=30,
-        episode_duration_hours=8,
-        reward_mode=args.reward_mode,
+        episode_duration_hours=8
     )
     eval_env = Monitor(eval_env, os.path.join(log_dir, "eval"))
     

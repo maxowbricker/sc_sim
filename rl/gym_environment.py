@@ -41,19 +41,8 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
                  episode_duration_hours=8, **kwargs):
         """
         Initialize the environment.
-
-        reward_mode:
-            oracle_delta_jfi — Δ count-JFI advantage vs greedy twin (run_20260522 default)
-            oracle_delta_jfi_rate — Δ JFI_rate advantage vs greedy twin (supply-aware A/B arm)
         """
         super().__init__()
-
-        self.reward_mode = kwargs.pop("reward_mode", "oracle_delta_jfi")
-        if self.reward_mode not in ("oracle_delta_jfi", "oracle_delta_jfi_rate"):
-            raise ValueError(
-                f"reward_mode must be oracle_delta_jfi or oracle_delta_jfi_rate, got {self.reward_mode!r}"
-            )
-        self.oracle_fairness_scale = float(kwargs.pop("oracle_fairness_scale", 200.0))
         
         self.dataset = dataset
         self.step_duration = step_duration_minutes * 60  # seconds
@@ -115,9 +104,6 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         # Stored each step before _get_observation() updates self.prev_jfi
         self._delta_jfi_rl = 0.0
         self._delta_jfi_oracle = 0.0
-        self.prev_jfi_rate = 1.0
-        self._delta_jfi_rate_rl = 0.0
-        self._delta_jfi_rate_oracle = 0.0
 
         # Oracle Reward Stats (will be set in step())
         self.oracle_reward_stats = None
@@ -221,9 +207,8 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.prev_arrival_rate = 0.0
         self._delta_jfi_rl = 0.0
         self._delta_jfi_oracle = 0.0
-        self.prev_jfi_rate = 1.0
-        self._delta_jfi_rate_rl = 0.0
-        self._delta_jfi_rate_oracle = 0.0
+        
+        # 6. Set Hard End Time
         self.episode_end_time = self.simulator.current_time + self.episode_duration_seconds
         
         self.episode_count += 1
@@ -265,15 +250,11 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         done = self.simulator.step(duration_seconds=self.step_duration)
         self.current_step_idx += 1
 
-        # 5. Compute delta fairness BEFORE _get_observation() updates prev_* baselines
-        # Both RL and oracle start from the same snapshot, so they share the same prev baseline.
+        # 5. Compute delta JFI BEFORE _get_observation() updates self.prev_jfi
+        # Both RL and oracle start from the same snapshot, so they share the same prev_jfi baseline.
         _rl_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
-        if self.reward_mode == "oracle_delta_jfi_rate":
-            self._delta_jfi_rate_rl = _rl_stats['jfi_rate'] - self.prev_jfi_rate
-            self._delta_jfi_rate_oracle = oracle_stats['jfi_rate'] - self.prev_jfi_rate
-        else:
-            self._delta_jfi_rl = _rl_stats['fairness'] - self.prev_jfi
-            self._delta_jfi_oracle = oracle_stats['fairness'] - self.prev_jfi
+        self._delta_jfi_rl     = _rl_stats['fairness']     - self.prev_jfi
+        self._delta_jfi_oracle = oracle_stats['fairness']   - self.prev_jfi
         
         # 6. Check termination
         if self.episode_end_time and self.simulator.current_time >= self.episode_end_time:
@@ -317,9 +298,6 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         delta_arrival = curr_arrival - self.prev_arrival_rate
         
         self.prev_jfi = curr_jfi
-        self.prev_jfi_rate = float(
-            self.simulator.metrics.current_step_stats.get('jfi_rate', curr_jfi)
-        )
         self.prev_wait = curr_wait
         self.prev_backlog = curr_backlog
         self.prev_arrival_rate = curr_arrival
@@ -349,25 +327,28 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
 
     def _calculate_reward(self):
         """
-        Oracle twin reward — fairness arm selected by reward_mode.
+        Delta-JFI Advantage vs Greedy Oracle.
 
-        oracle_delta_jfi (A, run_20260522):
-            Δ count-JFI advantage vs greedy twin, scaled 200×.
+        Uses STEP-OVER-STEP JFI change rather than absolute JFI level.
+        This fixes the credit-assignment problem: tasks assigned under a high-fairness λ1
+        take several steps to complete and show up in JFI. Absolute JFI advantage is dominated
+        by historical assignments and gives no gradient to the current action. Delta JFI
+        captures the momentum signal attributable to *this* step's action.
 
-        oracle_delta_jfi_rate (B):
-            Δ JFI_rate (completions / online-seconds) advantage vs greedy twin, same scale.
-            Supply-aware: normalizes for heterogeneous shift lengths.
+        Both RL and oracle start from the same snapshot, so their delta-JFI baselines are
+        identical — the advantage is purely about which strategy moved JFI more this step.
 
-        Both arms keep asymmetric latency / starvation penalties vs the oracle.
+        - Fairness (delta): Heavily scaled (200x). Positive = RL improved JFI more than oracle.
+        - Latency: Asymmetric cap — no bonus for beating oracle, only penalty when slower.
+        - Starvation: Asymmetric cap — no bonus for fewer expirations, only penalty if more.
         """
         composite_stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
         oracle_stats = self.oracle_reward_stats or composite_stats
 
-        if self.reward_mode == "oracle_delta_jfi_rate":
-            fairness_delta_adv = self._delta_jfi_rate_rl - self._delta_jfi_rate_oracle
-        else:
-            fairness_delta_adv = self._delta_jfi_rl - self._delta_jfi_oracle
-        r_fairness = fairness_delta_adv * self.oracle_fairness_scale
+        # 1. DELTA JFI ADVANTAGE (The Carrot — immediate, step-attributable signal)
+        # self._delta_jfi_rl and self._delta_jfi_oracle computed in step() before obs update.
+        fairness_delta_adv = self._delta_jfi_rl - self._delta_jfi_oracle
+        r_fairness = fairness_delta_adv * 200.0
 
         # 2. ASYMMETRIC LATENCY (The Stick)
         latency_adv = oracle_stats['latency'] - composite_stats['latency']
