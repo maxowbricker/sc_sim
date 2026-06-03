@@ -50,7 +50,11 @@ class EventSimulator:
         self.end_time = None
         
         # Lean metrics configuration
-        self.metrics = MetricsManager({'strategy_params': self.strategy_params})
+        strategy_params = self.sim_config.get("strategy_params", {})
+        self.metrics = MetricsManager({
+            'strategy_params': strategy_params,
+            'enable_diagnostics': strategy_params.get('enable_diagnostics', False),
+        })
         
         self.total_tasks_count = len(tasks)
         self.event_count = 0
@@ -301,7 +305,27 @@ class EventSimulator:
 
         results['task_assignment_ratio'] = completed / self.total_tasks_count if self.total_tasks_count else 0
         results['total_tasks'] = self.total_tasks_count
+
+        # --- Task lifecycle breakdown (diagnoses TAR denominator vs throughput) ---
+        # A task the simulator never saw (released after the episode window closed)
+        # is structurally impossible to complete and inflates the TAR denominator.
+        never_released = sum(
+            1 for t in self.state.all_tasks_map.values() if t.release_time > self.current_time
+        )
+        tasks_released = self.total_tasks_count - never_released
+        results['tasks_never_released'] = never_released
+        results['tasks_released'] = tasks_released
+        results['tasks_expired'] = len(results.get('expired_tasks', []))
+        results['tasks_in_transit_end'] = len(self.state.assigned_tasks)
+        results['tasks_active_end'] = len(self.state.active_tasks)
+        results['tasks_deferred_end'] = len(self.state.deferred_tasks)
+        # Throughput among tasks actually released (the honest completion rate).
+        results['completion_rate_released'] = (
+            completed / tasks_released if tasks_released else 0.0
+        )
+
         results['avg_wait_time_minutes'] = results['total_wait_min'] / completed if completed else 0
+        results['avg_pickup_distance_km'] = results['empty_km'] / completed if completed else 0.0
         results['std_wait_time_minutes'] = safe_std(results.get('wait_times', []))
         results['p90_wait_time_minutes'] = safe_percentile(results.get('wait_times', []), 90)
         results['max_wait_time_minutes'] = safe_max(results.get('wait_times', []))
