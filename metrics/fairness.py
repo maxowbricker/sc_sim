@@ -254,3 +254,53 @@ def gini_coefficient(task_counts: List[int]) -> float:
     # Vectorized Gini calculation
     gini = ((np.sum((2 * index - n - 1) * x)) / (n * np.sum(x)))
     return float(gini)
+
+
+# --- Earnings-based fairness (platform revenue) ---
+
+AVG_SPEED_KMH = 30.0
+
+
+def worker_feasible_for_task(worker: Worker, task, current_time: float, avg_speed_kmh: float = AVG_SPEED_KMH) -> bool:
+    """True if worker can reach pickup and finish before task expiry and worker deadline."""
+    from simulator.spatial_index import fast_manhattan_km
+
+    d_pick = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
+    d_drop = fast_manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
+    pickup_eta = current_time + (d_pick / avg_speed_kmh) * 3600.0
+    finish_eta = current_time + ((d_pick + d_drop) / avg_speed_kmh) * 3600.0
+    return pickup_eta <= task.expire_time and finish_eta <= worker.deadline
+
+
+def worker_earnings_opportunity_rates(workers: List[Worker], eps: float = 1e-6) -> List[float]:
+    """Local assignment ratio on revenue: total_earnings / opportunity_revenue per worker."""
+    rates = []
+    for w in workers:
+        if w.opportunity_revenue <= eps:
+            continue
+        rates.append(w.total_earnings / w.opportunity_revenue)
+    return rates
+
+
+def jfi_earnings(workers: List[Worker], eps: float = 1e-6) -> float:
+    """Jain index on absolute platform earnings per worker."""
+    earnings = [w.total_earnings for w in workers if w.total_earnings > eps]
+    return jains_fairness_index(earnings) if earnings else 1.0
+
+
+def jfi_earnings_opportunity(workers: List[Worker], eps: float = 1e-6) -> float:
+    """Jain index on earnings/opportunity revenue (Basık-style LAR on monetary value)."""
+    rates = worker_earnings_opportunity_rates(workers, eps=eps)
+    return jains_fairness_index(rates) if rates else 1.0
+
+
+def gini_earnings(workers: List[Worker], eps: float = 1e-6) -> float:
+    """Gini on absolute platform earnings per worker."""
+    earnings = [w.total_earnings for w in workers if w.total_earnings > eps]
+    return gini_coefficient(earnings) if earnings else 0.0
+
+
+def gini_earnings_opportunity(workers: List[Worker], eps: float = 1e-6) -> float:
+    """Gini on earnings/opportunity revenue rates."""
+    rates = worker_earnings_opportunity_rates(workers, eps=eps)
+    return gini_coefficient(rates) if rates else 0.0

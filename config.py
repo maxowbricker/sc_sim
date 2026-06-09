@@ -42,6 +42,13 @@ OBSERVATION_STATIC_SCALING = {
     "max_abs_backlog_delta": 30.0,
 }
 
+# Platform task revenue (Basık et al.): t_j.m = base_fare + per_km_rate × α
+# α = pickup→dropoff distance (km). Independent of composite-strategy U = 1/(1+d_pick).
+PLATFORM_REVENUE = {
+    "base_fare": 2.00,
+    "per_km_rate": 1.50,
+}
+
 # ============================================================================
 # STRATEGY-SPECIFIC PARAMETERS
 # ============================================================================
@@ -147,6 +154,10 @@ def get_observation_static_scaling() -> Dict[str, Any]:
         float(max(DATA_SAMPLING.get("target_workers", 10000), 1)),
     )
     return out
+
+def get_platform_revenue_config() -> Dict[str, Any]:
+    """Fare model for intrinsic task revenue: base_fare + per_km_rate × α."""
+    return PLATFORM_REVENUE.copy()
 
 def create_composite_config(**overrides: Any) -> Dict[str, Any]:
     """

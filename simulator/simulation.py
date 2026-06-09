@@ -199,7 +199,10 @@ class EventSimulator:
         elif event_type == "TASK_RELEASE":
             task = self.state.get_task(event_id)
             self.state.release_task(task)
-            self.metrics.on_task_released(task, self.state.available_workers, self.current_time)
+            self.metrics.on_task_released(
+                task, self.state.available_workers, self.current_time,
+                spatial_index=self.state.spatial_index,
+            )
             
             if self.state.available_workers:
                 assignments = self.new_task_handler(self.state, self.current_time, [task], **self.strategy_params)
