@@ -30,6 +30,12 @@ data/synthetic/workers.txt
 # Output files
 metrics_snapshot.csv
 
+# Experiment trial logs (run analyses, reward history, sprint notes — not for version control)
+docs/experiments/
+
+# Simulation and figure outputs
+outputs/
+
 # Results directory and experimental data
 results/
 
