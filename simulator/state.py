@@ -84,7 +84,7 @@ class StateManager:
 
         task.is_completed = True
         self.completed_tasks.add(task)
-        worker.record_completion(current_time, task_revenue=getattr(task, "revenue", 0.0))
+        worker.record_completion(current_time, task.revenue)
 
         # Worker physically moves to the drop-off location
         worker.start_lat = task.dropoff_lat
