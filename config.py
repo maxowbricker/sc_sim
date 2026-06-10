@@ -49,6 +49,13 @@ PLATFORM_REVENUE = {
     "per_km_rate": 1.50,
 }
 
+# Worker stochastic acceptance (Basık et al.): P(accept) = exp(-d_pick) * c
+WORKER_ACCEPTANCE = {
+    "enabled": False,       # Off by default — RL training unchanged
+    "c_willingness": 0.6,   # Basık willingness constant
+    "seed": 42,               # Dedicated RNG seed for reproducible acceptance rolls
+}
+
 # ============================================================================
 # STRATEGY-SPECIFIC PARAMETERS
 # ============================================================================
@@ -71,6 +78,14 @@ STRATEGY_PARAMS = {
         # Diagnostic Trackers
         "enable_diagnostics": False,            # Enable heavy evaluation metrics (IOR, Fairness Loss) - DISABLE FOR RL
         "enable_deferral_tracking": False,      # Track O(1) task deferral statistics for RQ3.3
+
+        # Stochastic worker acceptance (Basık cascade dispatch)
+        "worker_acceptance": dict(WORKER_ACCEPTANCE),
+    },
+
+    # === GREEDY BASELINE ===
+    "greedy": {
+        "worker_acceptance": dict(WORKER_ACCEPTANCE),
     },
     
     # === BASELINE STRATEGIES ===
@@ -158,6 +173,11 @@ def get_observation_static_scaling() -> Dict[str, Any]:
 def get_platform_revenue_config() -> Dict[str, Any]:
     """Fare model for intrinsic task revenue: base_fare + per_km_rate × α."""
     return PLATFORM_REVENUE.copy()
+
+
+def get_worker_acceptance_config() -> Dict[str, Any]:
+    """Stochastic worker acceptance parameters (Basık et al.)."""
+    return WORKER_ACCEPTANCE.copy()
 
 def create_composite_config(**overrides: Any) -> Dict[str, Any]:
     """

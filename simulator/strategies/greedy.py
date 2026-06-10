@@ -1,5 +1,7 @@
 from simulator.strategies import register
 from simulator.spatial_index import fast_manhattan_km
+from simulator.behavior import evaluate_worker_acceptance
+from typing import Optional, Dict, Any, List
 
 AVG_SPEED_KMH = 30
 
@@ -23,15 +25,63 @@ def _commit_assignment(task, worker, now):
     return task
 
 
-def assign_new_tasks_greedy(state, now, tasks_to_assign, **_):
+def _is_feasible_greedy(worker, task, now, pickup_dist: float, drop_dist: float) -> bool:
+    pickup_eta = now + ((pickup_dist / AVG_SPEED_KMH) * 3600)
+    finish_eta = now + (((pickup_dist + drop_dist) / AVG_SPEED_KMH) * 3600)
+    return pickup_eta <= task.expire_time and finish_eta <= worker.deadline
+
+
+def _record_offer(state, accepted: bool) -> None:
+    state.offers_made += 1
+    if not accepted:
+        state.offers_rejected += 1
+
+
+def assign_new_tasks_greedy(
+    state,
+    now,
+    tasks_to_assign,
+    worker_acceptance: Optional[Dict[str, Any]] = None,
+    **_,
+):
     """
     Greedy assignment for newly released tasks. Finds the nearest available worker.
     """
     assignments = []
-    
+    acceptance_enabled = worker_acceptance and worker_acceptance.get("enabled", False)
+
     for task in tasks_to_assign:
         if not state.available_workers:
             state.defer_task(task, now)
+            continue
+
+        if acceptance_enabled:
+            ranked: List[tuple] = []
+            for worker in state.available_workers:
+                pickup_dist = fast_manhattan_km(
+                    worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon
+                )
+                drop_dist = fast_manhattan_km(
+                    task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon
+                )
+                if not _is_feasible_greedy(worker, task, now, pickup_dist, drop_dist):
+                    continue
+                ranked.append((pickup_dist, worker))
+
+            ranked.sort(key=lambda x: x[0])
+            assigned = False
+            for pickup_dist, worker in ranked:
+                accepted = evaluate_worker_acceptance(pickup_dist, worker_acceptance)
+                _record_offer(state, accepted)
+                if accepted:
+                    assigned_task = _commit_assignment(task, worker, now)
+                    state.assign_task(assigned_task, worker)
+                    assignments.append((assigned_task, worker, pickup_dist))
+                    assigned = True
+                    break
+
+            if not assigned:
+                state.defer_task(task, now)
             continue
             
         best_worker, best_dist = None, float("inf")
@@ -40,11 +90,7 @@ def assign_new_tasks_greedy(state, now, tasks_to_assign, **_):
             pickup_dist = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
             drop_dist = fast_manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
             
-            # Pure float math
-            pickup_eta = now + ((pickup_dist / AVG_SPEED_KMH) * 3600)
-            finish_eta = now + (((pickup_dist + drop_dist) / AVG_SPEED_KMH) * 3600)
-            
-            if pickup_eta > task.expire_time or finish_eta > worker.deadline:
+            if not _is_feasible_greedy(worker, task, now, pickup_dist, drop_dist):
                 continue
 
             if pickup_dist < best_dist:
@@ -61,12 +107,44 @@ def assign_new_tasks_greedy(state, now, tasks_to_assign, **_):
     return assignments
 
 
-def match_worker_greedy(state, now, worker, **_):
+def match_worker_greedy(
+    state,
+    now,
+    worker,
+    worker_acceptance: Optional[Dict[str, Any]] = None,
+    **_,
+):
     """
     Greedy matching for a newly available worker. Finds the nearest task
     from the pool of active (unassigned) tasks.
     """
     if not state.active_tasks:
+        return None
+
+    acceptance_enabled = worker_acceptance and worker_acceptance.get("enabled", False)
+
+    if acceptance_enabled:
+        ranked: List[tuple] = []
+        for task in list(state.active_tasks):
+            pickup_dist = fast_manhattan_km(
+                worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon
+            )
+            drop_dist = fast_manhattan_km(
+                task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon
+            )
+            if not _is_feasible_greedy(worker, task, now, pickup_dist, drop_dist):
+                continue
+            ranked.append((pickup_dist, task))
+
+        ranked.sort(key=lambda x: x[0])
+        for pickup_dist, task in ranked:
+            accepted = evaluate_worker_acceptance(pickup_dist, worker_acceptance)
+            _record_offer(state, accepted)
+            if accepted:
+                assigned_task = _commit_assignment(task, worker, now)
+                state.assign_task(assigned_task, worker)
+                return (assigned_task, worker, pickup_dist)
+
         return None
 
     best_task, best_dist = None, float("inf")
@@ -75,11 +153,7 @@ def match_worker_greedy(state, now, worker, **_):
         pickup_dist = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
         drop_dist = fast_manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
         
-        # Pure float math
-        pickup_eta = now + ((pickup_dist / AVG_SPEED_KMH) * 3600)
-        finish_eta = now + (((pickup_dist + drop_dist) / AVG_SPEED_KMH) * 3600)
-        
-        if pickup_eta > task.expire_time or finish_eta > worker.deadline:
+        if not _is_feasible_greedy(worker, task, now, pickup_dist, drop_dist):
             continue
 
         if pickup_dist < best_dist:

@@ -11,6 +11,7 @@ from simulator.state import StateManager
 from simulator.strategies import get_strategy
 from metrics.manager import MetricsManager
 from simulator.spatial_index import set_city_constants
+from simulator.behavior import seed_acceptance_rng
 
 """
 Event-driven Spatial Crowdsourcing simulator.
@@ -28,6 +29,7 @@ from simulator.state import StateManager
 from simulator.strategies import get_strategy
 from metrics.manager import MetricsManager
 from simulator.spatial_index import set_city_constants
+from simulator.behavior import seed_acceptance_rng
 
 class EventSimulator:
     """
@@ -102,6 +104,10 @@ class EventSimulator:
         self.state = StateManager(current_workers, current_tasks)
         self.event_queue = []
         self.metrics = MetricsManager({'strategy_params': self.strategy_params})
+
+        acceptance_cfg = self.strategy_params.get("worker_acceptance", {})
+        if acceptance_cfg.get("enabled", False):
+            seed_acceptance_rng(acceptance_cfg.get("seed", 42))
         
         # Specific tracker injection (e.g. FATP limits)
         if self.strategy_name == "fatp_ann":
@@ -268,6 +274,14 @@ class EventSimulator:
 
         worker_idle_times = [w.total_idle_time / 60.0 for w in self.state.all_workers_map.values()]
         results['mean_worker_idle_time_min'] = safe_mean(worker_idle_times)
+
+        total_offers = self.state.offers_made
+        total_rejections = self.state.offers_rejected
+        results['total_offers'] = total_offers
+        results['total_rejections'] = total_rejections
+        results['offer_acceptance_rate'] = (
+            (total_offers - total_rejections) / total_offers if total_offers > 0 else 1.0
+        )
 
         return results
 

@@ -23,6 +23,10 @@ class StateManager:
         self.assigned_tasks = set()
         self.assigned_workers = set()
         self.completed_tasks = set()
+
+        # Stochastic acceptance counters (O(1) per offer)
+        self.offers_made = 0
+        self.offers_rejected = 0
         
         # INDEX 1: Available Workers (uses start_lat/lon)
         self.spatial_index = GridSpatialIndex(lat_attr='start_lat', lon_attr='start_lon')
