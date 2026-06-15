@@ -96,8 +96,8 @@ def jfi_completion_rate(
 
 # Heavy Evaluation Tracking (Disabled during DRL training)
 
-def fairness_loss_supervisor_definition(worker_stats: Dict[str, Dict]) -> float:
-    """Calculate Fairness Loss (FL) based on reachable area proportion."""
+def fairness_loss_ideal_share(worker_stats: Dict[str, Dict]) -> float:
+    """Calculate Fairness Loss (FL) from IOR-weighted ideal shares."""
     if not worker_stats:
         return 0.0
     
@@ -122,7 +122,7 @@ class FairnessMetricsTracker:
         self.metrics_history = []
         self.worker_stats = {}
         
-        # Enhanced tracking for supervisor's UD and FL definitions
+        # Eligibility-based UD and FL (reachable-area / IOR-weighted)
         self.task_eligibility_log = {}  
         self.worker_eligibility_stats = {}  
         self.reachable_distance_km = 10.0  
@@ -212,12 +212,12 @@ class FairnessMetricsTracker:
         if not self.enable_diagnostics or not self.worker_eligibility_stats:
             return {}
             
-        supervisor_ud = self.calculate_supervisor_utility_difference()
-        supervisor_fl, ior_stats = self.calculate_supervisor_fairness_loss()
+        eligibility_ud = self.calculate_eligibility_utility_difference()
+        eligibility_fl, ior_stats = self.calculate_eligibility_fairness_loss()
         
         return {
-            'supervisor_utility_difference': supervisor_ud,
-            'supervisor_fairness_loss': supervisor_fl,
+            'eligibility_utility_difference': eligibility_ud,
+            'eligibility_fairness_loss': eligibility_fl,
             'mean_input_output_ratio': float(np.mean(list(ior_stats.values()))) if ior_stats else 0.0,
             'min_input_output_ratio': float(np.min(list(ior_stats.values()))) if ior_stats else 0.0,
             'max_input_output_ratio': float(np.max(list(ior_stats.values()))) if ior_stats else 0.0,
@@ -225,13 +225,13 @@ class FairnessMetricsTracker:
             'total_task_assignments_tracked': len(self.task_eligibility_log),
         }
     
-    def calculate_supervisor_utility_difference(self) -> float:
+    def calculate_eligibility_utility_difference(self) -> float:
         if not self.worker_eligibility_stats:
             return 0.0
         task_counts = [stats['actual_tasks'] for stats in self.worker_eligibility_stats.values()]
         return max(task_counts) - min(task_counts) if task_counts else 0.0
     
-    def calculate_supervisor_fairness_loss(self) -> Tuple[float, Dict[str, float]]:
+    def calculate_eligibility_fairness_loss(self) -> Tuple[float, Dict[str, float]]:
         if not self.worker_eligibility_stats:
             return 0.0, {}
         
@@ -256,5 +256,73 @@ class FairnessMetricsTracker:
             }
             ior_stats[worker_id] = actual_tasks / eligible_tasks if eligible_tasks > 0 else 0.0
         
-        fl_value = fairness_loss_supervisor_definition(worker_stats_for_fl)
+        fl_value = fairness_loss_ideal_share(worker_stats_for_fl)
         return fl_value, ior_stats
+ 
+
+def gini_coefficient(task_counts: List[int]) -> float:
+    """
+    Calculate the Gini coefficient of a frequency distribution (e.g., worker task counts).
+    Returns a value between 0.0 (perfect equality) and 1.0 (maximum inequality).
+    """
+    x = np.array(task_counts, dtype=np.float64)
+    if x.size == 0 or np.sum(x) == 0:
+        return 0.0
+
+    x = np.sort(x)
+    n = x.size
+    index = np.arange(1, n + 1)
+
+    # Vectorized Gini calculation
+    gini = ((np.sum((2 * index - n - 1) * x)) / (n * np.sum(x)))
+    return float(gini)
+
+
+# --- Earnings-based fairness (platform revenue) ---
+
+AVG_SPEED_KMH = 30.0
+
+
+def worker_feasible_for_task(worker: Worker, task, current_time: float, avg_speed_kmh: float = AVG_SPEED_KMH) -> bool:
+    """True if worker can reach pickup and finish before task expiry and worker deadline."""
+    from simulator.spatial_index import fast_manhattan_km
+
+    d_pick = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
+    d_drop = fast_manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
+    pickup_eta = current_time + (d_pick / avg_speed_kmh) * 3600.0
+    finish_eta = current_time + ((d_pick + d_drop) / avg_speed_kmh) * 3600.0
+    return pickup_eta <= task.expire_time and finish_eta <= worker.deadline
+
+
+def worker_earnings_opportunity_rates(workers: List[Worker], eps: float = 1e-6) -> List[float]:
+    """Local assignment ratio on revenue: total_earnings / opportunity_revenue per worker."""
+    rates = []
+    for w in workers:
+        if w.opportunity_revenue <= eps:
+            continue
+        rates.append(w.total_earnings / w.opportunity_revenue)
+    return rates
+
+
+def jfi_earnings(workers: List[Worker], eps: float = 1e-6) -> float:
+    """Jain index on absolute platform earnings per worker."""
+    earnings = [w.total_earnings for w in workers if w.total_earnings > eps]
+    return jains_fairness_index(earnings) if earnings else 1.0
+
+
+def jfi_earnings_opportunity(workers: List[Worker], eps: float = 1e-6) -> float:
+    """Jain index on earnings/opportunity revenue (Basık-style LAR on monetary value)."""
+    rates = worker_earnings_opportunity_rates(workers, eps=eps)
+    return jains_fairness_index(rates) if rates else 1.0
+
+
+def gini_earnings(workers: List[Worker], eps: float = 1e-6) -> float:
+    """Gini on absolute platform earnings per worker."""
+    earnings = [w.total_earnings for w in workers if w.total_earnings > eps]
+    return gini_coefficient(earnings) if earnings else 0.0
+
+
+def gini_earnings_opportunity(workers: List[Worker], eps: float = 1e-6) -> float:
+    """Gini on earnings/opportunity revenue rates."""
+    rates = worker_earnings_opportunity_rates(workers, eps=eps)
+    return gini_coefficient(rates) if rates else 0.0

@@ -1,4 +1,16 @@
 #!/usr/bin/env python3
+"""
+Extended 6-day evaluation of an RL model across multiple held-out test days.
+
+After `rl/train_sb3.py` completes, `compare_model_to_baseline.py` runs a single-day
+baseline comparison. This script extends the evaluation across 6 held-out days using
+full-day episodes (queue drain) so TAR is a real completion rate, not an 8h window.
+Includes Tier-1 fairness metrics (JFI_rate, JFI_opportunity, Gini variants) and
+per-day lifecycle breakdowns for the oracle-approach paper.
+
+Usage:
+  python scripts/run_6day_evaluation.py
+"""
 import sys
 import os
 import time

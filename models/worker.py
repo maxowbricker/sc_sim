@@ -28,6 +28,8 @@ class Worker:
         self.last_active_ts = None    # The "Fairness Anchor"; records last completion to calculate wait time for next assignment.
 
         self.completed_tasks = 0      # Used for JFI stats and as a physical constraint/cap in FATP-ANN strategy.
+        self.total_earnings = 0.0     # Sum of task.revenue for completed tasks (platform revenue earned).
+        self.opportunity_revenue = 0.0  # Sum of task.revenue for tasks worker was a feasible k-NN candidate at release.
 
     def assign_task(self, task):
         """Mark worker as busy with *task*."""
@@ -42,6 +44,7 @@ class Worker:
             task_revenue: Revenue from completed task
         """
         self.completed_tasks += 1
+        self.total_earnings += float(task_revenue)
         self.last_active_ts = now
         
         # Update last_state_ts for idle time tracking

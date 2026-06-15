@@ -11,6 +11,7 @@ from simulator.state import StateManager
 from simulator.strategies import get_strategy
 from metrics.manager import MetricsManager
 from simulator.spatial_index import set_city_constants
+from simulator.behavior import seed_acceptance_rng
 
 """
 Event-driven Spatial Crowdsourcing simulator.
@@ -28,11 +29,21 @@ from simulator.state import StateManager
 from simulator.strategies import get_strategy
 from metrics.manager import MetricsManager
 from simulator.spatial_index import set_city_constants
+from simulator.behavior import seed_acceptance_rng
 
 class EventSimulator:
     """
     Event-driven simulator that supports step-based execution for RL control.
     """
+
+    @staticmethod
+    def _coerce_assignments(result):
+        """Strategies may return one (task, worker, _) tuple or a list of tuples."""
+        if result is None:
+            return []
+        if isinstance(result, list):
+            return result
+        return [result]
     
     def __init__(self, workers, tasks, sim_config: Optional[Dict] = None):
         self.initial_workers = workers
@@ -97,6 +108,10 @@ class EventSimulator:
         self.state = StateManager(current_workers, current_tasks)
         self.event_queue = []
         self.metrics = MetricsManager({'strategy_params': self.strategy_params})
+
+        acceptance_cfg = self.strategy_params.get("worker_acceptance", {})
+        if acceptance_cfg.get("enabled", False):
+            seed_acceptance_rng(acceptance_cfg.get("seed", 42))
         
         # Specific tracker injection (e.g. FATP limits)
         if self.strategy_name == "fatp_ann":
@@ -188,20 +203,21 @@ class EventSimulator:
             self.state.release_worker(worker)
             
             assignment = self.free_worker_handler(self.state, self.current_time, worker, **self.strategy_params)
-            if assignment:
-                assigned_task, assigned_worker, _ = assignment
+            for assigned_task, assigned_worker, _ in self._coerce_assignments(assignment):
                 self.metrics.on_task_assigned(assigned_task, assigned_worker, self.current_time)
                 heappush(self.event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
 
         elif event_type == "TASK_RELEASE":
             task = self.state.get_task(event_id)
             self.state.release_task(task)
-            self.metrics.on_task_released(task, self.state.available_workers, self.current_time)
+            self.metrics.on_task_released(
+                task, self.state.available_workers, self.current_time,
+                spatial_index=self.state.spatial_index,
+            )
             
             if self.state.available_workers:
                 assignments = self.new_task_handler(self.state, self.current_time, [task], **self.strategy_params)
-                if assignments:
-                    assigned_task, assigned_worker, _ = assignments[0]
+                for assigned_task, assigned_worker, _ in self._coerce_assignments(assignments):
                     self.metrics.on_task_assigned(assigned_task, assigned_worker, self.current_time)
                     heappush(self.event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
             else:
@@ -217,8 +233,7 @@ class EventSimulator:
                 self.state.complete_task(task, worker, self.current_time)
                 
                 assignment = self.free_worker_handler(self.state, self.current_time, worker, **self.strategy_params)
-                if assignment:
-                    assigned_task, assigned_worker, _ = assignment
+                for assigned_task, assigned_worker, _ in self._coerce_assignments(assignment):
                     self.metrics.on_task_assigned(assigned_task, assigned_worker, self.current_time)
                     heappush(self.event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
 
@@ -325,13 +340,23 @@ class EventSimulator:
         )
 
         results['avg_wait_time_minutes'] = results['total_wait_min'] / completed if completed else 0
-        results['avg_pickup_distance_km'] = results['empty_km'] / completed if completed else 0.0
+        results['avg_pickup_distance_km'] = (
+            results.get('empty_km', 0) / completed if completed > 0 else 0.0
+        )
         results['std_wait_time_minutes'] = safe_std(results.get('wait_times', []))
         results['p90_wait_time_minutes'] = safe_percentile(results.get('wait_times', []), 90)
         results['max_wait_time_minutes'] = safe_max(results.get('wait_times', []))
 
         worker_idle_times = [w.total_idle_time / 60.0 for w in self.state.all_workers_map.values()]
         results['mean_worker_idle_time_min'] = safe_mean(worker_idle_times)
+
+        total_offers = self.state.offers_made
+        total_rejections = self.state.offers_rejected
+        results['total_offers'] = total_offers
+        results['total_rejections'] = total_rejections
+        results['offer_acceptance_rate'] = (
+            (total_offers - total_rejections) / total_offers if total_offers > 0 else 1.0
+        )
 
         return results
 
@@ -399,8 +424,8 @@ class Simulation:
             'completed_tasks': completed_tasks,
             'max_wait_time': max(results.get('wait_times', [0])) if results.get('wait_times') else 0.0,
             'backlog_peak': results.get('backlog_peak', 0),
-            'supervisor_utility_difference': results.get('supervisor_utility_difference'),
-            'supervisor_fairness_loss': results.get('supervisor_fairness_loss'),
+            'eligibility_utility_difference': results.get('eligibility_utility_difference'),
+            'eligibility_fairness_loss': results.get('eligibility_fairness_loss'),
             'mean_input_output_ratio': results.get('mean_input_output_ratio'),
             'min_input_output_ratio': results.get('min_input_output_ratio'),
             'max_input_output_ratio': results.get('max_input_output_ratio'),

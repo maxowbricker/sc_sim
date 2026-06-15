@@ -12,8 +12,8 @@ Strictly contains active parameters used by the physics engine and strategies.
 
 SIMULATION_CONFIG = {
     "dataset": "didi",                          # "didi" | "synthetic"
-    "data_root_path": None,                     # Override data directory (None = auto)
-    "assignment_strategy": "composite",         # "greedy" | "composite" | "fatp_ann" | "ewma_only" | "random_assign"
+    "data_root_path": None,                     # Override data directory. Example: "data/didi/full_didi_gaia/496528674@qq.com_20161128". None = use default from DATA_SAMPLING
+    "assignment_strategy": "composite",         # "greedy" | "composite" | "fatp_ann" | "ewma_only" | "random_assign" | "mmd_batch"
 }
 
 # ============================================================================
@@ -22,17 +22,14 @@ SIMULATION_CONFIG = {
 
 DATA_SAMPLING = {
     "use_stratified_sampling": True,
-    "target_tasks": 40000,                   # Shrink from 200k to 5k
-    "target_workers": 10000,                 # Keep a 1:4 ratio of workers to tasks
+    "target_tasks": 40000,
+    "target_workers": 10000,
     "stratified_sampling_bins": 288,         
     "random_state": 42,                     
 }
 
-# Single source of truth for rl/gym_environment.py observation normalization (PPO magnitude parity).
-# ref_* = divisor for level features (rough typical scale). max_abs_*_delta = divisor for one-step *deltas*
-# so that normal steps land near [-1, 1]; values are not clipped—larger true deltas just exceed ±1.
-# Tune from composite_lambda1_pareto sweep: ΔJFI p99≈0.03, spikes≈0.08–0.10; Δ(step mean wait) p99 often ~few–15 min.
-# worker_count_divisor defaults to DATA_SAMPLING["target_workers"] inside get_observation_static_scaling().
+
+# These values are for the scaling for a variety of reward functions that I have tried, potentially not useful anymore.
 OBSERVATION_STATIC_SCALING = {
     "ref_wait_minutes": 2.0,
     "ref_backlog": 200,
@@ -40,6 +37,22 @@ OBSERVATION_STATIC_SCALING = {
     "max_abs_arrival_delta": 40.0,
     "max_abs_wait_delta": 10.0,
     "max_abs_backlog_delta": 30.0,
+}
+
+# Platform task revenue (Basık et al.): t_j.m = base_fare + per_km_rate × α
+# α = pickup→dropoff distance (km). Independent of composite-strategy U = 1/(1+d_pick).
+PLATFORM_REVENUE = {
+    "base_fare": 2.00,
+    "per_km_rate": 1.50,
+}
+
+# Worker stochastic acceptance (Basık et al.): P(accept) = exp(-d_pick) * c
+# I implemented this to simulate worker task rejection however, this didn't work well but potentially is needed to improve the strength of the paper.
+# The function is very severe, I found with the Didi dataset the task rejection rate was too high (95%), the paper which used this function used a smaller scale for their dataset.
+WORKER_ACCEPTANCE = {
+    "enabled": False,       # Off by default — RL training unchanged
+    "c_willingness": 0.6,   # Basık willingness constant
+    "seed": 42,               # Dedicated RNG seed for reproducible acceptance rolls
 }
 
 # ============================================================================
@@ -55,7 +68,7 @@ STRATEGY_PARAMS = {
         "utility_weight": 1.0,                  # HARDCODED: Anchors the DRL action space
         
         # EWMA fairness calculation
-        "gamma": 0.1,                           # EWMA smoothing factor (0.1=responsive, 0.9=smooth)
+        "gamma": 0.1,                           # EWMA smoothing factor (0.1=responsive, 0.9=smooth), (0.1/0.15 was found to be optimal for a single days simulation)
         
         # Assignment mechanism
         "k": 15,                                # Number of nearest workers to consider
@@ -64,11 +77,19 @@ STRATEGY_PARAMS = {
         # Diagnostic Trackers
         "enable_diagnostics": False,            # Enable heavy evaluation metrics (IOR, Fairness Loss) - DISABLE FOR RL
         "enable_deferral_tracking": False,      # Track O(1) task deferral statistics for RQ3.3
+
+        # Stochastic worker acceptance (Basık cascade dispatch)
+        "worker_acceptance": dict(WORKER_ACCEPTANCE),
+    },
+
+    # === GREEDY BASELINE ===
+    "greedy": {
+        "worker_acceptance": dict(WORKER_ACCEPTANCE),
     },
     
     # === BASELINE STRATEGIES ===
     "ewma_only": {
-        "gamma": 0.3,                           # EWMA smoothing factor 
+        "gamma": 0.2,                           # EWMA smoothing factor 
     },
     
     "random_assign": {
@@ -147,6 +168,20 @@ def get_observation_static_scaling() -> Dict[str, Any]:
         float(max(DATA_SAMPLING.get("target_workers", 10000), 1)),
     )
     return out
+
+def get_platform_revenue_config() -> Dict[str, Any]:
+    """Fare model for intrinsic task revenue: base_fare + per_km_rate × α."""
+    return PLATFORM_REVENUE.copy()
+
+
+def get_worker_acceptance_config() -> Dict[str, Any]:
+    """Stochastic worker acceptance parameters (Basık et al.)."""
+    return WORKER_ACCEPTANCE.copy()
+
+
+def get_rl_reward_config() -> Dict[str, Any]:
+    """RL reward coefficients and observation flags (Trial D / D1)."""
+    return RL_REWARD.copy()
 
 def create_composite_config(**overrides: Any) -> Dict[str, Any]:
     """

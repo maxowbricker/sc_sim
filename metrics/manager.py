@@ -14,7 +14,13 @@ from metrics.fairness import (
     jains_fairness_index,
     jfi_completion_rate,
     utility_difference,
+    gini_coefficient,
     FairnessMetricsTracker,
+    worker_feasible_for_task,
+    jfi_earnings,
+    jfi_earnings_opportunity,
+    gini_earnings,
+    gini_earnings_opportunity,
 )
 from metrics.tracker import MetricTracker
 from metrics.deferral_tracker import DeferralTracker
@@ -48,6 +54,10 @@ class MetricsManager:
         self.current_step_stats = {
             'jfi': 1.0,
             'jfi_rate': 1.0,
+            'gini': 0.0,
+            'jfi_earnings': 1.0,
+            'jfi_earnings_opportunity': 1.0,
+            'gini_earnings': 0.0,
             'backlog': 0,
             'avg_wait': 0.0,
             'step_avg_assignment_delay': 0.0,
@@ -87,11 +97,14 @@ class MetricsManager:
         self._wait_times = []
         self._backlog_peak = 0
         self._assignment_delays = []
+        self._total_platform_revenue = 0.0
     
     # --- EVENT HANDLERS (Fast, O(1) updates) ---
     
     def on_task_completed(self, task, worker, current_time):
         self._completed_tasks += 1
+        task_revenue = float(getattr(task, "revenue", 0.0))
+        self._total_platform_revenue += task_revenue
         pickup_km = task.pickup_km or 0.0
         drop_km = task.drop_km or 0.0
         self._total_travel_km += pickup_km + drop_km
@@ -120,6 +133,15 @@ class MetricsManager:
     def on_task_assigned(self, task, worker, current_time,
                         score_components: Optional[Dict] = None,
                         final_score: Optional[float] = None):
+        rev = float(getattr(task, "revenue", 0.0))
+        credited = getattr(task, "_opp_credited_workers", None)
+        if credited is None:
+            credited = set()
+            task._opp_credited_workers = credited
+        if worker.id not in credited:
+            worker.opportunity_revenue += rev
+            credited.add(worker.id)
+
         if task.start_time and task.release_time:
             assignment_delay = current_time - task.release_time  
             self._assignment_delays.append(assignment_delay)
@@ -134,10 +156,28 @@ class MetricsManager:
                 deferral_count=deferral_count
             )
     
-    def on_task_released(self, task, available_workers: List, current_time):
+    def on_task_released(self, task, available_workers: List, current_time,
+                         spatial_index=None):
         self.total_tasks_released += 1
         self.step_tasks_released += 1
         self.fairness_tracker.record_task_release(task, available_workers, current_time)
+
+        if not available_workers or spatial_index is None:
+            return
+
+        k = self.config.get('strategy_params', {}).get('k', 15)
+        nearest = spatial_index.query_k_nearest(task.pickup_lat, task.pickup_lon, k)
+        rev = float(getattr(task, "revenue", 0.0))
+        credited = getattr(task, "_opp_credited_workers", None)
+        if credited is None:
+            credited = set()
+            task._opp_credited_workers = credited
+        for worker in nearest:
+            if worker.id in credited:
+                continue
+            if worker_feasible_for_task(worker, task, current_time):
+                worker.opportunity_revenue += rev
+                credited.add(worker.id)
     
     def on_task_deferred(self, task, score: float, reason: str, current_time,
                          threshold: Optional[float] = None, best_worker_id: Optional[str] = None):
@@ -187,7 +227,12 @@ class MetricsManager:
         if self._sim_start_time is None:
             self._sim_start_time = min(float(w.release_time) for w in workers) if workers else float(current_time)
         jfi_rate = jfi_completion_rate(active_workers, self._sim_start_time, float(current_time))
+        gini = gini_coefficient(task_counts)
         utility_diff = utility_difference(task_counts)
+
+        jfi_earn = jfi_earnings(active_workers)
+        jfi_earn_opp = jfi_earnings_opportunity(active_workers)
+        gini_earn = gini_earnings(active_workers)
         
         active_backlog = len(state.active_tasks)
         deferred_backlog = len(state.deferred_tasks)
@@ -249,6 +294,10 @@ class MetricsManager:
         self.current_step_stats = {
             'jfi': jfi,
             'jfi_rate': jfi_rate,
+            'gini': gini,
+            'jfi_earnings': jfi_earn,
+            'jfi_earnings_opportunity': jfi_earn_opp,
+            'gini_earnings': gini_earn,
             'backlog': total_backlog,
             'avg_wait': avg_wait,
             'step_avg_assignment_delay': step_avg_assignment_delay,
@@ -394,7 +443,13 @@ class MetricsManager:
 
         # Raw Task Arrival Rate (Tasks per minute)
         # We divide by 5.0 minutes (the standard step duration)
-        task_arrival_rate = (self.step_tasks_released / 5.0) 
+        task_arrival_rate = (self.step_tasks_released / 5.0)
+
+        total_deferred_revenue = sum(
+            float(getattr(t, "revenue", 0.0)) for t in state.deferred_tasks
+        )
+        available_workers_count = max(1, len(state.available_workers))
+        revenue_density = total_deferred_revenue / available_workers_count
         
         return {
             'deferred_ratio': stats['deferred_ratio'],
@@ -410,6 +465,7 @@ class MetricsManager:
             'is_weekend': is_weekend,
             'time_sin': time_sin,
             'time_cos': time_cos,
+            'revenue_density': revenue_density,
         }
     
     # --- FINAL RESULTS INTERFACE ---
@@ -446,6 +502,11 @@ class MetricsManager:
             'backlog_peak': self._backlog_peak,
             'assignment_delays': self._assignment_delays,
             'final_jains_fairness_index': self.current_step_stats.get('jfi', 1.0),
+            'final_gini_coefficient': self.current_step_stats.get('gini', 0.0),
+            'final_jfi_earnings': self.current_step_stats.get('jfi_earnings', 1.0),
+            'final_jfi_earnings_opportunity': self.current_step_stats.get('jfi_earnings_opportunity', 1.0),
+            'final_gini_earnings': self.current_step_stats.get('gini_earnings', 0.0),
+            'total_platform_revenue': self._total_platform_revenue,
             'final_utility_difference_tasks': self.current_step_stats.get('utility_diff', 0.0),
             
             **fairness_summary,

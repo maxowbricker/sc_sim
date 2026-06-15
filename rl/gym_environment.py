@@ -234,7 +234,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.simulator.strategy_params['fairness_weight'] = lambda1
         self.simulator.strategy_params['starvation_weight'] = lambda2
         self.simulator.strategy_params['utility_weight'] = lambda3
-        
+
         # 2. Run Oracle (Greedy Baseline) to get "reality check" stats
         oracle_snap = self.simulator.snapshot_state()
         self.simulator.switch_strategy('greedy')
@@ -256,6 +256,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self._delta_jfi_rl     = _rl_stats['fairness']     - self.prev_jfi
         self._delta_jfi_oracle = oracle_stats['fairness']   - self.prev_jfi
         
+        # 6. Check termination
         # 6. Check termination
         if self.episode_end_time and self.simulator.current_time >= self.episode_end_time:
             done = True

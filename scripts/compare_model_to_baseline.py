@@ -304,7 +304,7 @@ def run_rl_agent(
     while not done:
         step_num += 1
         action, _ = model.predict(obs, deterministic=True)
-        a = np.ravel(action)
+        a = np.ravel(action)  # Handle (2,) or (1,2) from DummyVecEnv
         obs, reward, terminated, truncated, info = env.step(a)
         lam = info.get("lambdas", [float(a[0]), float(a[1]), env.lambda3_fixed])
         if not quiet:
@@ -428,6 +428,7 @@ def main():
         static_stats = run_static_baseline(args.day, args.data_root, eval_seed=args.eval_seed, episode_hours=episode_hours)
         if not args.no_greedy:
             greedy_stats = run_greedy_full_episode(args.day, args.data_root, eval_seed=args.eval_seed, episode_hours=episode_hours)
+
 
     rl_stats = run_rl_agent(
         args.model,

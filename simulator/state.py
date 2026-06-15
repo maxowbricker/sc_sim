@@ -23,6 +23,10 @@ class StateManager:
         self.assigned_tasks = set()
         self.assigned_workers = set()
         self.completed_tasks = set()
+
+        # Stochastic acceptance counters (O(1) per offer)
+        self.offers_made = 0
+        self.offers_rejected = 0
         
         # INDEX 1: Available Workers (uses start_lat/lon)
         self.spatial_index = GridSpatialIndex(lat_attr='start_lat', lon_attr='start_lon')
@@ -84,7 +88,7 @@ class StateManager:
 
         task.is_completed = True
         self.completed_tasks.add(task)
-        worker.record_completion(current_time)
+        worker.record_completion(current_time, task.revenue)
 
         # Worker physically moves to the drop-off location
         worker.start_lat = task.dropoff_lat

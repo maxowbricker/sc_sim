@@ -14,7 +14,7 @@ Examples:
     # Full tuning run (30 trials, 50K timesteps each)
     python rl/tune_sb3.py --trials 30 --timesteps 50000
 """
-
+# NOTE: The hyperparemters I got from this script weren't working well, I used default PPO values in 'best_hyperparameters.json'
 import optuna
 from stable_baselines3 import PPO
 from stable_baselines3.common.evaluation import evaluate_policy
