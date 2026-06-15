@@ -1,4 +1,26 @@
 #!/usr/bin/env python3
+"""
+Extended 6-day evaluation of an RL model across multiple held-out test days.
+
+After `rl/train_sb3.py` completes, `compare_model_to_baseline.py` runs a single-day
+baseline comparison (e.g., JFI, peak backlog, avg wait). That result goes in
+`baseline_best_model_metrics.txt` and `eval_weights_best_steps.txt` — useful for
+a quick sanity check, but only one day's data.
+
+This script extends the evaluation across 6 held-out days to confirm the policy
+generalizes and doesn't overfit to the training/validation set. It compares:
+  - Static composite (fixed λ1=1.0, λ2=0.2) across all 6 days
+  - RL agent (policy-chosen λ each step) across all 6 days
+
+Output: A CSV with aggregated metrics across days, confirming whether the learned
+policy beats or matches the static baseline on multiple test scenarios.
+
+Usage:
+  python scripts/run_6day_evaluation.py rl_logs_sb3/run_YYYYMMDD_HHMMSS/ppo_sc_final
+  python scripts/run_6day_evaluation.py rl_logs_sb3/run_YYYYMMDD_HHMMSS/best_model/best_model
+
+Results are saved to: run_YYYYMMDD_HHMMSS/6day_eval_results.csv
+"""
 import sys
 import os
 import time

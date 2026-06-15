@@ -3,16 +3,22 @@
 ## Overview
 Complete reference for all metrics, flags, and data structures collected by the simulation.
 
-**Last Updated**: February 2025  
-**Version**: 2.1 (Lean domain models)
+**Last Updated**: June 2026  
+**Version**: 3.0 (Platform revenue, earnings fairness, worker acceptance)
 
 ---
 
 ## Domain Models (Worker & Task)
 
-**Worker** (`models/worker.py`): `id`, `start_lat`, `start_lon`, `release_time`, `deadline`, `assigned_task`, `available`, `total_idle_time`, `last_state_ts`, `fairness_ewma`, `completed_tasks`, `last_active_ts`. No `gamma` or `revenue` (removed).
+**Worker** (`models/worker.py`): `id`, `start_lat`, `start_lon`, `release_time`, `deadline`, `assigned_task`, `available`, `total_idle_time`, `last_state_ts`, `fairness_ewma`, `completed_tasks`, `last_active_ts`, `total_earnings`, `opportunity_revenue`.
 
-**Task** (`models/task.py`): `id`, `pickup_lat`, `pickup_lon`, `dropoff_lat`, `dropoff_lon`, `release_time`, `expire_time`, `assigned_worker`, `finish_time`, `start_time`, `pickup_km`, `drop_km`, `deferral_count`. `base_utility` is lazy-loaded (FATP-ANN only).
+- `total_earnings` (float, $): Sum of `task.revenue` for every task this worker completed. Accumulates via `record_completion(now, task_revenue)`.
+- `opportunity_revenue` (float, $): Sum of `task.revenue` for tasks where this worker was a feasible k-NN candidate at release time (or at assignment). Represents the monetary value of work the worker *could* have been given. Used as the denominator in the Basık-style Local Assignment Ratio (LAR).
+
+**Task** (`models/task.py`): `id`, `pickup_lat`, `pickup_lon`, `dropoff_lat`, `dropoff_lon`, `release_time`, `expire_time`, `assigned_worker`, `finish_time`, `start_time`, `pickup_km`, `drop_km`, `deferral_count`, `revenue`, `core_movement_cost_km`. `base_utility` is a property alias for `core_movement_cost_km` (FATP-ANN compatibility).
+
+- `core_movement_cost_km` (float, km): Manhattan distance from pickup to dropoff (α in Basık et al.). Computed at construction.
+- `revenue` (float, $): Platform revenue for this task — `base_fare + per_km_rate × core_movement_cost_km`. Driven by `PLATFORM_REVENUE` config. Set at construction; never changes.
 
 ---
 
@@ -23,10 +29,12 @@ Complete reference for all metrics, flags, and data structures collected by the 
 4. [Worker Metrics](#worker-metrics)
 5. [Fairness Metrics](#fairness-metrics)
 6. [System Performance Metrics](#system-performance-metrics)
-7. [Data Formats](#data-formats)
-8. [Diagnostic Mode Data](#diagnostic-mode-data)
-9. [Computational Cost Summary](#computational-cost-summary)
-10. [Version History](#version-history)
+7. [Revenue & Earnings Metrics](#revenue--earnings-metrics)
+8. [Worker Acceptance Metrics](#worker-acceptance-metrics)
+9. [Data Formats](#data-formats)
+10. [Diagnostic Mode Data](#diagnostic-mode-data)
+11. [Computational Cost Summary](#computational-cost-summary)
+12. [Version History](#version-history)
 
 ---
 
@@ -34,12 +42,14 @@ Complete reference for all metrics, flags, and data structures collected by the 
 
 ### `enable_diagnostics` (boolean)
 - **Default**: `false`
-- **Impact**: Enables detailed component-level tracking (when supported by strategy)
+- **Impact**: Enables detailed component-level tracking and eligibility-based fairness metrics
 - **Additional Data Collected**:
   - Score component dominance per assignment
   - Per-assignment breakdown (fairness/starvation/utility)
   - Assignment decision history
-- **When to Enable**: Only for mechanism analysis (Exp 008-style studies)
+  - Per-worker task eligibility logs (`FairnessMetricsTracker`)
+  - Eligibility-based UD/FL and IOR statistics (see [Section 5](#eligibility-based-fairness-diagnostics-only))
+- **When to Enable**: Only for mechanism analysis (Exp 008-style studies). Adds significant overhead from O(|W|) spatial scans per task release.
 
 ### `normalize_scores` (boolean)
 - **Default**: `false` (changed to `true` post-Exp 008)
@@ -51,6 +61,27 @@ Complete reference for all metrics, flags, and data structures collected by the 
 - **Default**: `0.5`
 - **Description**: EWMA decay parameter for fairness tracking
 - **Impact**: Higher = more weight on recent history
+
+### `PLATFORM_REVENUE`
+Fare model for computing intrinsic task monetary value (Basık et al., Eq. t_j.m = base_fare + per_km_rate × α).
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `base_fare` | 2.00 | Fixed component of every trip's revenue ($) |
+| `per_km_rate` | 1.50 | Per-kilometre rate applied to pickup→dropoff distance ($/km) |
+
+Every `Task.revenue` is derived from these values at construction time. Changing them requires reloading task data.
+
+### `WORKER_ACCEPTANCE`
+Stochastic worker dispatch (Basık cascade). Controls whether workers can probabilistically reject an offer.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `enabled` | `false` | Off by default — RL training uses the fast path unchanged |
+| `c_willingness` | 0.6 | Willingness constant in P(accept) = exp(−d\_pick) × c |
+| `seed` | 42 | Dedicated RNG seed for reproducible acceptance rolls |
+
+When disabled, all offers are accepted and `offers_made`/`offers_rejected` remain 0.
 
 ### `soft_threshold` (float, 0.0-1.0)
 - **Default**: `0.5`
@@ -174,12 +205,48 @@ Complete reference for all metrics, flags, and data structures collected by the 
 
 ## 5. Fairness Metrics
 
+### Task-Count Fairness
+
 | Metric | Type | Unit | Description |
 |--------|------|------|-------------|
-| `jains_fairness_index` (JFI) | float | ratio (0-1) | Task-based fairness (1=perfect) |
-| `ewma_cv` | float | ratio | Coefficient of variation of EWMA values |
+| `jains_fairness_index` (JFI) | float | ratio (0-1) | Jain's index on completed-task counts across workers (1=perfect) |
+| `final_utility_difference_tasks` | float | count | Max − min completed-task count across all workers (hot-path UD) |
+| `ewma_cv` | float | ratio | Coefficient of variation of per-worker EWMA fairness scores |
 
 **EWMA (Exponentially Weighted Moving Average)**: Tracks cumulative fairness experience for each worker over time, decayed by parameter γ.
+
+### Eligibility-Based Fairness (diagnostics only)
+
+Computed by `FairnessMetricsTracker` when `enable_diagnostics=True`. Only workers within `reachable_distance_km` (10 km) of a task pickup at release time are counted as eligible. Ideal shares are IOR-weighted: each worker's fair share = `(eligible_tasks / total_eligibility) × total_assigned`.
+
+| Metric key | Type | Unit | Description |
+|------------|------|------|-------------|
+| `eligibility_utility_difference` | float | count | Max − min assigned tasks among workers with eligibility data |
+| `eligibility_fairness_loss` | float | ratio (0-1) | `Σ max(0, ideal_share − actual) / Σ ideal_share` |
+| `mean_input_output_ratio` | float | ratio | Mean IOR across workers: `actual_tasks / eligible_tasks` |
+| `min_input_output_ratio` | float | ratio | Minimum IOR |
+| `max_input_output_ratio` | float | ratio | Maximum IOR |
+| `workers_with_eligibility_data` | int | count | Workers appearing in eligibility stats |
+| `total_task_assignments_tracked` | int | count | Tasks logged in eligibility tracker |
+
+**Contrast with hot-path UD**: `final_utility_difference_tasks` uses all workers' completed task counts with no reachability filter. Eligibility metrics measure fairness relative to geographic opportunity.
+
+**Note**: When `enable_diagnostics=False` (default, including RL training), `get_fairness_summary()` returns `{}` and these keys are absent from results.
+
+### Earnings Fairness (Basık et al.)
+
+Computed over active workers (those with at least one task opportunity) at each step snapshot and in final results.
+
+| Metric key | Type | Unit | Description |
+|------------|------|------|-------------|
+| `final_jfi_earnings` | float | ratio (0-1) | Jain's index on `total_earnings` — monetary fairness across workers |
+| `final_jfi_earnings_opportunity` | float | ratio (0-1) | Jain's index on earnings/opportunity rate (LAR) — did workers earn proportional to their opportunity? |
+| `final_gini_earnings` | float | ratio (0-1) | Gini coefficient on `total_earnings` (0=perfect equality) |
+| `total_platform_revenue` | float | $ | Sum of `task.revenue` for all completed tasks in the simulation |
+
+**Local Assignment Ratio (LAR)**: `worker.total_earnings / worker.opportunity_revenue`. A LAR near 1.0 means the worker earned roughly in proportion to the revenue of tasks they were feasible for. JFI on LAR measures how equitably opportunity was converted to earnings across workers.
+
+**Note**: `final_gini_earnings_opportunity` (Gini on LAR) is computed in `metrics/fairness.py` but not currently surfaced in `get_final_results()`. Available by calling `gini_earnings_opportunity(workers)` directly.
 
 ---
 
@@ -230,9 +297,46 @@ Complete reference for all metrics, flags, and data structures collected by the 
 
 ---
 
-## 7. Data Formats
+## 7. Revenue & Earnings Metrics
 
-### Aggregate Results CSV
+### Platform Revenue
+
+| Metric key | Type | Unit | Description |
+|------------|------|------|-------------|
+| `total_platform_revenue` | float | $ | Gross revenue from all completed tasks: Σ `task.revenue` |
+
+Revenue per task = `base_fare + per_km_rate × core_movement_cost_km` (see `PLATFORM_REVENUE` config). Tasks that expire unassigned contribute zero revenue.
+
+### Per-Worker Earnings (on `Worker` object, not in final results dict directly)
+
+| Field | Type | Unit | Description |
+|-------|------|------|-------------|
+| `worker.total_earnings` | float | $ | Revenue earned from completed tasks |
+| `worker.opportunity_revenue` | float | $ | Revenue of all tasks the worker was a feasible candidate for |
+
+Aggregate JFI/Gini over these fields are in final results as `final_jfi_earnings`, `final_jfi_earnings_opportunity`, `final_gini_earnings` (see Section 5).
+
+---
+
+## 8. Worker Acceptance Metrics
+
+Only populated when `WORKER_ACCEPTANCE.enabled = True`. All three fields are always present in `get_final_results()` but will be 0 / 1.0 when acceptance is disabled.
+
+| Metric key | Type | Unit | Description |
+|------------|------|------|-------------|
+| `total_offers` | int | count | Total dispatch offers made during the simulation |
+| `total_rejections` | int | count | Offers rejected by workers (P(accept) roll failed) |
+| `offer_acceptance_rate` | float | ratio (0-1) | `(total_offers − total_rejections) / total_offers` |
+
+**Acceptance model**: `P(accept) = exp(−d_pick) × c_willingness`. Workers further from the pickup are less likely to accept. At the default `c_willingness=0.6` and DiDi-scale pickup distances (~2–5 km), rejection rates of 70–95% are typical — calibration against real acceptance data is recommended before use in evaluation.
+
+**Cascade dispatch**: When a worker rejects, the next-best worker in the ranked candidate list is tried. If all k candidates reject, the task is deferred.
+
+---
+
+## 9. Data Formats
+
+### Aggregate Results CSV (legacy experiment format)
 
 **Location**: `experiments_analysis/exp_XXX/data/experiment_XXX_aggregate_results.csv`
 
@@ -317,6 +421,17 @@ Complete reference for all metrics, flags, and data structures collected by the 
 - `jains_fairness_index`
 - `ewma_cv`
 
+**Revenue & Earnings Metrics** (added v3.0, in `get_final_results()` / RL baseline eval):
+- `total_platform_revenue`
+- `final_jfi_earnings`
+- `final_jfi_earnings_opportunity`
+- `final_gini_earnings`
+
+**Worker Acceptance Metrics** (added v3.0, non-zero only when `WORKER_ACCEPTANCE.enabled = True`):
+- `total_offers`
+- `total_rejections`
+- `offer_acceptance_rate`
+
 ### Individual Experiment JSON
 
 **Location**: `experiments_analysis/exp_XXX/data/exp_YYY_name_summary.json`
@@ -331,7 +446,7 @@ Complete reference for all metrics, flags, and data structures collected by the 
 
 ---
 
-## 8. Diagnostic Mode Data
+## 10. Diagnostic Mode Data
 
 When `enable_diagnostics=True`:
 
@@ -341,6 +456,13 @@ When `enable_diagnostics=True`:
 |-------|------|-------------|
 | `diagnostic_summary` | dict | Component dominance statistics |
 | `diagnostic_tracker` | object | Full diagnostic tracker (not serialized) |
+| `eligibility_utility_difference` | float | UD over workers with eligibility data (see Section 5) |
+| `eligibility_fairness_loss` | float | IOR-weighted fairness loss |
+| `mean_input_output_ratio` | float | Mean input/output ratio across workers |
+| `min_input_output_ratio` | float | Minimum IOR |
+| `max_input_output_ratio` | float | Maximum IOR |
+| `workers_with_eligibility_data` | int | Workers in eligibility tracker |
+| `total_task_assignments_tracked` | int | Tasks logged at release time |
 
 ### Diagnostic Summary Structure
 
@@ -362,7 +484,7 @@ When `enable_diagnostics=True`:
 
 ---
 
-## 9. Computational Cost Summary
+## 11. Computational Cost Summary
 
 | Category | Metrics | Cost per Experiment | Version |
 |----------|---------|---------------------|---------|
@@ -386,7 +508,7 @@ When `enable_diagnostics=True`:
 
 ---
 
-## 10. Version History
+## 12. Version History
 
 ### v1.0 (Initial Release)
 - Basic metrics: completed tasks, TAR, mean wait time, mean pickup distance
@@ -410,15 +532,36 @@ When `enable_diagnostics=True`:
 - Can track mechanism behavior (deferrals)
 - Negligible performance cost (~0.5ms per experiment)
 
+### v3.0 (June 2026 - Platform Revenue & Earnings Fairness)
+**New Domain Model Fields**:
+- `Task.revenue`, `Task.core_movement_cost_km` — intrinsic monetary value from Basık et al. fare model
+- `Worker.total_earnings`, `Worker.opportunity_revenue` — monetary tracking per worker
+
+**New Configuration Blocks**:
+- `PLATFORM_REVENUE` — `base_fare` and `per_km_rate` controlling all task revenues
+- `WORKER_ACCEPTANCE` — stochastic cascade dispatch (Basık et al.), off by default
+
+**New Fairness Metrics** (Section 5):
+- `final_jfi_earnings` — Jain's index on absolute earnings
+- `final_jfi_earnings_opportunity` — Jain's index on earnings/opportunity rate (LAR)
+- `final_gini_earnings` — Gini on earnings
+- `total_platform_revenue` — gross simulation revenue
+
+**New Worker Acceptance Metrics** (Section 8):
+- `total_offers`, `total_rejections`, `offer_acceptance_rate`
+
 ---
 
 ## Quick Reference: Key Metrics by Research Question
 
 ### "Is the system fair?"
-- `jains_fairness_index` - Overall fairness score
+- `jains_fairness_index` - Overall task-count fairness score
 - `tasks_per_worker_gini` - Task distribution inequality
 - `cv_worker_idle_time` - Worker experience equity
 - `ewma_cv` - EWMA fairness spread
+- `final_jfi_earnings` - Monetary fairness (earnings distribution)
+- `final_jfi_earnings_opportunity` - Did workers earn in proportion to opportunity? (LAR)
+- `final_gini_earnings` - Earnings inequality (Gini)
 
 ### "Is the system efficient?"
 - `task_assignment_ratio` - % tasks successfully assigned

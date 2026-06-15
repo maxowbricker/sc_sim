@@ -12,7 +12,7 @@ Strictly contains active parameters used by the physics engine and strategies.
 
 SIMULATION_CONFIG = {
     "dataset": "didi",                          # "didi" | "synthetic"
-    "data_root_path": None,                     # Override data directory (None = auto)
+    "data_root_path": None,                     # Override data directory. Example: "data/didi/full_didi_gaia/496528674@qq.com_20161128". None = use default from DATA_SAMPLING
     "assignment_strategy": "composite",         # "greedy" | "composite" | "fatp_ann" | "ewma_only" | "random_assign" | "mmd_batch"
 }
 
@@ -22,17 +22,14 @@ SIMULATION_CONFIG = {
 
 DATA_SAMPLING = {
     "use_stratified_sampling": True,
-    "target_tasks": 40000,                   # Shrink from 200k to 5k
-    "target_workers": 10000,                 # Keep a 1:4 ratio of workers to tasks
+    "target_tasks": 40000,
+    "target_workers": 10000,
     "stratified_sampling_bins": 288,         
     "random_state": 42,                     
 }
 
-# Single source of truth for rl/gym_environment.py observation normalization (PPO magnitude parity).
-# ref_* = divisor for level features (rough typical scale). max_abs_*_delta = divisor for one-step *deltas*
-# so that normal steps land near [-1, 1]; values are not clipped—larger true deltas just exceed ±1.
-# Tune from composite_lambda1_pareto sweep: ΔJFI p99≈0.03, spikes≈0.08–0.10; Δ(step mean wait) p99 often ~few–15 min.
-# worker_count_divisor defaults to DATA_SAMPLING["target_workers"] inside get_observation_static_scaling().
+
+# These values are for the scaling for a variety of reward functions that I have tried, potentially not useful anymore.
 OBSERVATION_STATIC_SCALING = {
     "ref_wait_minutes": 2.0,
     "ref_backlog": 200,
@@ -50,6 +47,8 @@ PLATFORM_REVENUE = {
 }
 
 # Worker stochastic acceptance (Basık et al.): P(accept) = exp(-d_pick) * c
+# I implemented this to simulate worker task rejection however, this didn't work well but potentially is needed to improve the strength of the paper.
+# The function is very severe, I found with the Didi dataset the task rejection rate was too high (95%), the paper which used this function used a smaller scale for their dataset.
 WORKER_ACCEPTANCE = {
     "enabled": False,       # Off by default — RL training unchanged
     "c_willingness": 0.6,   # Basık willingness constant
@@ -69,7 +68,7 @@ STRATEGY_PARAMS = {
         "utility_weight": 1.0,                  # HARDCODED: Anchors the DRL action space
         
         # EWMA fairness calculation
-        "gamma": 0.1,                           # EWMA smoothing factor (0.1=responsive, 0.9=smooth)
+        "gamma": 0.1,                           # EWMA smoothing factor (0.1=responsive, 0.9=smooth), (0.1/0.15 was found to be optimal for a single days simulation)
         
         # Assignment mechanism
         "k": 15,                                # Number of nearest workers to consider
@@ -90,7 +89,7 @@ STRATEGY_PARAMS = {
     
     # === BASELINE STRATEGIES ===
     "ewma_only": {
-        "gamma": 0.3,                           # EWMA smoothing factor 
+        "gamma": 0.2,                           # EWMA smoothing factor 
     },
     
     "random_assign": {
@@ -178,6 +177,11 @@ def get_platform_revenue_config() -> Dict[str, Any]:
 def get_worker_acceptance_config() -> Dict[str, Any]:
     """Stochastic worker acceptance parameters (Basık et al.)."""
     return WORKER_ACCEPTANCE.copy()
+
+
+def get_rl_reward_config() -> Dict[str, Any]:
+    """RL reward coefficients and observation flags (Trial D / D1)."""
+    return RL_REWARD.copy()
 
 def create_composite_config(**overrides: Any) -> Dict[str, Any]:
     """

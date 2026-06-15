@@ -364,7 +364,13 @@ class MetricsManager:
 
         # Raw Task Arrival Rate (Tasks per minute)
         # We divide by 5.0 minutes (the standard step duration)
-        task_arrival_rate = (self.step_tasks_released / 5.0) 
+        task_arrival_rate = (self.step_tasks_released / 5.0)
+
+        total_deferred_revenue = sum(
+            float(getattr(t, "revenue", 0.0)) for t in state.deferred_tasks
+        )
+        available_workers_count = max(1, len(state.available_workers))
+        revenue_density = total_deferred_revenue / available_workers_count
         
         return {
             'deferred_ratio': stats['deferred_ratio'],
@@ -380,6 +386,7 @@ class MetricsManager:
             'is_weekend': is_weekend,
             'time_sin': time_sin,
             'time_cos': time_cos,
+            'revenue_density': revenue_density,
         }
     
     # --- FINAL RESULTS INTERFACE ---

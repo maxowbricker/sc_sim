@@ -324,24 +324,23 @@ worker.fairness_ewma = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ew
 
 **Proximal Policy Optimisation (PPO)** via Stable Baselines 3 with an `MlpPolicy`.
 
-Default PPO hyperparameters (see `rl/train_sb3.py` lines 844–855):
+Hyperparameters are Optuna-tuned and stored in `best_hyperparameters.json` (repo root). `train_sb3.py` loads this file automatically; the values below are what is actually used in all Jun 2026 sweep runs. Code-level fallback defaults (used only if the file is absent) differ on `batch_size`, `gamma`, `gae_lambda`, `ent_coef`, `vf_coef`, and `max_grad_norm`.
 
-| Hyperparameter | Default |
-|----------------|---------|
-| `learning_rate` | 3 × 10⁻⁴ |
-| `n_steps` | 2,048 |
-| `batch_size` | 64 |
-| `n_epochs` | 10 |
-| `gamma` (discount) | 0.99 |
-| `gae_lambda` | 0.95 |
-| `clip_range` | 0.2 |
-| `ent_coef` | 0.01 |
-| `vf_coef` | 0.5 |
-| `max_grad_norm` | 0.5 |
-| Network architecture | MLP [256, 256] for both policy and value |
+| Hyperparameter | Optuna value (`best_hyperparameters.json`) | Code fallback |
+|----------------|-------------------------------------------|---------------|
+| `learning_rate` | 3 × 10⁻⁴ | 3 × 10⁻⁴ |
+| `n_steps` | 2,048 | 2,048 |
+| `batch_size` | **256** | 64 |
+| `n_epochs` | 10 | 10 |
+| `gamma` (discount) | **0.95** | 0.99 |
+| `gae_lambda` | **0.9** | 0.95 |
+| `clip_range` | 0.2 | 0.2 |
+| `ent_coef` | **0.04** | 0.01 |
+| `vf_coef` | **0.55** | 0.5 |
+| `max_grad_norm` | **1.0** | 0.5 |
+| Network architecture | MLP [256, 256] (`net_arch_type: "large"`) | MLP [256, 256] |
 
-Hyperparameters are Optuna-tuned; a `best_hyperparameters.json` is loaded if present
-(`rl/best_hyperparameters.json`).
+**Effective rollout size**: `n_steps × num_cpu = 2,048 × 8 = 16,384` env steps per PPO update. At 25k timesteps this yields ~1.5 gradient updates; at 100k ~6 updates.
 
 ### 9.2 Observation Space (15-dimensional)
 

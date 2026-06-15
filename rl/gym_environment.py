@@ -69,8 +69,10 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         
         # Define Action Space: Symmetric [-1, 1] × [-1, 1]
         # Mapped in step() to physical ranges:
-        #   λ1: [-1, 1] → [0.0, 2.0]  (network output 0 → λ1 = 1.0, the Optuna optimum)
+        #   λ1: [-1, 1] → [0.0, 2.0]  (network output 0 → λ1 = 1.0,)
         #   λ2: [-1, 1] → [0.0, 0.5]  (network output 0 → λ2 = 0.25)
+        # This was done to encourage the agent to explore the action space
+        # Values λ1 = 1.0 and λ2 = 0.25 were found to be what I would consider the optimal values for static composite tested across multiple days
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
         
         # Fetch defaults from config.py to ensure a single source of truth
@@ -82,7 +84,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
         self.k_fixed = composite_defaults['k']
         self.threshold_fixed = composite_defaults['soft_threshold']
         
-        # 15 scalars: last_action removed from obs to break self-fulfilling-prophecy collapse
+        # 15 scalars (same that is currently in the overleaf paper)
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(15,), dtype=np.float32)
         
         self.simulator = None
@@ -305,17 +307,7 @@ class AdaptiveSpatialCrowdsourcingEnv(gym.Env):
 
     def _calculate_reward(self):
         """
-        Delta-JFI reward — standard environment (no Oracle/Twin). Trial D control group.
-
-        Uses step-over-step JFI change (Δ JFI) as the fairness signal instead of
-        absolute JFI level. This is the key change that enabled λ1 exploration in
-        run_20260501_135623 (max λ1 = 0.357, the highest ever recorded).
-
-        The Δ JFI is computed in step() before _get_observation() updates self.prev_jfi,
-        so the delta is correctly attributable to the action taken in this step.
-
-        Latency and starvation keep their original absolute penalty formulas (they respond
-        immediately and don't suffer from the same credit-assignment delay as JFI).
+        This is a previous reward function that I tried, I wasn't able to be succesful with it.
         """
         stats = self.simulator.metrics.get_reward_stats(self.simulator.current_time)
 

@@ -153,19 +153,37 @@ These accumulate across the full simulation and feed `get_final_results()`.
 | Function | Description |
 |----------|-------------|
 | `fairness_loss(actual, ideal)` | Deviation from ideal fair distribution: `Σ|actual−ideal| / Σideal` |
-| `calculate_input_output_ratio(worker_stats)` | IOR per worker (reachable-area fairness concept) |
-| `fairness_loss_supervisor_definition(worker_stats)` | FL using IOR-based ideal share |
+| `fairness_loss_ideal_share(worker_stats)` | FL using IOR-weighted ideal share: `Σ max(0, ideal−actual) / Σ ideal` |
 
 These are implemented but not called by `MetricsManager` in the hot path. Available for offline analysis via `FairnessMetricsTracker`.
 
 ### `FairnessMetricsTracker`
 
-A heavier tracker owned by `MetricsManager` (`self.fairness_tracker`). Maintains per-worker task eligibility logs and EWMA fairness histories. Called via:
+A heavier tracker owned by `MetricsManager` (`self.fairness_tracker`). Maintains per-worker task eligibility logs and EWMA fairness histories. Only active when `enable_diagnostics=True`. Called via:
 
-- `fairness_tracker.record_task_release(task, available_workers, time)` — logs eligible workers
+- `fairness_tracker.record_task_release(task, available_workers, time)` — logs workers within `reachable_distance_km` (10 km) as eligible
 - `fairness_tracker.record_task_assignment(task, worker, time)` — records actual assignment
 - `fairness_tracker.update_worker_stats(workers)` — updates EWMA values each step
 - `fairness_tracker.get_fairness_summary()` — returns final aggregate fairness dict (included in `get_final_results()`)
+
+**Eligibility-based methods** (reachable-area / IOR-weighted):
+
+| Method | Description |
+|--------|-------------|
+| `calculate_eligibility_utility_difference()` | Max − min assigned tasks among workers with eligibility data |
+| `calculate_eligibility_fairness_loss()` | FL from IOR-weighted ideal shares; also returns per-worker IOR dict |
+
+**`get_fairness_summary()` keys** (empty dict when diagnostics off):
+
+| Key | Description |
+|-----|-------------|
+| `eligibility_utility_difference` | UD over workers tracked in eligibility log |
+| `eligibility_fairness_loss` | FL from `fairness_loss_ideal_share()` |
+| `mean_input_output_ratio` | Mean IOR across workers (`actual / eligible`) |
+| `min_input_output_ratio` | Minimum IOR |
+| `max_input_output_ratio` | Maximum IOR |
+| `workers_with_eligibility_data` | Count of workers in eligibility stats |
+| `total_task_assignments_tracked` | Count of tasks in eligibility log |
 
 ---
 
@@ -337,9 +355,15 @@ Called once at simulation end by `simulation.py`. Returns a flat dict merging al
 | `final_jfi_earnings_opportunity` | `current_step_stats['jfi_earnings_opportunity']` |
 | `final_gini_earnings` | `current_step_stats['gini_earnings']` |
 | `final_utility_difference_tasks` | `current_step_stats['utility_diff']` |
+| `eligibility_utility_difference` | `fairness_tracker.get_fairness_summary()` (diagnostics only) |
+| `eligibility_fairness_loss` | `fairness_tracker.get_fairness_summary()` (diagnostics only) |
+| `mean_input_output_ratio` | `fairness_tracker.get_fairness_summary()` (diagnostics only) |
+| `min_input_output_ratio` | `fairness_tracker.get_fairness_summary()` (diagnostics only) |
+| `max_input_output_ratio` | `fairness_tracker.get_fairness_summary()` (diagnostics only) |
+| `workers_with_eligibility_data` | `fairness_tracker.get_fairness_summary()` (diagnostics only) |
+| `total_task_assignments_tracked` | `fairness_tracker.get_fairness_summary()` (diagnostics only) |
 | `deferral_stats` | `deferral_tracker.get_summary()` (if enabled) |
 | `metric_tracker` | `MetricTracker` object reference |
-| `+ fairness_summary` | All keys from `fairness_tracker.get_fairness_summary()` |
 
 `simulation.py` further enriches this with distribution statistics (std, p90, etc.) and worker acceptance counts (`total_offers`, `total_rejections`, `offer_acceptance_rate`).
 

@@ -74,8 +74,8 @@ def calculate_ideal_fair_assignment(total_tasks: int, num_workers: int) -> List[
 
 # Heavy Evaluation Tracking (Disabled during DRL training)
 
-def fairness_loss_supervisor_definition(worker_stats: Dict[str, Dict]) -> float:
-    """Calculate Fairness Loss (FL) based on reachable area proportion."""
+def fairness_loss_ideal_share(worker_stats: Dict[str, Dict]) -> float:
+    """Calculate Fairness Loss (FL) from IOR-weighted ideal shares."""
     if not worker_stats:
         return 0.0
     
@@ -100,7 +100,7 @@ class FairnessMetricsTracker:
         self.metrics_history = []
         self.worker_stats = {}
         
-        # Enhanced tracking for supervisor's UD and FL definitions
+        # Eligibility-based UD and FL (reachable-area / IOR-weighted)
         self.task_eligibility_log = {}  
         self.worker_eligibility_stats = {}  
         self.reachable_distance_km = 10.0  
@@ -190,12 +190,12 @@ class FairnessMetricsTracker:
         if not self.enable_diagnostics or not self.worker_eligibility_stats:
             return {}
             
-        supervisor_ud = self.calculate_supervisor_utility_difference()
-        supervisor_fl, ior_stats = self.calculate_supervisor_fairness_loss()
+        eligibility_ud = self.calculate_eligibility_utility_difference()
+        eligibility_fl, ior_stats = self.calculate_eligibility_fairness_loss()
         
         return {
-            'supervisor_utility_difference': supervisor_ud,
-            'supervisor_fairness_loss': supervisor_fl,
+            'eligibility_utility_difference': eligibility_ud,
+            'eligibility_fairness_loss': eligibility_fl,
             'mean_input_output_ratio': float(np.mean(list(ior_stats.values()))) if ior_stats else 0.0,
             'min_input_output_ratio': float(np.min(list(ior_stats.values()))) if ior_stats else 0.0,
             'max_input_output_ratio': float(np.max(list(ior_stats.values()))) if ior_stats else 0.0,
@@ -203,13 +203,13 @@ class FairnessMetricsTracker:
             'total_task_assignments_tracked': len(self.task_eligibility_log),
         }
     
-    def calculate_supervisor_utility_difference(self) -> float:
+    def calculate_eligibility_utility_difference(self) -> float:
         if not self.worker_eligibility_stats:
             return 0.0
         task_counts = [stats['actual_tasks'] for stats in self.worker_eligibility_stats.values()]
         return max(task_counts) - min(task_counts) if task_counts else 0.0
     
-    def calculate_supervisor_fairness_loss(self) -> Tuple[float, Dict[str, float]]:
+    def calculate_eligibility_fairness_loss(self) -> Tuple[float, Dict[str, float]]:
         if not self.worker_eligibility_stats:
             return 0.0, {}
         
@@ -234,7 +234,7 @@ class FairnessMetricsTracker:
             }
             ior_stats[worker_id] = actual_tasks / eligible_tasks if eligible_tasks > 0 else 0.0
         
-        fl_value = fairness_loss_supervisor_definition(worker_stats_for_fl)
+        fl_value = fairness_loss_ideal_share(worker_stats_for_fl)
         return fl_value, ior_stats
  
 
