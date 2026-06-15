@@ -2,10 +2,6 @@
 
 A discrete-event simulation engine for studying fair task allocation in spatial crowdsourcing markets, with a PPO-based deep reinforcement learning agent for dynamic weight adaptation.
 
-Research paper (honours thesis): https://drive.google.com/file/d/15yfEliaieEv4Ulx9Z_bCm_OOsYGUIZOo/view?usp=sharing
-
-**Branches:** see [`docs/BRANCHES.md`](BRANCHES.md) for which branch to checkout (start on **`main`** — formerly `conference-ready`).
-
 ---
 
 ## Repository layout
