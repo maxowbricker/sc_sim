@@ -1,410 +1,389 @@
 # Detailed Metrics Collection Outline
 
-This document provides a comprehensive overview of all metrics collected throughout the spatial crowdsourcing simulation.
+This document provides a comprehensive overview of all metrics collected throughout the spatial crowdsourcing simulation, organised by collection layer.
 
-**Single Source of Truth**: All metrics are aggregated at the end of each simulation step by `MetricsManager` (`metrics/manager.py`). The old `Simulation.summary` dictionary has been deprecated.
+**Last Updated**: June 2026  
+**Version**: 3.0
 
----
-
-## 1. Core Time-Series Metrics (`tracker.py` - `MetricTracker`)
-
-### 1.1 Task State Metrics
-- **`backlog`**: Number of active (unassigned) tasks at current timestep
-- **`assigned`**: Number of tasks currently assigned to workers
-- **`completed_total`**: Total number of tasks completed so far
-
-### 1.2 Fairness Metrics (Per-Timestep)
-
-#### Jain's Fairness Index (JFI)
-- **`jfi`**: Jain's Fairness Index calculated from per-worker completion counts
-  - Formula: `(sum(x_i))² / (n * sum(x_i²))`
-  - Range: 0 (completely unfair) to 1 (perfectly fair)
-
-#### Utility Difference (UD)
-- **`ud`**: Mean absolute deviation of completions per worker
-  - Lower values indicate better fairness
-  - Measures disparity in task allocation
-
-#### EWMA-Based Fairness Distribution
-- **`fairness_mean`**: Mean EWMA fairness value across all active workers
-- **`fairness_p90`**: 90th percentile of EWMA fairness values
-- **`fairness_max`**: Maximum EWMA fairness value
-- **`fairness_min`**: Minimum EWMA fairness value
-- **`fairness_std`**: Standard deviation of EWMA fairness values
-
-### 1.3 Task Age Metrics
-- **`avg_task_age_min`**: Average age (in minutes) of active + assigned tasks
-  - Age = time since task release
-- **`max_task_age_min`**: Maximum age of any active/assigned task
-
-### 1.4 Wait Time Metrics
-
-#### Current Timestep Wait Times
-- **`current_avg_wait_min`**: Average wait time for tasks completed in this timestep
-- **`current_max_wait_min`**: Maximum wait time in this timestep
-- **`current_min_wait_min`**: Minimum wait time in this timestep
-- **`current_wait_samples`**: Number of wait time samples in this timestep
-
-#### Overall Simulation Wait Times
-- **`overall_avg_wait_min`**: Cumulative average wait time across all completed tasks
-- **`overall_max_wait_min`**: Maximum wait time across entire simulation
-- **`overall_min_wait_min`**: Minimum wait time across entire simulation
-- **`total_wait_samples`**: Total number of wait time samples collected
-
-### 1.5 Travel Distance Metrics
-
-#### Current Timestep Travel Distances
-- **`current_avg_travel_km`**: Average travel distance for assigned tasks in this timestep
-- **`current_max_travel_km`**: Maximum travel distance in this timestep
-- **`current_travel_samples`**: Number of travel distance samples in this timestep
-
-#### Overall Simulation Travel Distances
-- **`overall_avg_travel_km`**: Cumulative average travel distance across all assigned tasks
-- **`total_travel_samples`**: Total number of travel distance samples collected
-
-### 1.6 Task Completion Time Metrics
-
-#### Current Timestep Completion Times
-- **`current_avg_completion_min`**: Average completion time for tasks finished in this timestep
-  - Completion time = time from assignment (start_time) to finish_time
-- **`current_completion_samples`**: Number of completion time samples in this timestep
-
-#### Overall Simulation Completion Times
-- **`total_completion_samples`**: Total number of completion time samples collected
-
-### 1.7 Per-Worker Fairness Tracking
-- **`_worker_fairness_history`**: Time-series of EWMA fairness per worker
-  - Fields: `time`, `worker_id`, `ewma_fairness`, `completed_tasks`, `available`
-  - Exported via `get_worker_fairness_dataframe()`
-
-### 1.8 Distribution Data
-- **`_wait_time_samples`**: All wait times for distribution analysis
-- **`_travel_distance_samples`**: All travel distances for distribution analysis
-- **`_completion_time_samples`**: All completion times for distribution analysis
+**Architecture**: All metrics are coordinated by `MetricsManager` (`metrics/manager.py`). The design follows an **O(1) event-driven pattern** — metrics are accumulated in lightweight counters at each event, then summarised once per simulation step in `snapshot_step()`. Heavy historical tracking is locked behind `enable_diagnostics=True`.
 
 ---
 
-## 2. Deferral Tracking (`deferral_tracker.py` - `DeferralTracker`)
-
-### 2.1 Deferral Events
-Tracks when tasks are deferred (not immediately assigned):
-- **`task_id`**: Unique task identifier
-- **`timestamp`**: When the deferral occurred
-- **`score`**: Composite score at time of deferral
-- **`reason`**: Why deferred (`'below_threshold'` or `'no_candidates'`)
-
-### 2.2 Assignment Events
-Tracks when tasks are assigned to workers:
-- **`task_id`**: Unique task identifier
-- **`timestamp`**: When the assignment occurred
-- **`was_deferred`**: Whether this task was previously deferred
-- **`deferral_count`**: Number of times this task was deferred
-- **`deferral_duration_sec`**: Time from first deferral to assignment (if deferred)
-
-### 2.3 Summary Statistics
-- **`immediate_assignments`**: Tasks assigned without deferral
-- **`deferred_assignments`**: Tasks assigned after deferral
-- **`total_assignments`**: Total number of assignments
-- **`pct_benefiting_from_starvation`**: Percentage of tasks that were deferred then assigned
-- **`mean_deferral_duration_sec`**: Average time tasks spend deferred
-- **`median_deferral_duration_sec`**: Median deferral duration
-- **`std_deferral_duration_sec`**: Standard deviation of deferral durations
-- **`p95_deferral_duration_sec`**: 95th percentile deferral duration
-- **`max_deferral_duration_sec`**: Maximum deferral duration
-- **`mean_deferral_count`**: Average number of deferrals per task
-- **`max_deferral_count`**: Maximum number of deferrals for any task
-- **`total_deferral_events`**: Total number of deferral events
-- **`unique_deferred_tasks`**: Number of unique tasks that were deferred
-
-### 2.4 Deferral Reason Breakdown
-- **`pct_below_threshold`**: Percentage of deferrals due to score below threshold
-- **`pct_no_candidates`**: Percentage of deferrals due to no eligible workers
+## Table of Contents
+1. [MetricsManager — Central Hub](#1-metricsmanager--central-hub)
+2. [Step-Level Snapshot (`current_step_stats`)](#2-step-level-snapshot-current_step_stats)
+3. [Global Accumulators (persist across steps)](#3-global-accumulators-persist-across-steps)
+4. [Fairness Metrics (`fairness.py`)](#4-fairness-metrics-fairnesspy)
+5. [Revenue & Earnings Tracking](#5-revenue--earnings-tracking)
+6. [Worker Acceptance Tracking (`state.py`)](#6-worker-acceptance-tracking-statepy)
+7. [RL Interface](#7-rl-interface)
+8. [Deferral Tracking (`deferral_tracker.py`)](#8-deferral-tracking-deferral_trackerpy)
+9. [Diagnostic Tracking (`tracker.py`)](#9-diagnostic-tracking-trackerpy)
+10. [Final Results (`get_final_results()`)](#10-final-results-get_final_results)
+11. [Metric Collection Points](#11-metric-collection-points)
+12. [Research Questions Addressed](#12-research-questions-addressed)
 
 ---
 
-## 3. Diagnostic Tracking (`diagnostic_tracker.py` - `DiagnosticTracker`)
+## 1. MetricsManager — Central Hub
 
-### 3.1 Assignment Records
-Detailed per-assignment score component analysis:
+**File**: `metrics/manager.py`
 
-#### Raw Component Values
-- **`fairness_raw`**: Raw fairness component value
-- **`starvation_raw`**: Raw starvation component value
-- **`utility_raw`**: Raw utility component value
+`MetricsManager` is instantiated once per simulation run. It owns all sub-trackers and exposes a clean event-driven API to the simulator. All downstream consumers (RL gym, baseline scripts) call only `MetricsManager` methods.
 
-#### Normalized Component Values
-- **`fairness_norm`**: Normalized fairness component (if normalization enabled)
-- **`starvation_norm`**: Normalized starvation component (if normalization enabled)
-- **`utility_norm`**: Normalized utility component (if normalization enabled)
+### Configuration flags (from `sim_config`)
 
-#### Component Weights
-- **`fairness_weight`**: Weight applied to fairness component
-- **`starvation_weight`**: Weight applied to starvation component
-- **`utility_weight`**: Weight applied to utility component
+| Flag | Default | Effect |
+|------|---------|--------|
+| `enable_deferral_tracking` | `False` | Instantiates `DeferralTracker`; adds deferral event detail |
+| `enable_diagnostics` | `False` | Activates heavy per-tick historical records in `MetricTracker` |
 
-#### Weighted Component Values
-- **`fairness_weighted`**: Weight × normalized (or raw) fairness value
-- **`starvation_weighted`**: Weight × normalized (or raw) starvation value
-- **`utility_weighted`**: Weight × normalized (or raw) utility value
+---
 
-#### Dominance Metrics
-- **`dominant_component`**: Which component ('fairness', 'starvation', or 'utility') has highest weighted value
-- **`dominant_value`**: Value of the dominant component
-- **`dominance_ratio`**: Ratio of dominant component to sum of others
+## 2. Step-Level Snapshot (`current_step_stats`)
 
-#### Final Score and Metadata
-- **`final_score`**: Final composite score used for assignment decision
-- **`was_deferred_before`**: Whether this task was previously deferred
-- **`normalization_used`**: Boolean indicating if normalization was applied
-- **`assignment_id`**: Unique identifier for this assignment
-- **`task_id`**: Task identifier
-- **`worker_id`**: Worker identifier
-- **`timestamp`**: When assignment occurred
+Computed once per step by `snapshot_step()` and cached as `self.current_step_stats`. Used directly by the RL reward and observation functions.
 
-### 3.2 Deferral Records
-- **`task_id`**: Task identifier
-- **`best_score`**: Best score achieved among candidates
-- **`threshold`**: Threshold value that wasn't met
-- **`score_gap`**: Difference between threshold and best score
-- **`reason`**: Reason for deferral
-- **`timestamp`**: When deferral occurred
-- **`best_worker_id`**: ID of worker with best score (if any)
+### Task-count fairness
 
-### 3.3 Summary Statistics
+| Key | Description |
+|-----|-------------|
+| `jfi` | Jain's Fairness Index on completed-task counts across active workers |
+| `gini` | Gini coefficient on completed-task counts |
+| `utility_diff` | Utility Difference (max − min task counts) |
 
-#### Component Dominance Patterns
-- **`dominance_counts`**: Count of assignments where each component dominated
-- **`dominance_percentages`**: Percentage of assignments where each component dominated
-- **`avg_dominance_ratio_by_component`**: Average dominance ratio when each component dominates
-- **`overall_avg_dominance_ratio`**: Overall average dominance ratio
+### Earnings fairness (v3.0)
 
-#### Score Statistics
-- **`mean_final_score`**: Average final composite score
-- **`median_final_score`**: Median final composite score
-- **`std_final_score`**: Standard deviation of final scores
+| Key | Description |
+|-----|-------------|
+| `jfi_earnings` | Jain's index on `worker.total_earnings` |
+| `jfi_earnings_opportunity` | Jain's index on earnings/opportunity rate (Basık LAR) |
+| `gini_earnings` | Gini coefficient on `worker.total_earnings` |
 
-#### Component Value Statistics (Raw)
-For each component (fairness, starvation, utility):
-- **`mean`**: Mean raw value
-- **`std`**: Standard deviation
-- **`min`**: Minimum value
-- **`max`**: Maximum value
+### Backlog & flow
 
-#### Deferral Statistics
-- **`total_assignments`**: Total number of assignments recorded
-- **`total_deferrals`**: Total number of deferrals recorded
-- **`deferral_rate`**: Percentage of tasks deferred
-- **`mean_score_gap`**: Average gap between threshold and best score
-- **`median_score_gap`**: Median score gap
-- **`mean_best_score`**: Average best score among deferred tasks
+| Key | Description |
+|-----|-------------|
+| `backlog` | Total unassigned tasks (active + deferred) |
+| `deferred_ratio` | `deferred_backlog / total_tasks_released` |
+| `completed_in_step` | Tasks completed in this step |
+| `task_worker_ratio` | Task release rate (per min) / active workers |
+
+### Latency
+
+| Key | Description |
+|-----|-------------|
+| `avg_wait` | Mean wait time (min) for tasks completed this step; carries forward last value if no completions (prevents RL reward exploit) |
+| `step_avg_assignment_delay` | Mean seconds from release to assignment for tasks completed this step |
+
+### Worker state
+
+| Key | Description |
+|-----|-------------|
+| `worker_availability_ratio` | `available_workers / total_workers` |
+| `mean_worker_idle_min` | Mean idle time (minutes) across all workers |
+| `cv_worker_idle` | Coefficient of variation of worker idle times |
+
+### Deferral breakdown (per step)
+
+| Key | Description |
+|-----|-------------|
+| `pct_deferrals_below_threshold` | Fraction of this step's deferrals caused by score below threshold |
+| `pct_deferrals_no_candidates` | Fraction caused by no eligible workers |
+
+### Step accumulators (reset every step)
+
+These feed `current_step_stats` and are zeroed after `snapshot_step()`:
+
+- `step_completed_tasks_count` — task completions this step
+- `step_wait_times` — wait time list for completions this step
+- `step_travel_dist` — travel distance sum this step
+- `step_tasks_released` — tasks released this step
+- `step_total_deferrals`, `step_deferrals_below_threshold`, `step_deferrals_no_candidates`
+
+---
+
+## 3. Global Accumulators (persist across steps)
+
+These accumulate across the full simulation and feed `get_final_results()`.
+
+| Accumulator | Description |
+|-------------|-------------|
+| `_completed_tasks` | Total tasks completed |
+| `_total_platform_revenue` | Sum of `task.revenue` for all completed tasks ($) |
+| `_total_travel_km` | Total distance (pickup + drop) across all workers |
+| `_empty_km` | Total empty (pickup) travel km |
+| `_passenger_km` | Total loaded (drop) travel km |
+| `_total_wait_min` | Sum of all task wait times (minutes) |
+| `_wait_times` | List of per-task wait times (minutes) |
+| `_backlog_peak` | Maximum backlog observed at any step |
+| `_assignment_delays` | List of per-task assignment delays (seconds) |
+| `total_tasks_released` | Cumulative tasks released |
+| `_summary_minimal['pickup_distances']` | Per-task pickup distances (km) |
+| `_summary_minimal['service_times']` | Per-task estimated service durations (min) |
+| `_summary_minimal['expired_tasks']` | List of `(task_id, expiration_timestamp)` tuples |
 
 ---
 
 ## 4. Fairness Metrics (`fairness.py`)
 
-### 4.1 Core Fairness Functions
+**File**: `metrics/fairness.py`
 
-#### Jain's Fairness Index (JFI)
-- **`jains_fairness_index(task_counts)`**: Calculates JFI for a list of task counts
-  - Returns value between 0 (unfair) and 1 (perfectly fair)
+### Core functions (called in `snapshot_step()`)
 
-#### Utility Difference (UD)
-- **`utility_difference(worker_utilities)`**: Calculates UD as max - min
-  - Lower values indicate better fairness
+| Function | Description |
+|----------|-------------|
+| `jains_fairness_index(task_counts)` | Jain's index on task counts — formula: `(Σxᵢ)² / (n·Σxᵢ²)` |
+| `gini_coefficient(task_counts)` | Gini coefficient on task counts |
+| `utility_difference(task_counts)` | Max − min task count |
 
-#### Fairness Loss (FL)
-- **`fairness_loss(actual, ideal)`**: Deviation from ideal fair assignment
-  - Formula: `sum(|actual_i - ideal_i|) / sum(ideal_i)`
+### Earnings fairness functions (v3.0, called in `snapshot_step()`)
 
-#### Supervisor's Fairness Loss
-- **`fairness_loss_supervisor_definition(worker_stats)`**: FL based on ideal task share
-  - Uses Input/Output Ratio (IOR) concept from F-Aware paper
+| Function | Input | Description |
+|----------|-------|-------------|
+| `jfi_earnings(workers)` | `worker.total_earnings` | Jain's index on absolute earnings |
+| `jfi_earnings_opportunity(workers)` | earnings/opportunity rate per worker | Jain's index on Basık LAR |
+| `gini_earnings(workers)` | `worker.total_earnings` | Gini on absolute earnings |
+| `gini_earnings_opportunity(workers)` | earnings/opportunity rate | Gini on LAR (available but not in final results) |
+| `worker_earnings_opportunity_rates(workers)` | — | Returns list of `total_earnings / opportunity_revenue` per worker |
+| `worker_feasible_for_task(worker, task, now)` | — | True if worker is available and on-shift at task release time (used for opportunity crediting) |
 
-#### Input/Output Ratio (IOR)
-- **`calculate_input_output_ratio(worker_stats)`**: IOR per worker
-  - Formula: `(tasks received) / (tasks within worker's reachable area)`
+### Other fairness functions (available, not called in hot path)
 
-### 4.2 FairnessMetricsTracker
+| Function | Description |
+|----------|-------------|
+| `fairness_loss(actual, ideal)` | Deviation from ideal fair distribution: `Σ|actual−ideal| / Σideal` |
+| `calculate_input_output_ratio(worker_stats)` | IOR per worker (reachable-area fairness concept) |
+| `fairness_loss_supervisor_definition(worker_stats)` | FL using IOR-based ideal share |
 
-#### Worker Statistics
-- **`completed_tasks`**: Number of tasks completed by worker
-- **`total_idle_time`**: Total idle time (in seconds)
-- **`fairness_ewma`**: EWMA-based fairness value
-- **`last_active_time`**: Timestamp of last activity
+These are implemented but not called by `MetricsManager` in the hot path. Available for offline analysis via `FairnessMetricsTracker`.
 
-#### Current Fairness Metrics
-- **`jains_fairness_index_tasks`**: JFI based on task counts
-- **`utility_difference_tasks`**: UD based on task counts
-- **`utility_difference_idle_time`**: UD based on idle time
-- **`fairness_loss_tasks`**: FL based on task counts
-- **`ewma_fairness_mean`**: Mean EWMA fairness across workers
-- **`ewma_fairness_std`**: Standard deviation of EWMA fairness
-- **`ewma_fairness_coefficient_variation`**: CV of EWMA fairness
-- **`total_completed_tasks`**: Total tasks completed
-- **`active_workers`**: Number of active workers
+### `FairnessMetricsTracker`
 
-#### Task Eligibility Tracking
-- **`task_eligibility_log`**: Per-task log of eligible workers
-  - Fields: `eligible_workers`, `release_time`, `assigned_worker`, `assignment_time`
-- **`worker_eligibility_stats`**: Per-worker eligibility statistics
-  - Fields: `eligible_tasks`, `actual_tasks`, `total_eligible_distance`
+A heavier tracker owned by `MetricsManager` (`self.fairness_tracker`). Maintains per-worker task eligibility logs and EWMA fairness histories. Called via:
 
-#### Fairness Summary
-- **`final_jains_fairness_index`**: Final JFI value
-- **`final_utility_difference_tasks`**: Final UD value
-- **`final_fairness_loss`**: Final FL value
-- **`final_ewma_cv`**: Final EWMA coefficient of variation
-- **`mean_jfi_over_time`**: Mean JFI across all timesteps
-- **`min_jfi_over_time`**: Minimum JFI value
-- **`mean_ewma_cv_over_time`**: Mean EWMA CV across time
-- **`max_ewma_cv_over_time`**: Maximum EWMA CV
-- **`supervisor_utility_difference`**: UD using supervisor's definition
-- **`supervisor_fairness_loss`**: FL using supervisor's definition
-- **`mean_input_output_ratio`**: Mean IOR across workers
-- **`min_input_output_ratio`**: Minimum IOR
-- **`max_input_output_ratio`**: Maximum IOR
-- **`workers_with_eligibility_data`**: Number of workers with eligibility tracking
-- **`total_task_assignments_tracked`**: Total assignments tracked
+- `fairness_tracker.record_task_release(task, available_workers, time)` — logs eligible workers
+- `fairness_tracker.record_task_assignment(task, worker, time)` — records actual assignment
+- `fairness_tracker.update_worker_stats(workers)` — updates EWMA values each step
+- `fairness_tracker.get_fairness_summary()` — returns final aggregate fairness dict (included in `get_final_results()`)
 
 ---
 
-## 5. Temporal Summary Statistics
+## 5. Revenue & Earnings Tracking
 
-### 5.1 Wait Time Evolution
-- **`avg_wait_time_trend`**: Time-series of average wait times
-- **`max_wait_time_trend`**: Time-series of maximum wait times
-- **`min_wait_time_trend`**: Time-series of minimum wait times
-- **`time_points`**: Timestamps for all measurements
+### Task revenue (computed at construction)
 
-### 5.2 Task Age Evolution
-- **`avg_task_age_trend`**: Time-series of average task ages
-- **`max_task_age_trend`**: Time-series of maximum task ages
+Every `Task` object has:
+- `core_movement_cost_km` — Manhattan distance pickup→dropoff (α)
+- `revenue` — `base_fare + per_km_rate × α` (from `PLATFORM_REVENUE` config)
 
-### 5.3 Fairness Evolution
-- **`fairness_mean_trend`**: Time-series of mean fairness
-- **`fairness_max_trend`**: Time-series of max fairness
-- **`fairness_min_trend`**: Time-series of min fairness
-- **`fairness_std_trend`**: Time-series of fairness standard deviation
-- **`jfi_trend`**: Time-series of JFI values
+### Per-worker earnings (accumulated on `Worker` objects)
 
-### 5.4 Distribution Summaries
+| Field | Accumulated by | Description |
+|-------|---------------|-------------|
+| `worker.total_earnings` | `worker.record_completion(time, revenue)` called in `on_task_completed()` | Sum of `task.revenue` for completed tasks |
+| `worker.opportunity_revenue` | `on_task_released()` (k-NN neighbours) and `on_task_assigned()` | Sum of `task.revenue` for tasks the worker was a feasible k-NN candidate for. De-duplicated via `task._opp_credited_workers` set. |
 
-#### Wait Time Statistics
-- **`mean`**, **`std`**, **`min`**, **`max`**, **`median`**
-- **`p25`**, **`p75`**, **`p90`**, **`p95`**: Percentiles
-- **`count`**: Number of samples
+### Platform revenue
 
-#### Travel Distance Statistics
-- **`mean`**, **`std`**, **`min`**, **`max`**, **`median`**, **`p90`**, **`count`**
+- `MetricsManager._total_platform_revenue` — incremented in `on_task_completed()` by `task.revenue`
+- Exposed as `total_platform_revenue` in `get_final_results()`
 
-#### Completion Time Statistics
-- **`mean`**, **`std`**, **`min`**, **`max`**, **`median`**, **`count`**
+### Opportunity crediting logic
 
-### 5.5 Simulation Metadata
-- **`num_workers_tracked`**: Number of workers in fairness history
-- **`simulation_duration`**: Total simulation duration in hours
+At task release (`on_task_released()`), the k nearest workers are queried via `spatial_index`. Each feasible worker (available, on-shift) has `task.revenue` added to `opportunity_revenue` if not already credited. The same deduplication runs again at assignment (`on_task_assigned()`), covering workers who became available after release.
 
 ---
 
-## 6. Data Export Formats
+## 6. Worker Acceptance Tracking (`state.py`)
 
-### 6.1 Main Time-Series Metrics
-- **CSV/Parquet**: All per-timestep metrics
-- Columns: All metrics listed in Section 1
+Only non-zero when `WORKER_ACCEPTANCE.enabled = True` (stochastic cascade dispatch).
 
-### 6.2 Per-Worker Fairness Data
-- **CSV**: Time-series of EWMA fairness per worker
-- Columns: `worker_id`, `time`, `ewma_fairness`, `completed_tasks`, `available`
+| Field | Description |
+|-------|-------------|
+| `state.offers_made` | Incremented each time a worker is offered a task in the cascade |
+| `state.offers_rejected` | Incremented when `P(accept) = exp(−d_pick) × c_willingness` roll fails |
 
-### 6.3 Distribution Data
-- **Wait Times CSV**: All wait time samples
-- **Travel Distances CSV**: All travel distance samples
-- **Completion Times CSV**: All completion time samples
-
-### 6.4 Summary Statistics
-- **JSON**: Comprehensive summary with temporal trends and distribution statistics
+These are read in `simulation.py::get_final_results()` and exposed as:
+- `total_offers`
+- `total_rejections`
+- `offer_acceptance_rate` — `(total_offers − total_rejections) / total_offers`
 
 ---
 
-## 7. Metric Collection Points
+## 7. RL Interface
 
-### 7.1 Per-Timestep Collection
-- **`MetricTracker.snapshot()`**: Called every simulation tick
-  - Captures current state of all active/assigned/completed tasks
-  - Calculates fairness metrics from worker completion counts
-  - Aggregates wait times, travel distances, completion times
+Three methods form the RL-facing surface of `MetricsManager`:
 
-### 7.2 Per-Assignment Collection
-- **`DiagnosticTracker.record_assignment()`**: Called when task is assigned
-  - Captures score components, weights, dominance patterns
-- **`DeferralTracker.record_assignment()`**: Called when task is assigned
-  - Tracks deferral history and duration
+### `get_reward_stats(current_time) → dict`
 
-### 7.3 Per-Deferral Collection
-- **`DiagnosticTracker.record_task_deferred()`**: Called when task is deferred
-  - Captures score gap and threshold information
-- **`DeferralTracker.record_deferral()`**: Called when task is deferred
-  - Tracks deferral reason and score
+Returns the three signals used by `_calculate_reward()` in `gym_environment.py`:
 
-### 7.4 Per-Task-Release Collection
-- **`FairnessMetricsTracker.record_task_release()`**: Called when task is released
-  - Determines eligible workers based on reachable distance
-  - Updates worker eligibility statistics
+| Key | Description |
+|-----|-------------|
+| `fairness` | `current_step_stats['jfi']` |
+| `latency` | `current_step_stats['avg_wait']` (minutes) |
+| `recent_expirations` | Count of tasks expired in the trailing 30 minutes (from `_summary_minimal['expired_tasks']`) |
 
-### 7.5 Per-Task-Assignment Collection
-- **`FairnessMetricsTracker.record_task_assignment()`**: Called when task is assigned
-  - Updates actual task counts for eligibility-based fairness metrics
+### `get_observation_data(state, current_time) → dict`
 
----
+Returns raw features for the 15-dimensional observation vector:
 
-## 8. Key Metric Relationships
+| Key | Description |
+|-----|-------------|
+| `deferred_ratio` | From `current_step_stats` |
+| `worker_availability_ratio` | From `current_step_stats` |
+| `total_workers` | `len(state.all_workers_map)` |
+| `jfi` | From `current_step_stats` |
+| `step_avg_wait` | From `current_step_stats['avg_wait']` |
+| `step_avg_assignment_delay` | From `current_step_stats` |
+| `backlog_peak` | `self._backlog_peak` (global max) |
+| `task_arrival_rate` | `step_tasks_released / 5.0` (tasks per minute, assumes 5 min step) |
+| `is_midweek`, `is_mon_fri`, `is_weekend` | Day-of-week flags |
+| `time_sin`, `time_cos` | Hour-of-day encoded cyclically |
+| `revenue_density` | `Σ(deferred task revenue) / available_workers` — computed live from `state.deferred_tasks` |
 
-### 8.1 Fairness Metrics
-- **JFI** and **UD** are complementary: JFI measures overall fairness (0-1), UD measures disparity (lower is better)
-- **EWMA fairness** provides per-worker temporal fairness tracking
-- **FL** measures deviation from ideal distribution
+Note: `revenue_density` is computed here but is only included in the observation vector when `include_revenue_density=True` in `RL_REWARD` config. Current committed gym is 15-dim (excludes it).
 
-### 8.2 Efficiency Metrics
-- **Wait time** = time from task release to assignment
-- **Travel distance** = distance worker travels to pickup task
-- **Completion time** = time from assignment to task completion
-- **Task age** = current age of unassigned/assigned tasks
+### `get_recent_expirations(current_time, window_minutes=30) → int`
 
-### 8.3 Deferral Metrics
-- **Deferral rate** indicates how often starvation prevention is triggered
-- **Deferral duration** measures how long tasks wait before assignment
-- **Score gap** indicates how far below threshold deferred tasks were
-
-### 8.4 Diagnostic Metrics
-- **Dominance patterns** show which component (F/S/U) drives most assignments
-- **Component statistics** reveal distribution of raw and normalized values
-- **Weighted components** show actual contribution to final score
+Counts tasks in `_summary_minimal['expired_tasks']` whose expiration timestamp falls within the trailing window. Uses a reverse-iterate early-exit for O(1) typical performance. Used as the starvation signal in the RL reward.
 
 ---
 
-## 9. Research Questions Addressed
+## 8. Deferral Tracking (`deferral_tracker.py`)
 
-### RQ1: Fairness-Efficiency Tradeoff
-- **JFI**, **UD**, **FL** for fairness
-- **Wait time**, **travel distance**, **completion time** for efficiency
-- **Pareto frontier** analysis using these metrics
+Only active when `enable_deferral_tracking=True`. `DeferralTracker` is instantiated by `MetricsManager` and populated via `on_task_deferred()` and `on_task_assigned()`.
 
-### RQ2: Component Effectiveness
-- **Dominance patterns** from DiagnosticTracker
-- **Component statistics** (mean, std, min, max)
-- **Weight analysis** via weighted component values
+### Deferral events (per deferral)
 
-### RQ3: Starvation Prevention
-- **Deferral statistics** from DeferralTracker
-- **Deferral duration** and **count** distributions
-- **Percentage benefiting from starvation prevention**
+| Field | Description |
+|-------|-------------|
+| `task_id` | Task identifier |
+| `timestamp` | When the deferral occurred |
+| `score` | Best composite score at time of deferral |
+| `reason` | `'below_threshold'` or `'no_candidates'` |
 
-### RQ4: Temporal Behavior
-- **Time-series trends** for all metrics
-- **EWMA fairness evolution** per worker
-- **Task age evolution** over time
+### Assignment events (per assignment)
+
+| Field | Description |
+|-------|-------------|
+| `task_id` | Task identifier |
+| `timestamp` | Assignment time |
+| `was_deferred` | Whether previously deferred |
+| `deferral_count` | Total deferral events for this task |
+| `deferral_duration_sec` | Time from first deferral to assignment (if deferred) |
+
+### Summary statistics (`deferral_tracker.get_summary()`)
+
+| Key | Description |
+|-----|-------------|
+| `immediate_assignments` | Tasks assigned without deferral |
+| `deferred_assignments` | Tasks assigned after ≥1 deferral |
+| `total_assignments` | Total |
+| `mean_deferral_duration_sec` | Average deferred wait |
+| `median_deferral_duration_sec` | Median deferred wait |
+| `std_deferral_duration_sec`, `p95_deferral_duration_sec`, `max_deferral_duration_sec` | Distribution |
+| `mean_deferral_count`, `max_deferral_count` | Repeat-deferral statistics |
+| `total_deferral_events`, `unique_deferred_tasks` | Volume |
+| `pct_below_threshold`, `pct_no_candidates` | Deferral reason breakdown |
 
 ---
 
-This comprehensive metrics collection system enables detailed analysis of fairness, efficiency, starvation prevention, and temporal dynamics in the spatial crowdsourcing simulation.
+## 9. Diagnostic Tracking (`tracker.py`)
 
+`MetricTracker` is owned by `MetricsManager` (`self.metric_tracker`). Called via `metric_tracker.snapshot(state, time)` at the end of every `snapshot_step()`.
+
+### Normal mode (`enable_diagnostics=False`, default)
+
+- Only `_wait_time_samples`, `_travel_distance_samples`, `_completion_time_samples` lists are populated
+- No per-tick record is saved (saves RAM)
+- `export_to_dataframe()` returns an empty DataFrame
+- `get_temporal_summary()` returns aggregate averages over the full run
+
+### Diagnostics mode (`enable_diagnostics=True`)
+
+Additionally populates:
+
+- `_records` — list of per-tick dicts with: `time`, `jfi`, `ud`, `backlog`, `avg_wait_sec`, `ewma_fairness_mean`, `active_workers`, `unassigned_ratio`
+- `_worker_fairness_history` — per-worker list of `{time, ewma, completed}` snapshots
+
+Export methods:
+- `export_to_dataframe()` → `pd.DataFrame` of per-tick records
+- `export_worker_fairness_history()` → dict of per-worker DataFrames
+- `save_all_metrics(output_dir)` → writes CSVs + JSON summary to disk
+
+---
+
+## 10. Final Results (`get_final_results()`)
+
+Called once at simulation end by `simulation.py`. Returns a flat dict merging all accumulators.
+
+### Key fields
+
+| Key | Source |
+|-----|--------|
+| `completed_tasks` | `_completed_tasks` |
+| `wait_times` | `_wait_times` (full list) |
+| `assignment_delays` | `_assignment_delays` (full list) |
+| `service_times`, `pickup_distances` | `_summary_minimal` |
+| `expired_tasks` | `_summary_minimal` (list of `(id, timestamp)`) |
+| `total_travel_km`, `empty_km`, `passenger_km` | global accumulators |
+| `backlog_peak` | `_backlog_peak` |
+| `total_platform_revenue` | `_total_platform_revenue` ($) |
+| `final_jains_fairness_index` | `current_step_stats['jfi']` |
+| `final_gini_coefficient` | `current_step_stats['gini']` |
+| `final_jfi_earnings` | `current_step_stats['jfi_earnings']` |
+| `final_jfi_earnings_opportunity` | `current_step_stats['jfi_earnings_opportunity']` |
+| `final_gini_earnings` | `current_step_stats['gini_earnings']` |
+| `final_utility_difference_tasks` | `current_step_stats['utility_diff']` |
+| `deferral_stats` | `deferral_tracker.get_summary()` (if enabled) |
+| `metric_tracker` | `MetricTracker` object reference |
+| `+ fairness_summary` | All keys from `fairness_tracker.get_fairness_summary()` |
+
+`simulation.py` further enriches this with distribution statistics (std, p90, etc.) and worker acceptance counts (`total_offers`, `total_rejections`, `offer_acceptance_rate`).
+
+---
+
+## 11. Metric Collection Points
+
+| Event | Method | What is updated |
+|-------|--------|-----------------|
+| Task released | `on_task_released()` | `total_tasks_released`, `step_tasks_released`; `fairness_tracker.record_task_release()`; opportunity revenue credited to k nearest feasible workers |
+| Task assigned | `on_task_assigned()` | `_assignment_delays`; opportunity revenue credit (deduplication); `deferral_tracker.record_assignment()` if enabled |
+| Task completed | `on_task_completed()` | `_completed_tasks`, `_total_platform_revenue`, travel km, `_wait_times`, step accumulators; `worker.record_completion()`; `fairness_tracker.record_task_assignment()` |
+| Task deferred | `on_task_deferred()` | `step_total_deferrals`, reason counters; `deferral_tracker.record_deferral()` if enabled |
+| Task expired | `on_task_expired()` | `_summary_minimal['expired_tasks']` |
+| End of step | `snapshot_step()` | Idle time update for all available workers; `current_step_stats` recomputed; `metric_tracker.snapshot()`; step accumulators reset |
+
+---
+
+## 12. Research Questions Addressed
+
+### Fairness
+- **Task-count fairness**: `jfi`, `gini`, `utility_diff` (step-level and final)
+- **Earnings fairness** (Basık et al.): `jfi_earnings`, `jfi_earnings_opportunity`, `gini_earnings`
+- **Worker experience equity**: `cv_worker_idle`, `mean_worker_idle_min`
+
+### Efficiency
+- **Latency**: `avg_wait`, `_wait_times` distribution (mean, std, p90, p95, max)
+- **Travel**: `total_travel_km`, `empty_km_ratio`, pickup distance distribution
+- **Throughput**: `completed_tasks`, `task_assignment_ratio`
+
+### Starvation prevention
+- **Deferral volume**: `step_total_deferrals`, `pct_deferrals_below_threshold/no_candidates`
+- **Detailed deferral analysis**: `deferral_stats` (if `enable_deferral_tracking=True`)
+- **Expiration-based starvation**: `get_recent_expirations()` (30-min trailing window, used in RL reward)
+
+### Platform economics
+- **Revenue**: `total_platform_revenue`
+- **Earnings equity**: earnings JFI/Gini
+- **Acceptance behaviour**: `total_offers`, `total_rejections`, `offer_acceptance_rate`
+
+### RL training signal
+- **Reward components**: `get_reward_stats()` → fairness (ΔJFI), latency (avg wait), starvation (recent expirations)
+- **Observation vector**: `get_observation_data()` → 15 features covering backlog, fairness, latency, worker state, time context
+
+---
+
+*For metric definitions and interpretation guidance, see `docs/reference/DATA_DICTIONARY.md`. For RL reward formula details, see `rl/gym_environment.py::_calculate_reward()`.*
