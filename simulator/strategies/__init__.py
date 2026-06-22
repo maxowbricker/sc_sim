@@ -41,6 +41,7 @@ def _auto_import_builtins() -> None:
         "fatp_ann",
         "mmd_batch",
         "cb",
+        "tsgf",
     )
     
     for mod in builtin_strategies:

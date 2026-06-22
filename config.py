@@ -13,7 +13,7 @@ Strictly contains active parameters used by the physics engine and strategies.
 SIMULATION_CONFIG = {
     "dataset": "didi",                          # "didi" | "synthetic"
     "data_root_path": None,                     # Override data directory. Example: "data/didi/full_didi_gaia/496528674@qq.com_20161128". None = use default from DATA_SAMPLING
-    "assignment_strategy": "composite",         # "greedy" | "composite" | "fatp_ann" | "ewma_only" | "random_assign" | "mmd_batch" | "cost_balancing"
+    "assignment_strategy": "composite",         # "greedy" | "composite" | "fatp_ann" | "ewma_only" | "random_assign" | "mmd_batch" | "cost_balancing" | "tsgf"
 }
 
 # ============================================================================
@@ -107,6 +107,15 @@ STRATEGY_PARAMS = {
     "cost_balancing": {
         "alpha": 0.5,                           # Match when M <= alpha * W (paper delivery experiments)
         "k": 10,                                # k-NN window for batch greedy matching
+    },
+
+    # === TSGF RANDOMIZED SAMPLING BASELINE ===
+    "tsgf": {
+        "alpha": 0.4,                           # P(operator profit / proximity greedy)
+        "beta": 0.3,                            # P(max-min worker fairness)
+        "gamma": 0.3,                           # P(max-min task fairness); alpha+beta+gamma <= 1
+        "k": 15,                                # k-NN window for spatial candidate search
+        "seed": 42,                             # RNG seed for reproducible policy sampling
     },
 }
 
