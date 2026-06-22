@@ -13,7 +13,7 @@ Strictly contains active parameters used by the physics engine and strategies.
 SIMULATION_CONFIG = {
     "dataset": "didi",                          # "didi" | "synthetic"
     "data_root_path": None,                     # Override data directory. Example: "data/didi/full_didi_gaia/496528674@qq.com_20161128". None = use default from DATA_SAMPLING
-    "assignment_strategy": "composite",         # "greedy" | "composite" | "fatp_ann" | "ewma_only" | "random_assign" | "mmd_batch" | "cost_balancing" | "tsgf"
+    "assignment_strategy": "composite",         # "greedy" | "composite" | "fatp_ann" | "ewma_only" | "random_assign" | "mmd_batch" | "cost_balancing" | "tsgf" | "discrete_review_lp"
 }
 
 # ============================================================================
@@ -116,6 +116,11 @@ STRATEGY_PARAMS = {
         "gamma": 0.3,                           # P(max-min task fairness); alpha+beta+gamma <= 1
         "k": 15,                                # k-NN window for spatial candidate search
         "seed": 42,                             # RNG seed for reproducible policy sampling
+    },
+
+    # === DISCRETE REVIEW LP BASELINE (Aveklouris et al.) ===
+    "discrete_review_lp": {
+        "review_period_seconds": 60.0,          # Review interval l (seconds); sweep for Pareto curves
     },
 }
 

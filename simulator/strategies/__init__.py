@@ -42,6 +42,7 @@ def _auto_import_builtins() -> None:
         "mmd_batch",
         "cb",
         "tsgf",
+        "aveklouris_lp",
     )
     
     for mod in builtin_strategies:

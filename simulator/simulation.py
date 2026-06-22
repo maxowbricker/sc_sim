@@ -66,7 +66,24 @@ class EventSimulator:
         self.total_tasks_count = len(tasks)
         self.event_count = 0
         self.max_events = len(tasks) * 10
+        if self.review_batch_handler is not None:
+            review_period = float(self.strategy_params.get("review_period_seconds", 60.0))
+            horizon = 0.0
+            if tasks:
+                horizon = max(t.expire_time for t in tasks)
+            if workers:
+                horizon = max(horizon, max(w.deadline for w in workers))
+            start = min(
+                [t.release_time for t in tasks] + [w.release_time for w in workers],
+                default=0.0,
+            )
+            review_epochs = int(max(0.0, horizon - start) / max(review_period, 1.0)) + 1
+            self.max_events = max(
+                self.max_events,
+                len(tasks) * 30 + review_epochs * 5,
+            )
         self.step_start_time = None
+        self._next_review_time = None
 
     def _init_strategy_handlers(self):
         """Binds the active strategy handlers."""
@@ -74,10 +91,54 @@ class EventSimulator:
         strategy_handlers = strategy_handler_factory()
         self.new_task_handler = strategy_handlers["NEW_TASK"]
         self.free_worker_handler = strategy_handlers["FREE_WORKER"]
+        self.review_batch_handler = strategy_handlers.get("REVIEW_BATCH")
         
         # Inject standard simulator callbacks into strategy params
         self.strategy_params['expiry_scheduler'] = self._schedule_task_expiry
+        if self.review_batch_handler is not None:
+            self.strategy_params['review_scheduler'] = self._maybe_schedule_review
         
+    def _schedule_review(self, review_period_seconds: float):
+        """Queue the next review epoch (used by the periodic review chain)."""
+        if self.current_time is None:
+            return
+        if not self._should_schedule_review(review_period_seconds):
+            return
+
+        review_at = self.current_time + review_period_seconds
+        self._next_review_time = review_at
+        heappush(self.event_queue, (review_at, "REVIEW_BATCH", 0))
+
+    def _maybe_schedule_review(self, review_period_seconds: float):
+        """Arrivals kick off the review chain only when none is pending."""
+        if self._next_review_time is not None:
+            return
+        self._schedule_review(review_period_seconds)
+
+    def _next_matching_event_time(self) -> float | None:
+        """Earliest time matching could matter: backlog now or next pool-changing event."""
+        if self.state is None:
+            return None
+        if self.state.deferred_tasks or self.state.active_tasks or self.state.available_workers:
+            return self.current_time
+
+        next_time = None
+        for event_time, event_type, _ in self.event_queue:
+            if event_type in ("TASK_RELEASE", "WORKER_RELEASE", "TASK_COMPLETE"):
+                if next_time is None or event_time < next_time:
+                    next_time = event_time
+        return next_time
+
+    def _should_schedule_review(self, review_period_seconds: float) -> bool:
+        """Schedule a review only when backlog exists or a pool change is imminent."""
+        if self.end_time is not None and self.current_time + review_period_seconds > self.end_time:
+            return False
+
+        next_event = self._next_matching_event_time()
+        if next_event is None:
+            return False
+        return next_event <= self.current_time + review_period_seconds
+
     def _schedule_task_expiry(self, task):
         """O(1) Callback provided to strategies to schedule expirations."""
         if self.current_time < task.expire_time:
@@ -128,12 +189,17 @@ class EventSimulator:
         self.end_time = end_time
         self.event_count = 0
         self.step_start_time = None
+        self._next_review_time = None
         
         # Populate initial arrival events
         for w in current_workers:
             heappush(self.event_queue, (w.release_time, "WORKER_RELEASE", w.id))
         for t in current_tasks:
             heappush(self.event_queue, (t.release_time, "TASK_RELEASE", t.id))
+
+        if self.review_batch_handler is not None:
+            review_period = float(self.strategy_params.get("review_period_seconds", 60.0))
+            self._schedule_review(review_period)
         
         return self.get_state()
 
@@ -210,7 +276,14 @@ class EventSimulator:
                 spatial_index=self.state.spatial_index,
             )
             
-            if self.state.available_workers:
+            if self.review_batch_handler is not None:
+                assignments = self.new_task_handler(
+                    self.state, self.current_time, [task], **self.strategy_params
+                )
+                for assigned_task, assigned_worker, _ in self._coerce_assignments(assignments):
+                    self.metrics.on_task_assigned(assigned_task, assigned_worker, self.current_time)
+                    heappush(self.event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
+            elif self.state.available_workers:
                 assignments = self.new_task_handler(self.state, self.current_time, [task], **self.strategy_params)
                 for assigned_task, assigned_worker, _ in self._coerce_assignments(assignments):
                     self.metrics.on_task_assigned(assigned_task, assigned_worker, self.current_time)
@@ -243,6 +316,18 @@ class EventSimulator:
                 if not is_assigned and task not in self.state.completed_tasks and not task.is_completed:
                     # UPDATED: Pass the current_time so we can track the 30-minute window
                     self.metrics.on_task_expired(task.id, self.current_time)
+
+        elif event_type == "REVIEW_BATCH":
+            self._next_review_time = None
+            assignments = self.review_batch_handler(
+                self.state, self.current_time, **self.strategy_params
+            )
+            for assigned_task, assigned_worker, _ in self._coerce_assignments(assignments):
+                self.metrics.on_task_assigned(assigned_task, assigned_worker, self.current_time)
+                heappush(self.event_queue, (assigned_task.finish_time, "TASK_COMPLETE", assigned_task.id))
+
+            review_period = float(self.strategy_params.get("review_period_seconds", 60.0))
+            self._schedule_review(review_period)
 
     def get_state(self):
         obs_data = self.metrics.get_observation_data(self.state, self.current_time)
