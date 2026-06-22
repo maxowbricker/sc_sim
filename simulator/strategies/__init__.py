@@ -44,6 +44,7 @@ def _auto_import_builtins() -> None:
         "tsgf",
         "aveklouris_lp",
         "onrta_op",
+        "onrta_rt",
     )
     
     for mod in builtin_strategies:

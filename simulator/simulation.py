@@ -93,7 +93,8 @@ class EventSimulator:
         self.free_worker_handler = strategy_handlers["FREE_WORKER"]
         self.review_batch_handler = strategy_handlers.get("REVIEW_BATCH")
         self._always_invoke_new_task_handler = (
-            self.review_batch_handler is not None or self.strategy_name == "onrta_op"
+            self.review_batch_handler is not None
+            or self.strategy_name in ("onrta_op", "onrta_rt")
         )
         
         # Inject standard simulator callbacks into strategy params
@@ -186,6 +187,9 @@ class EventSimulator:
                 self.strategy_params["expected_a"] = len(current_tasks)
             if self.strategy_params.get("expected_b") is None:
                 self.strategy_params["expected_b"] = len(current_workers)
+
+        if self.strategy_name == "onrta_rt":
+            self.strategy_params["onrta_rt_state"] = {}
 
         if start_time is None:
             # Generator expression for O(1) memory footprint
