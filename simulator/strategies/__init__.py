@@ -40,6 +40,7 @@ def _auto_import_builtins() -> None:
         "random_assign", 
         "fatp_ann",
         "mmd_batch",
+        "cb",
     )
     
     for mod in builtin_strategies:

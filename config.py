@@ -13,7 +13,7 @@ Strictly contains active parameters used by the physics engine and strategies.
 SIMULATION_CONFIG = {
     "dataset": "didi",                          # "didi" | "synthetic"
     "data_root_path": None,                     # Override data directory. Example: "data/didi/full_didi_gaia/496528674@qq.com_20161128". None = use default from DATA_SAMPLING
-    "assignment_strategy": "composite",         # "greedy" | "composite" | "fatp_ann" | "ewma_only" | "random_assign" | "mmd_batch"
+    "assignment_strategy": "composite",         # "greedy" | "composite" | "fatp_ann" | "ewma_only" | "random_assign" | "mmd_batch" | "cost_balancing"
 }
 
 # ============================================================================
@@ -101,7 +101,13 @@ STRATEGY_PARAMS = {
         "alpha_scale": 0.5,                     # Scaling factor for base utility (task distance)
         "use_k_nearest": False,                 # Use full worker scan (k-NN optimization disabled)
         "k": 15,                                # Number of nearest workers (only used if use_k_nearest=True)
-    }
+    },
+
+    # === COST-BALANCING BASELINE ===
+    "cost_balancing": {
+        "alpha": 0.5,                           # Match when M <= alpha * W (paper delivery experiments)
+        "k": 10,                                # k-NN window for batch greedy matching
+    },
 }
 
 # ============================================================================
