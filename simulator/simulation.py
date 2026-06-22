@@ -92,6 +92,9 @@ class EventSimulator:
         self.new_task_handler = strategy_handlers["NEW_TASK"]
         self.free_worker_handler = strategy_handlers["FREE_WORKER"]
         self.review_batch_handler = strategy_handlers.get("REVIEW_BATCH")
+        self._always_invoke_new_task_handler = (
+            self.review_batch_handler is not None or self.strategy_name == "onrta_op"
+        )
         
         # Inject standard simulator callbacks into strategy params
         self.strategy_params['expiry_scheduler'] = self._schedule_task_expiry
@@ -176,6 +179,13 @@ class EventSimulator:
             fairness_cap_tracker = FairnessCapTracker()
             fairness_cap_tracker.initialize(current_workers)
             self.strategy_params['fairness_cap_tracker'] = fairness_cap_tracker
+
+        if self.strategy_name == "onrta_op":
+            self.strategy_params["onrta_tracker"] = {"arrivals": 0}
+            if self.strategy_params.get("expected_a") is None:
+                self.strategy_params["expected_a"] = len(current_tasks)
+            if self.strategy_params.get("expected_b") is None:
+                self.strategy_params["expected_b"] = len(current_workers)
 
         if start_time is None:
             # Generator expression for O(1) memory footprint
@@ -276,7 +286,7 @@ class EventSimulator:
                 spatial_index=self.state.spatial_index,
             )
             
-            if self.review_batch_handler is not None:
+            if self._always_invoke_new_task_handler:
                 assignments = self.new_task_handler(
                     self.state, self.current_time, [task], **self.strategy_params
                 )

@@ -6,6 +6,8 @@ assignment that maximizes spatial utility subject to task expiry and worker
 deadline constraints (impatient-agent reneging).
 
 Reference: discrete review policy with LP-based matching at each review epoch.
+'aveklouris-et-al-2024-matching-impatient-and-heterogeneous-demand-and-supply.pdf'
+
 """
 
 from __future__ import annotations

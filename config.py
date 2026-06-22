@@ -13,7 +13,7 @@ Strictly contains active parameters used by the physics engine and strategies.
 SIMULATION_CONFIG = {
     "dataset": "didi",                          # "didi" | "synthetic"
     "data_root_path": None,                     # Override data directory. Example: "data/didi/full_didi_gaia/496528674@qq.com_20161128". None = use default from DATA_SAMPLING
-    "assignment_strategy": "composite",         # "greedy" | "composite" | "fatp_ann" | "ewma_only" | "random_assign" | "mmd_batch" | "cost_balancing" | "tsgf" | "discrete_review_lp"
+    "assignment_strategy": "composite",         # "greedy" | "composite" | "fatp_ann" | "ewma_only" | "random_assign" | "mmd_batch" | "cost_balancing" | "tsgf" | "discrete_review_lp" | "onrta_op"
 }
 
 # ============================================================================
@@ -121,6 +121,13 @@ STRATEGY_PARAMS = {
     # === DISCRETE REVIEW LP BASELINE (Aveklouris et al.) ===
     "discrete_review_lp": {
         "review_period_seconds": 60.0,          # Review interval l (seconds); sweep for Pareto curves
+    },
+
+    # === ONRTA-OP BASELINE ===
+    "onrta_op": {
+        # Expected market size for phase transition; reset() defaults to len(tasks/workers)
+        "expected_a": None,
+        "expected_b": None,
     },
 }
 
