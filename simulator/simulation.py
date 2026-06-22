@@ -94,7 +94,7 @@ class EventSimulator:
         self.review_batch_handler = strategy_handlers.get("REVIEW_BATCH")
         self._always_invoke_new_task_handler = (
             self.review_batch_handler is not None
-            or self.strategy_name in ("onrta_op", "onrta_rt")
+            or self.strategy_name in ("onrta_op", "onrta_rt", "biranking")
         )
         
         # Inject standard simulator callbacks into strategy params
@@ -190,6 +190,9 @@ class EventSimulator:
 
         if self.strategy_name == "onrta_rt":
             self.strategy_params["onrta_rt_state"] = {}
+
+        if self.strategy_name == "biranking":
+            self.strategy_params["rank_tracker"] = {}
 
         if start_time is None:
             # Generator expression for O(1) memory footprint

@@ -45,6 +45,7 @@ def _auto_import_builtins() -> None:
         "aveklouris_lp",
         "onrta_op",
         "onrta_rt",
+        "biranking",
     )
     
     for mod in builtin_strategies:

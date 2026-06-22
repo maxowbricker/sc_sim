@@ -13,7 +13,7 @@ Strictly contains active parameters used by the physics engine and strategies.
 SIMULATION_CONFIG = {
     "dataset": "didi",                          # "didi" | "synthetic"
     "data_root_path": None,                     # Override data directory. Example: "data/didi/full_didi_gaia/496528674@qq.com_20161128". None = use default from DATA_SAMPLING
-    "assignment_strategy": "composite",         # "greedy" | "composite" | "fatp_ann" | "ewma_only" | "random_assign" | "mmd_batch" | "cost_balancing" | "tsgf" | "discrete_review_lp" | "onrta_op" | "onrta_rt"
+    "assignment_strategy": "composite",         # "greedy" | "composite" | "fatp_ann" | "ewma_only" | "random_assign" | "mmd_batch" | "cost_balancing" | "tsgf" | "discrete_review_lp" | "onrta_op" | "onrta_rt" | "biranking"
 }
 
 # ============================================================================
@@ -133,6 +133,11 @@ STRATEGY_PARAMS = {
     # === ONRTA-RT BASELINE ===
     "onrta_rt": {
         "seed": 42,                             # RNG seed for theta draw and candidate sampling
+    },
+
+    # === BIPARTITE RANKING (BRK) BASELINE ===
+    "biranking": {
+        "seed": 42,                             # RNG seed for permanent entity ranks
     },
 }
 
