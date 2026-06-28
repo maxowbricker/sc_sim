@@ -11,7 +11,7 @@ Strictly contains active parameters used by the physics engine and strategies.
 # ============================================================================
 
 SIMULATION_CONFIG = {
-    "dataset": "didi",                          # "didi" | "synthetic"
+    "dataset": "didi",                          # "didi" | "nyc_taxi" | "gowalla" | "synthetic"
     "data_root_path": None,                     # Override data directory. Example: "data/didi/full_didi_gaia/496528674@qq.com_20161128". None = use default from DATA_SAMPLING
     "assignment_strategy": "composite",         # "greedy" | "composite" | "fatp_ann" | "ewma_only" | "random_assign" | "mmd_batch" | "cost_balancing" | "tsgf" | "discrete_review_lp" | "onrta_op" | "onrta_rt" | "biranking"
 }
@@ -21,11 +21,69 @@ SIMULATION_CONFIG = {
 # ============================================================================
 
 DATA_SAMPLING = {
-    "use_stratified_sampling": True,
+    "use_stratified_sampling": False,
     "target_tasks": 40000,
     "target_workers": 10000,
     "stratified_sampling_bins": 288,         
     "random_state": 42,                     
+}
+
+# ============================================================================
+# NYC TAXI DATASET PARAMETERS
+# ============================================================================
+
+NYC_TAXI_CONFIG = {
+    # ISO date string to load a single day (e.g. "2012-05-01").
+    # None loads the entire parquet file (full month).
+    "date": None,
+
+    # Worker bootstrapping mode.
+    # True  -> fleet size = round(num_tasks * workers_per_task_ratio)
+    # False -> fixed fleet of num_workers, regardless of task count
+    "use_proportional_workers": True,
+    "workers_per_task_ratio": 0.2,          # ~1 worker per 5 tasks
+    "num_workers": 5000,                    # used when use_proportional_workers=False
+
+    "random_state": 42,
+}
+
+# ============================================================================
+# GOWALLA DATASET PARAMETERS
+# ============================================================================
+
+GOWALLA_CONFIG = {
+    # Named city preset: "austin" (default, densest cluster) | "san_francisco"
+    # Set to None and supply a custom bbox tuple to override.
+    "region": "austin",
+
+    # Custom bounding box (lat_min, lat_max, lon_min, lon_max). Overrides region.
+    "bbox": None,
+
+    # ISO date range filter. None = use all available data.
+    "date_start": None,
+    "date_end":   None,
+
+    # Task generation mode:
+    #   "checkin"       - every check-in = 1 task (recommended, realistic ratio)
+    #   "location_pair" - paper-faithful: same-location pairs per day (inverted ratio)
+    "task_mode": "checkin",
+
+    # Expiry window for "checkin" mode tasks (ignored in "location_pair" mode).
+    # Set to match Didi's median trip duration (~19.5 min) / p90 (~38 min).
+    # 0.5 hours (30 min) sits between these, giving a comparable task availability
+    # window to the real trip-end expiry used in the Didi and NYC adapters.
+    "task_window_hours": 0.5,
+
+    # Worker shift duration in hours (deadline = release_time + shift_hours * 3600)
+    "shift_hours": 8.0,
+
+    # Std-dev radius (km) for synthetic dropoff displacement from pickup
+    "dropoff_noise_km": 2.0,
+
+    # Workers = round(n_tasks * ratio). Set to None to keep all (user, day) workers.
+    "workers_per_task_ratio": 0.2,    # 1:5 ratio — tune between 0.1 (1:10) and 0.33 (1:3)
+
+    "random_state": 42,
 }
 
 
@@ -39,19 +97,19 @@ OBSERVATION_STATIC_SCALING = {
     "max_abs_backlog_delta": 30.0,
 }
 
-# Platform task revenue (Basık et al.): t_j.m = base_fare + per_km_rate × α
-# α = pickup→dropoff distance (km). Independent of composite-strategy U = 1/(1+d_pick).
+# Platform task revenue (Basik et al.): t_j.m = base_fare + per_km_rate * alpha
+# alpha = pickup->dropoff distance (km). Independent of composite-strategy U = 1/(1+d_pick).
 PLATFORM_REVENUE = {
     "base_fare": 2.00,
     "per_km_rate": 1.50,
 }
 
-# Worker stochastic acceptance (Basık et al.): P(accept) = exp(-d_pick) * c
+# Worker stochastic acceptance (Basik et al.): P(accept) = exp(-d_pick) * c
 # I implemented this to simulate worker task rejection however, this didn't work well but potentially is needed to improve the strength of the paper.
 # The function is very severe, I found with the Didi dataset the task rejection rate was too high (95%), the paper which used this function used a smaller scale for their dataset.
 WORKER_ACCEPTANCE = {
-    "enabled": False,       # Off by default — RL training unchanged
-    "c_willingness": 0.6,   # Basık willingness constant
+    "enabled": False,       # Off by default - RL training unchanged
+    "c_willingness": 0.6,   # Basik willingness constant
     "seed": 42,               # Dedicated RNG seed for reproducible acceptance rolls
 }
 
@@ -62,7 +120,7 @@ WORKER_ACCEPTANCE = {
 STRATEGY_PARAMS = {
     # === COMPOSITE STRATEGY (DRL Target) ===
     "composite": {
-        # Weights for scoring function: Score = (fairness_weight × F) + (starvation_weight × S) + (1.0 × U)
+        # Weights for scoring function: Score = (fairness_weight * F) + (starvation_weight * S) + (1.0 * U)
         "fairness_weight": 1.0,                 # Dynamic parameter controlled by DRL
         "starvation_weight": 0.2,               # Dynamic parameter controlled by DRL
         "utility_weight": 1.0,                  # HARDCODED: Anchors the DRL action space
@@ -78,7 +136,7 @@ STRATEGY_PARAMS = {
         "enable_diagnostics": False,            # Enable heavy evaluation metrics (IOR, Fairness Loss) - DISABLE FOR RL
         "enable_deferral_tracking": False,      # Track O(1) task deferral statistics for RQ3.3
 
-        # Stochastic worker acceptance (Basık cascade dispatch)
+        # Stochastic worker acceptance (Basik cascade dispatch)
         "worker_acceptance": dict(WORKER_ACCEPTANCE),
     },
 
@@ -144,43 +202,6 @@ STRATEGY_PARAMS = {
 # ============================================================================
 # UTILITY FUNCTIONS FOR CONFIG ACCESS
 # ============================================================================
-
-def get_simulation_config():
-    """Get core simulation configuration."""
-    return SIMULATION_CONFIG.copy()
-
-def get_strategy_params(strategy_name=None):
-    """Get parameters for specific strategy or current default."""
-    if strategy_name is None:
-        strategy_name = SIMULATION_CONFIG["assignment_strategy"]
-    return STRATEGY_PARAMS.get(strategy_name, {}).copy()
-
-def get_data_sampling_config():
-    """Get parameters for data loading and sampling."""
-    return DATA_SAMPLING.copy()
-
-def create_composite_config(**overrides):
-    """
-    Create complete simulation configuration with optional overrides.
-    Used by DRL agents to inject dynamic weights into the environment.
-    """
-    config = get_simulation_config()
-    strategy_name = overrides.get("assignment_strategy", config["assignment_strategy"])
-    
-    strategy_params = get_strategy_params(strategy_name)
-    
-    for key, value in overrides.items():
-        if key in config:
-            config[key] = value
-        elif key in strategy_params:
-            strategy_params[key] = value
-            
-    config["strategy_params"] = strategy_params
-    return config
-
-# ============================================================================
-# UTILITY FUNCTIONS FOR CONFIG ACCESS
-# ============================================================================
 from typing import Dict, Any, Optional
 
 def get_simulation_config() -> Dict[str, Any]:
@@ -197,6 +218,14 @@ def get_data_sampling_config() -> Dict[str, Any]:
     """Get parameters for data loading and sampling."""
     return DATA_SAMPLING.copy()
 
+def get_nyc_taxi_config() -> Dict[str, Any]:
+    """Get parameters for the NYC TLC Yellow Taxi adapter."""
+    return NYC_TAXI_CONFIG.copy()
+
+def get_gowalla_config() -> Dict[str, Any]:
+    """Get parameters for the Gowalla LBSN adapter."""
+    return GOWALLA_CONFIG.copy()
+
 def get_observation_static_scaling() -> Dict[str, Any]:
     """Full observation scaling dict for the RL env (refs, deltas, worker divisor)."""
     out = dict(OBSERVATION_STATIC_SCALING)
@@ -207,12 +236,12 @@ def get_observation_static_scaling() -> Dict[str, Any]:
     return out
 
 def get_platform_revenue_config() -> Dict[str, Any]:
-    """Fare model for intrinsic task revenue: base_fare + per_km_rate × α."""
+    """Fare model for intrinsic task revenue: base_fare + per_km_rate * alpha."""
     return PLATFORM_REVENUE.copy()
 
 
 def get_worker_acceptance_config() -> Dict[str, Any]:
-    """Stochastic worker acceptance parameters (Basık et al.)."""
+    """Stochastic worker acceptance parameters (Basik et al.)."""
     return WORKER_ACCEPTANCE.copy()
 
 
@@ -241,7 +270,7 @@ def create_composite_config(**overrides: Any) -> Dict[str, Any]:
         else:
             # FAIL LOUDLY: Prevent silent typos from ruining DRL training
             raise ValueError(
-                f"❌ Config Error: Unknown parameter '{key}'. "
+                f"Config Error: Unknown parameter '{key}'. "
                 f"It does not exist in SIMULATION_CONFIG or STRATEGY_PARAMS['{strategy_name}']."
             )
             

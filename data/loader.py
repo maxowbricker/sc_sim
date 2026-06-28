@@ -9,7 +9,9 @@ from models.task import Task
 from simulator.spatial_index import set_city_constants
 
 # Dataset-specific adapters
-from data.didi import didi  
+from data.didi import didi
+from data.nyc_taxi import nyc_taxi
+from data.gowalla import gowalla
 
 # Config and Sampler
 from config import get_data_sampling_config
@@ -95,6 +97,10 @@ def load_workers_tasks(dataset: str, root_path: str | None = None, **adapter_kwa
 def get_adapter(dataset: str, root_path: str, **kwargs):
     if dataset == "didi":
         return didi.Adapter(root_path)
+    elif dataset == "nyc_taxi":
+        return nyc_taxi.Adapter(root_path, **kwargs)
+    elif dataset == "gowalla":
+        return gowalla.Adapter(root_path, **kwargs)
     elif dataset == "synthetic":
         raise NotImplementedError("Synthetic adapter not yet implemented.")
     else:
