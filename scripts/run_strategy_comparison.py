@@ -38,8 +38,16 @@ STRATEGIES: List[tuple] = [
     ("Random",                "random_assign",       {"k": 15}),
     # O(k) EWMA fairness only
     ("EWMA-Only",             "ewma_only",           {"gamma": 0.2}),
-    # O(n) deferred cost-balance trigger
-    ("Cost-Balancing",        "cost_balancing",      {"alpha": 0.5, "k": 10}),
+    # O(k) k-nearest least-first: fewest completed tasks in k-NN pool wins
+    ("k-NLF (k=15)",          "knlf",                {"k": 15}),
+    # O(k) k-NTF economic: lowest earnings-per-hour in k-NN pool wins
+    ("k-NTF-EPH (k=15)",      "kntf_eph",            {"k": 15}),
+    # O(k) k-NTF temporal: highest idle-ratio in k-NN pool wins
+    ("k-NTF-IR (k=15)",       "kntf_ir",             {"k": 15}),
+    # O(W) look-ahead fairness (fewest completed tasks wins — unconstrained)
+    ("LAF",                   "laf",                 {}),
+    # O(n) deferred cost-balance trigger  [EXCLUDED — times out on 20161109]
+    # ("Cost-Balancing",        "cost_balancing",      {"alpha": 0.5, "k": 10}),
     # O(W) KVV random-rank scan
     ("BiRanking (BRK)",       "biranking",           {"seed": 42}),
     # O(k) composite with EWMA + starvation + utility
@@ -48,8 +56,8 @@ STRATEGIES: List[tuple] = [
         "utility_weight": 1.0, "gamma": 0.1, "k": 15,
         "soft_threshold": 0.05,
     }),
-    # O(1) roll + O(W) per chosen heuristic
-    ("TSGF Sampling",         "tsgf",                {"alpha": 0.4, "beta": 0.3, "gamma": 0.3, "k": 15, "seed": 42}),
+    # O(1) roll + O(W) per chosen heuristic  [EXCLUDED — times out on 20161109]
+    # ("TSGF Sampling",         "tsgf",                {"alpha": 0.4, "beta": 0.3, "gamma": 0.3, "k": 15, "seed": 42}),
     # O(k) + fairness cap tracking
     ("FATP-ANN",              "fatp_ann",            {"mu": 0.5, "alpha_scale": 0.5, "use_k_nearest": True, "k": 15}),
     # O(W*T) Hungarian at fixed review intervals
@@ -58,8 +66,8 @@ STRATEGIES: List[tuple] = [
     ("ONRTA-RT",              "onrta_rt",            {"seed": 42}),
     # O(W*T) Hungarian in Stage 2 (triggered at midpoint)
     ("ONRTA-OP",              "onrta_op",            {}),
-    # O(W*T) Hungarian on every event — most expensive
-    ("MMD-Batch",             "mmd_batch",           {}),
+    # O(W*T) Hungarian on every event — most expensive  [EXCLUDED — times out on 20161109]
+    # ("MMD-Batch",             "mmd_batch",           {}),
 ]
 
 DATA_ROOT = os.path.join(PROJECT_ROOT, "data", "didi", "full_didi_gaia")
@@ -84,10 +92,17 @@ def extract_metrics(stats: Dict[str, Any], workers) -> Dict[str, Any]:
     # Fairness
     jfi         = stats.get("final_jains_fairness_index", 0.0)
     jfi_earn    = stats.get("final_jfi_earnings", 0.0)
+    gini        = stats.get("final_gini_coefficient", 0.0)
+    util_diff   = stats.get("final_utility_difference_tasks", 0.0)
 
     # JFI rate: fraction of workers who received at least one task
     worker_task_counts = [w.completed_tasks for w in workers]
     jfi_rate = sum(1 for c in worker_task_counts if c > 0) / max(len(worker_task_counts), 1)
+
+    # Per-worker task count percentiles (bottom-end fairness sensitivity)
+    sorted_counts = sorted(worker_task_counts)
+    p10_tasks = float(np.percentile(sorted_counts, 10)) if sorted_counts else 0.0
+    p25_tasks = float(np.percentile(sorted_counts, 25)) if sorted_counts else 0.0
 
     # Wait time
     avg_wait  = float(np.mean(wait_times))  if wait_times else 0.0
@@ -98,6 +113,8 @@ def extract_metrics(stats: Dict[str, Any], workers) -> Dict[str, Any]:
 
     # Worker idle / utilisation
     mean_idle  = float(np.mean(idle_times))  if idle_times else 0.0
+    std_idle   = float(np.std(idle_times))   if idle_times else 0.0
+    cv_idle    = std_idle / mean_idle if mean_idle > 0 else 0.0
     total_shift_min = sum(
         (w.deadline - w.release_time) / 60.0 for w in workers
     )
@@ -120,14 +137,19 @@ def extract_metrics(stats: Dict[str, Any], workers) -> Dict[str, Any]:
         "TAR":              tar,
         "Revenue ($)":      revenue,
         "JFI (tasks)":      jfi,
+        "Gini (tasks)":     gini,
+        "Util Diff":        util_diff,
         "JFI (earnings)":   jfi_earn,
         "JFI rate":         jfi_rate,
+        "P10 tasks":        p10_tasks,
+        "P25 tasks":        p25_tasks,
         "Avg Wait (m)":     avg_wait,
         "P50 Wait (m)":     p50_wait,
         "P90 Wait (m)":     p90_wait,
         "P95 Wait (m)":     p95_wait,
         "Max Wait (m)":     max_wait,
         "Mean Idle (m)":    mean_idle,
+        "CV Idle":          cv_idle,
         "Utilisation (%)":  utilisation_pct,
         "Empty km":         empty_km,
         "Avg Pickup (km)":  avg_pickup_km,
@@ -137,12 +159,14 @@ def extract_metrics(stats: Dict[str, Any], workers) -> Dict[str, Any]:
 
 def _fmt(v: Any, key: str) -> str:
     if isinstance(v, float):
-        if key in ("TAR", "JFI (tasks)", "JFI (earnings)", "JFI rate"):
+        if key in ("TAR", "JFI (tasks)", "Gini (tasks)", "JFI (earnings)", "JFI rate", "CV Idle"):
             return f"{v:.4f}"
         if "%" in key:
             return f"{v:.1f}"
         if key in ("Revenue ($)", "Empty km"):
             return f"{v:,.1f}"
+        if key in ("Util Diff", "P10 tasks", "P25 tasks"):
+            return f"{v:.1f}"
         return f"{v:.3f}"
     return str(v)
 
@@ -153,9 +177,10 @@ def _fmt(v: Any, key: str) -> str:
 
 METRIC_KEYS = [
     "Completed", "TAR", "Revenue ($)",
-    "JFI (tasks)", "JFI (earnings)", "JFI rate",
+    "JFI (tasks)", "Gini (tasks)", "Util Diff", "JFI (earnings)", "JFI rate",
+    "P10 tasks", "P25 tasks",
     "Avg Wait (m)", "P50 Wait (m)", "P90 Wait (m)", "P95 Wait (m)", "Max Wait (m)",
-    "Mean Idle (m)", "Utilisation (%)",
+    "Mean Idle (m)", "CV Idle", "Utilisation (%)",
     "Empty km", "Avg Pickup (km)",
     "Peak Backlog",
 ]
@@ -186,10 +211,10 @@ def _row(name: str, metrics: Dict[str, Any], keys: List[str]) -> str:
 def print_table(all_metrics: List[Dict]) -> None:
     keys = METRIC_KEYS
 
-    # Print in two passes to avoid 200-char lines
-    block1 = ["Completed", "TAR", "Revenue ($)", "JFI (tasks)", "JFI (earnings)", "JFI rate"]
+    # Print in blocks to avoid 200-char lines
+    block1 = ["Completed", "TAR", "Revenue ($)", "JFI (tasks)", "Gini (tasks)", "Util Diff", "JFI (earnings)", "JFI rate", "P10 tasks", "P25 tasks"]
     block2 = ["Avg Wait (m)", "P50 Wait (m)", "P90 Wait (m)", "P95 Wait (m)", "Max Wait (m)"]
-    block3 = ["Mean Idle (m)", "Utilisation (%)", "Empty km", "Avg Pickup (km)", "Peak Backlog"]
+    block3 = ["Mean Idle (m)", "CV Idle", "Utilisation (%)", "Empty km", "Avg Pickup (km)", "Peak Backlog"]
 
     for label, block in [("ASSIGNMENT & FAIRNESS", block1),
                           ("WAIT TIME DISTRIBUTION", block2),
