@@ -32,6 +32,20 @@ Worker generation (same for both modes):
     Workers are then downsampled to workers_per_task_ratio * n_tasks so the
     supply/demand ratio stays in the expected 1:3 to 1:10 range.
 
+Temporal compression (compress_to_day=True):
+    LBSN check-in rates are ~150x lower than ride-hailing.  Over a 29-day
+    month only ~31 tasks are active simultaneously — too sparse for strategies
+    to differentiate.  compress_to_day strips the calendar date from every
+    check-in (keeping only HH:MM:SS) and maps all events onto a single
+    reference day, stacking the month's check-ins into 24 hours.
+
+    Before: 43k tasks spread over 29 days  ->  ~31 concurrent tasks
+    After:  43k tasks within 24 hours      ->  ~910 concurrent tasks
+
+    This preserves the real intra-day rhythm (morning/evening patterns) while
+    creating the worker-task density needed for meaningful strategy comparison.
+    Strongly recommended when using multi-day date windows.
+
 Built-in city presets (region parameter):
     "austin"        — densest Gowalla cluster (lat 29.9-30.7, lon -98.1 to -97.5)
     "san_francisco" — second densest cluster  (lat 37.6-37.9, lon -122.6 to -122.3)
@@ -85,10 +99,11 @@ class Adapter:
         date_start: str | None = None,
         date_end: str | None = None,
         task_mode: str = "checkin",
-            task_window_hours: float = 0.5,
+        task_window_hours: float = 0.5,
         shift_hours: float = 8.0,
         dropoff_noise_km: float = 2.0,
         workers_per_task_ratio: float = 0.2,
+        compress_to_day: bool = True,
         random_state: int = 42,
     ):
         """
@@ -108,6 +123,13 @@ class Adapter:
             dropoff_noise_km: Std-dev radius for synthetic dropoff displacement.
             workers_per_task_ratio: Workers = max(1, round(n_tasks * ratio)).
                                     Set to None to keep all (user, day) workers.
+            compress_to_day: If True (default), strip the calendar date from every
+                             check-in and map all events onto a single 24-hour
+                             reference window.  This stacks a multi-day dataset
+                             into one simulated day, creating the worker-task
+                             density needed for meaningful strategy comparison.
+                             Strongly recommended when date_start/date_end span
+                             more than one day.
             random_state: RNG seed for reproducible sampling and dropoff noise.
         """
         self.root = Path(root_path).expanduser()
@@ -116,6 +138,7 @@ class Adapter:
         self.shift_hours = shift_hours
         self.dropoff_noise_km = dropoff_noise_km
         self.workers_per_task_ratio = workers_per_task_ratio
+        self.compress_to_day = compress_to_day
         self.random_state = random_state
 
         if task_mode not in ("checkin", "location_pair"):
@@ -138,8 +161,8 @@ class Adapter:
         else:
             self.bbox = None
 
-        self.date_start = pd.Timestamp(date_start) if date_start else None
-        self.date_end   = pd.Timestamp(date_end)   if date_end   else None
+        self.date_start = pd.Timestamp(date_start, tz="UTC") if date_start else None
+        self.date_end   = pd.Timestamp(date_end,   tz="UTC") if date_end   else None
 
         self._checkins = self._load_checkins()
 
@@ -191,7 +214,49 @@ class Adapter:
                 "Try a wider bounding box, broader date range, or region=None."
             )
 
+        if self.compress_to_day:
+            df = self._compress_timestamps_to_day(df)
+
         return df.reset_index(drop=True)
+
+    # ------------------------------------------------------------------ #
+    # Temporal compression
+    # ------------------------------------------------------------------ #
+
+    def _compress_timestamps_to_day(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Strip the calendar date from every check-in, keeping only HH:MM:SS,
+        and map all events onto a single reference day (midnight of the
+        earliest check-in date).
+
+        Effect: stacks a multi-day dataset into one simulated 24-hour window,
+        dramatically increasing temporal density without altering spatial
+        distribution or intra-day rhythm.
+
+        The 'date' column is rebuilt from the compressed timestamps so that
+        worker (user, day) deduplication still produces one worker per user
+        (all days collapse to the same reference date).
+        """
+        ref_midnight_unix = float(
+            df["dt"].min().normalize().timestamp()
+        )
+        # seconds since midnight of each check-in's own day
+        day_start_unix = (
+            df["dt"].dt.normalize().astype("int64") / 1e9
+        ).values
+        time_of_day_sec = df["timestamp"].values - day_start_unix
+
+        df = df.copy()
+        df["timestamp"] = ref_midnight_unix + time_of_day_sec
+        # Rebuild dt for any downstream time arithmetic, but intentionally
+        # keep the original calendar df["date"] so that (user, day) worker
+        # deduplication still produces one worker per user-per-original-day.
+        # Without this, all days collapse to one reference date and the worker
+        # pool shrinks to just unique users (~2.6k) instead of unique user-days
+        # (~8.7k), breaking the intended workers_per_task_ratio.
+        df["dt"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
+        # df["date"] is intentionally NOT updated — original dates are preserved.
+        return df
 
     # ------------------------------------------------------------------ #
     # Task builders
