@@ -47,54 +47,32 @@ def calculate_fairness_signal(worker, current_time, fairness_metric='ewma', gamm
     """
     if fairness_metric == 'ewma':
         # EWMA Formula: Fairness(w_i) = (1 - γ) · T_idle(w_i) + γ · Previous EWMA
+        # Timestamps are plain floats (seconds since epoch) — arithmetic gives seconds directly.
+        ref_time = worker.last_active_ts if worker.last_active_ts is not None else worker.release_time
+        T_idle_seconds = current_time - ref_time
 
-        # Calculate current idle time in seconds
-        if worker.last_active_ts is None:
-            # Worker has never been active - use time since release
-            T_idle_seconds = (current_time - worker.release_time).total_seconds()
-        else:
-            # Time since last task completion
-            T_idle_seconds = (current_time - worker.last_active_ts).total_seconds()
-        
-        # Apply EWMA formula
-        current_ewma = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
-        
-        # Update worker's stored EWMA for next calculation
-        worker.fairness_ewma = current_ewma
-        
-        # Convert to hours for more reasonable scale and add small differentiation
-        # to prevent identical values when all workers have similar idle times
-        random.seed(hash(worker.id) % 2**31)  # Deterministic per worker
-        worker_bias = random.uniform(0.95, 1.05)  # Small 5% variation per worker
-        
-        return (current_ewma / 3600.0) * worker_bias
-        
-    elif fairness_metric == 'idle_time':
-        # Direct idle time approach (simpler alternative)
-        if worker.last_active_ts is None:
-            idle_seconds = (current_time - worker.release_time).total_seconds()
-        else:
-            idle_seconds = (current_time - worker.last_active_ts).total_seconds()
-        return idle_seconds / 3600.0  # Convert to hours
-        
-    elif fairness_metric == 'task_count':
-        # Inverse of completed tasks (higher signal = fewer tasks completed)
-        return 1.0 / (1.0 + worker.completed_tasks)
-        
-    else:
-        # Default to EWMA
-        if worker.last_active_ts is None:
-            T_idle_seconds = (current_time - worker.release_time).total_seconds()
-        else:
-            T_idle_seconds = (current_time - worker.last_active_ts).total_seconds()
-        
         current_ewma = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
         worker.fairness_ewma = current_ewma
-        
-        # Add small differentiation
+
         random.seed(hash(worker.id) % 2**31)
         worker_bias = random.uniform(0.95, 1.05)
-        
+        return (current_ewma / 3600.0) * worker_bias
+
+    elif fairness_metric == 'idle_time':
+        ref_time = worker.last_active_ts if worker.last_active_ts is not None else worker.release_time
+        return (current_time - ref_time) / 3600.0
+
+    elif fairness_metric == 'task_count':
+        return 1.0 / (1.0 + worker.completed_tasks)
+
+    else:
+        # Default to EWMA
+        ref_time = worker.last_active_ts if worker.last_active_ts is not None else worker.release_time
+        T_idle_seconds = current_time - ref_time
+        current_ewma = (1 - gamma) * T_idle_seconds + gamma * worker.fairness_ewma
+        worker.fairness_ewma = current_ewma
+        random.seed(hash(worker.id) % 2**31)
+        worker_bias = random.uniform(0.95, 1.05)
         return (current_ewma / 3600.0) * worker_bias
 
 
@@ -200,48 +178,44 @@ def assign_new_tasks_ewma_only(state, now, tasks_to_assign, gamma=0.3, **_):
 def match_worker_ewma_only(state, now, worker, **_):
     """
     EWMA-Only matching when a worker becomes available.
-    
+
     Design Decision: Worker-side matching uses GREEDY (nearest task) approach.
     Rationale: EWMA-Only enforces fairness when tasks choose workers (NEW_TASK event),
     not when workers choose tasks. On worker release, spatial efficiency is acceptable.
-    
-    Args:
-        state: Current simulation state
-        now: Current timestamp
-        worker: Newly available worker
-    
-    Returns:
-        (task, worker, distance) tuple if assignment made, None otherwise
+
+    Scans both deferred_tasks (tasks deferred by the simulator when no workers were
+    available at arrival, or deferred by other strategies) and active_tasks (tasks
+    that arrived while workers existed but found no feasible match) to ensure no
+    pending task is missed.
     """
-    if not state.active_tasks:
+    pending = list(state.deferred_tasks) + list(state.active_tasks)
+    if not pending:
         return None
-    
+
     best_task = None
     best_dist = float("inf")
-    
-    for task in list(state.active_tasks):  # Iterate over copy
+
+    for task in pending:
         pickup_dist = manhattan_km(worker.start_lat, worker.start_lon,
                                   task.pickup_lat, task.pickup_lon)
-        
-        # Feasibility check
+
         drop_dist = manhattan_km(task.pickup_lat, task.pickup_lon,
                                 task.dropoff_lat, task.dropoff_lon)
         pickup_eta = now + ((pickup_dist / AVG_SPEED_KMH) * 3600)
         finish_eta = now + (((pickup_dist + drop_dist) / AVG_SPEED_KMH) * 3600)
-        
+
         if pickup_eta > task.expire_time or finish_eta > worker.deadline:
             continue
-        
-        # Greedy on worker side: pick nearest task
+
         if pickup_dist < best_dist:
             best_dist = pickup_dist
             best_task = task
-    
+
     if best_task:
         assigned_task = _commit_assignment(best_task, worker, now)
         state.assign_task(assigned_task, worker)
         return (assigned_task, worker, best_dist)
-    
+
     return None
 
 

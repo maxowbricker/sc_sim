@@ -37,6 +37,17 @@ def _record_offer(state, accepted: bool) -> None:
         state.offers_rejected += 1
 
 
+def _defer(state, task, now, kwargs):
+    """Defer a task and schedule expiry + record in deferral tracker."""
+    if state.defer_task(task, now):
+        expiry_scheduler = kwargs.get("expiry_scheduler")
+        if expiry_scheduler:
+            expiry_scheduler(task)
+        deferral_tracker = kwargs.get("deferral_tracker")
+        if deferral_tracker:
+            deferral_tracker.record_deferral(str(task.id), now, 0.0, "no_candidates")
+
+
 def assign_new_tasks_greedy(
     state,
     now,
@@ -52,7 +63,7 @@ def assign_new_tasks_greedy(
 
     for task in tasks_to_assign:
         if not state.available_workers:
-            state.defer_task(task, now)
+            _defer(state, task, now, _)
             continue
 
         if acceptance_enabled:
@@ -81,7 +92,7 @@ def assign_new_tasks_greedy(
                     break
 
             if not assigned:
-                state.defer_task(task, now)
+                _defer(state, task, now, _)
             continue
             
         best_worker, best_dist = None, float("inf")
@@ -102,7 +113,7 @@ def assign_new_tasks_greedy(
             state.assign_task(assigned_task, best_worker)
             assignments.append((assigned_task, best_worker, best_dist))
         else:
-            state.defer_task(task, now)
+            _defer(state, task, now, _)
             
     return assignments
 
@@ -116,16 +127,22 @@ def match_worker_greedy(
 ):
     """
     Greedy matching for a newly available worker. Finds the nearest task
-    from the pool of active (unassigned) tasks.
+    from the combined pool of deferred and active unassigned tasks.
+
+    Greedy's NEW_TASK handler explicitly calls state.defer_task() when no
+    feasible worker is found, so pending tasks accumulate in deferred_tasks.
+    Active_tasks is also included to catch any tasks that arrived at the same
+    simulation timestep and have not yet been processed.
     """
-    if not state.active_tasks:
+    pending = list(state.deferred_tasks) + list(state.active_tasks)
+    if not pending:
         return None
 
     acceptance_enabled = worker_acceptance and worker_acceptance.get("enabled", False)
 
     if acceptance_enabled:
         ranked: List[tuple] = []
-        for task in list(state.active_tasks):
+        for task in pending:
             pickup_dist = fast_manhattan_km(
                 worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon
             )
@@ -148,23 +165,23 @@ def match_worker_greedy(
         return None
 
     best_task, best_dist = None, float("inf")
-    
-    for task in list(state.active_tasks): # Iterate over a copy
+
+    for task in pending:
         pickup_dist = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
         drop_dist = fast_manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
-        
+
         if not _is_feasible_greedy(worker, task, now, pickup_dist, drop_dist):
             continue
 
         if pickup_dist < best_dist:
             best_dist = pickup_dist
             best_task = task
-            
+
     if best_task:
         assigned_task = _commit_assignment(best_task, worker, now)
         state.assign_task(assigned_task, worker)
         return (assigned_task, worker, best_dist)
-        
+
     return None
 
 

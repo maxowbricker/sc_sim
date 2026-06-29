@@ -332,81 +332,66 @@ def match_worker_fatp_ann(state, now, worker,
                          **_):
     """
     Worker-Process (WP): Handle worker becoming available.
-    
+
     Algorithm with shadow state tracking:
     1. Initialize shadow state (location, time)
     2. While worker.completed_tasks_count < cap:
-        a. Find all valid tasks from active_tasks
+        a. Find all valid tasks from combined deferred + active task pools
         b. Calculate utility for each valid task
         c. Select task with max utility
         d. Assign task and update shadow state
     3. Return first assigned task (simulation expects single return)
-    
-    Args:
-        state: StateManager with available workers and tasks
-        now: Current simulation time
-        worker: Newly available worker
-        fairness_cap_tracker: FairnessCapTracker instance
-        mu: Decay factor for utility calculation
-        alpha_scale: Scaling factor for base utility
-    
-    Returns:
-        (task, worker, None) tuple if assignment made, else None
+
+    Scans both deferred_tasks and active_tasks so that tasks deferred by the
+    simulator (no workers at arrival time) are also eligible for recovery.
     """
     if fairness_cap_tracker is None:
         raise ValueError("fairness_cap_tracker must be provided to FATP-ANN strategy")
-    
-    if not state.active_tasks:
+
+    pending = list(state.deferred_tasks) + list(state.active_tasks)
+    if not pending:
         return None
-    
-    # Initialize shadow state
+
     now = _ensure_timestamp(now)
     shadow_location = (worker.start_lat, worker.start_lon)
     shadow_time = now
     tasks_assigned_in_loop = []
-    
+
     cap = fairness_cap_tracker.get_cap()
-    
-    # Multi-task assignment loop
+
     while worker.completed_tasks < cap:
-        # Step 2a: Find all valid tasks from active_tasks
+        # Rebuild pending each iteration — tasks may have been assigned in prior loops
+        pending = list(state.deferred_tasks) + list(state.active_tasks)
         valid_tasks = []
-        for task in list(state.active_tasks):  # Iterate over copy
+        for task in pending:
             if _is_valid_from_shadow(task, shadow_location, shadow_time, worker):
-                # Step 2b: Calculate utility
                 utility = _calculate_utility(task, shadow_location[0], shadow_location[1],
                                             shadow_time, mu, alpha_scale)
                 valid_tasks.append((task, utility))
-        
+
         if not valid_tasks:
-            break  # No more valid tasks
-        
-        # Step 2c: Select task with max utility
+            break
+
         best_task, best_utility = max(valid_tasks, key=lambda x: x[1])
-        
-        # Step 2d: Assign task
+
         old_count = worker.completed_tasks
         assigned_task = _commit_assignment(best_task, worker, now)
         state.assign_task(assigned_task, worker)
         tasks_assigned_in_loop.append(assigned_task)
-        
-        # Update fairness cap tracker
+
         fairness_cap_tracker.update_worker_count(old_count, worker.completed_tasks)
-        
-        # Update shadow state for next iteration
+
         pickup_dist = manhattan_km(shadow_location[0], shadow_location[1],
                                    best_task.pickup_lat, best_task.pickup_lon)
         service_dist = manhattan_km(best_task.pickup_lat, best_task.pickup_lon,
                                     best_task.dropoff_lat, best_task.dropoff_lon)
-        
+
         shadow_time = shadow_time + (((pickup_dist + service_dist) / AVG_SPEED_KMH) * 3600)
         shadow_location = (best_task.dropoff_lat, best_task.dropoff_lon)
-    
-    # Step 3: Return first task (simulation expects single task return)
-    # Other tasks are already committed via state.assign_task
+
     if tasks_assigned_in_loop:
         return (tasks_assigned_in_loop[0], worker, None)
-    
+
     return None
 
 

@@ -127,48 +127,43 @@ def assign_new_tasks_laf(state, now, tasks_to_assign, **_):
 def match_worker_laf(state, now, worker, **_):
     """
     LAF matching when a worker becomes available.
-    
+
     Design Decision: Worker-side matching uses GREEDY (nearest task) approach.
     Rationale: LAF enforces fairness when tasks choose workers (NEW_TASK event),
     not when workers choose tasks. On worker release, spatial efficiency is acceptable.
-    
-    Args:
-        state: Current simulation state
-        now: Current timestamp
-        worker: Newly available worker
-    
-    Returns:
-        (task, worker, distance) tuple if assignment made, None otherwise
+
+    Scans both deferred_tasks (tasks deferred by the simulator when no workers were
+    available at arrival) and active_tasks (tasks that arrived while workers existed
+    but found no feasible match) to ensure no pending task is missed.
     """
-    if not state.active_tasks:
+    pending = list(state.deferred_tasks) + list(state.active_tasks)
+    if not pending:
         return None
-    
+
     best_task = None
     best_dist = float("inf")
-    
-    for task in list(state.active_tasks):  # Iterate over copy
+
+    for task in pending:
         pickup_dist = manhattan_km(worker.start_lat, worker.start_lon,
                                   task.pickup_lat, task.pickup_lon)
-        
-        # Feasibility check
+
         drop_dist = manhattan_km(task.pickup_lat, task.pickup_lon,
                                 task.dropoff_lat, task.dropoff_lon)
         pickup_eta = now + ((pickup_dist / AVG_SPEED_KMH) * 3600)
         finish_eta = now + (((pickup_dist + drop_dist) / AVG_SPEED_KMH) * 3600)
-        
+
         if pickup_eta > task.expire_time or finish_eta > worker.deadline:
             continue
-        
-        # Greedy on worker side: pick nearest task
+
         if pickup_dist < best_dist:
             best_dist = pickup_dist
             best_task = task
-    
+
     if best_task:
         assigned_task = _commit_assignment(best_task, worker, now)
         state.assign_task(assigned_task, worker)
         return (assigned_task, worker, best_dist)
-    
+
     return None
 
 

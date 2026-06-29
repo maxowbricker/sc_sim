@@ -109,50 +109,50 @@ def assign_new_tasks_random(state, now, tasks_to_assign, **kwargs):
 def match_worker_random(state, now, worker, **kwargs):
     """
     When a worker becomes free, randomly assign from available tasks (if any nearby).
-    
+
     Core Logic:
-    1. Find k nearest tasks to the worker's current location
+    1. Collect k nearest tasks from the combined deferred + active task pools
     2. Filter for feasible tasks
     3. RANDOMLY select one task from feasible set
+
+    Scans both deferred_tasks and active_tasks so that tasks deferred by the simulator
+    (no workers at arrival time) are also eligible for recovery.
     """
     strategy_params = kwargs.get('strategy_params', {})
     k = strategy_params.get('k', 15)
-    
-    if not state.active_tasks:
+
+    pending = list(state.deferred_tasks) + list(state.active_tasks)
+    if not pending:
         return None
-    
-    feasible_tasks = []
-    
-    # Collect k nearest tasks by distance
+
+    # Collect k nearest tasks by distance from the combined pool
     task_distances = []
-    for task in list(state.active_tasks):  # Iterate over copy
+    for task in pending:
         pickup_dist = manhattan_km(worker.start_lat, worker.start_lon,
                                   task.pickup_lat, task.pickup_lon)
         task_distances.append((task, pickup_dist))
-    
-    # Sort by distance and take k nearest
+
     task_distances.sort(key=lambda x: x[1])
     nearest_k = task_distances[:k]
-    
-    # Check feasibility for k nearest tasks
+
+    feasible_tasks = []
     for task, pickup_dist in nearest_k:
         drop_dist = manhattan_km(task.pickup_lat, task.pickup_lon,
                                 task.dropoff_lat, task.dropoff_lon)
         pickup_eta = now + ((pickup_dist / AVG_SPEED_KMH) * 3600)
         finish_eta = now + (((pickup_dist + drop_dist) / AVG_SPEED_KMH) * 3600)
-        
+
         if pickup_eta > task.expire_time or finish_eta > worker.deadline:
             continue
-        
+
         feasible_tasks.append((task, pickup_dist, drop_dist))
-    
-    # RANDOM SELECTION: Pick random feasible task (no optimization)
+
     if feasible_tasks:
         task, pickup_dist, drop_dist = random.choice(feasible_tasks)
         assigned_task = _commit_assignment(task, worker, now)
         state.assign_task(assigned_task, worker)
         return (assigned_task, worker, pickup_dist)
-    
+
     return None
 
 
