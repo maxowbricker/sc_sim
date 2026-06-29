@@ -392,8 +392,9 @@ class MetricsManager:
     # --- FINAL RESULTS INTERFACE ---
     
     def on_task_expired(self, task_id, current_time=0.0):
-        # Store as a tuple: (task_id, expiration_timestamp)
         self._summary_minimal['expired_tasks'].append((task_id, current_time))
+        if self.deferral_tracker:
+            self.deferral_tracker.record_expiry(str(task_id))
 
     @property
     def summary(self):
