@@ -83,6 +83,15 @@ GOWALLA_CONFIG = {
     # Workers = round(n_tasks * ratio). Set to None to keep all (user, day) workers.
     "workers_per_task_ratio": 0.2,    # 1:5 ratio — tune between 0.1 (1:10) and 0.33 (1:3)
 
+    # Compress all check-ins from the selected date range onto a single 24-hour
+    # reference day (strips calendar date, keeps HH:MM:SS). This is strongly
+    # recommended when date_start/date_end span multiple days: LBSN check-in
+    # rates are ~150x lower than ride-hailing, so without compression only
+    # ~31 tasks are active at any given moment — too sparse for meaningful
+    # strategy differentiation.  With compression a 1-month window produces
+    # ~900 concurrent tasks, comparable to a stratified-sampled Didi day.
+    "compress_to_day": True,
+
     "random_state": 42,
 }
 
@@ -134,7 +143,7 @@ STRATEGY_PARAMS = {
         
         # Diagnostic Trackers
         "enable_diagnostics": False,            # Enable heavy evaluation metrics (IOR, Fairness Loss) - DISABLE FOR RL
-        "enable_deferral_tracking": False,      # Track O(1) task deferral statistics for RQ3.3
+        "enable_deferral_tracking": True,       # Track O(1) task deferral statistics
 
         # Stochastic worker acceptance (Basik cascade dispatch)
         "worker_acceptance": dict(WORKER_ACCEPTANCE),
@@ -196,6 +205,29 @@ STRATEGY_PARAMS = {
     # === BIPARTITE RANKING (BRK) BASELINE ===
     "biranking": {
         "seed": 42,                             # RNG seed for permanent entity ranks
+    },
+
+    # === k-NEAREST LEAST-FIRST (k-NLF) ===
+    # O(k) fairness signal: query k nearest workers, assign to the one with fewest
+    # completed tasks (distance used only as tie-breaker).
+    "knlf": {
+        "k": 15,                                # Candidate pool size; sweep k ∈ {3,5,10,15} for ablation
+    },
+
+    # === k-NEAREST TEMPORAL FAIRNESS — ECONOMIC (k-NTF-EPH) ===
+    # Addresses the "Billy vs John" flaw in k-NLF: instead of raw task counts,
+    # sorts the k-nearest candidate pool by ascending Earnings Per Hour.
+    # The worker who has earned the least relative to their time online wins.
+    "kntf_eph": {
+        "k": 15,
+    },
+
+    # === k-NEAREST TEMPORAL FAIRNESS — IDLE RATIO (k-NTF-IR) ===
+    # Time-normalised idle time: sorts k-nearest candidates by descending
+    # Idle Ratio (fraction of shift spent waiting). Corrects the EWMA
+    # scalar-trap problem by applying the signal structurally, not as a weight.
+    "kntf_ir": {
+        "k": 15,
     },
 }
 

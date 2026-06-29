@@ -46,6 +46,8 @@ def _auto_import_builtins() -> None:
         "onrta_op",
         "onrta_rt",
         "biranking",
+        "knlf",
+        "kntf",
     )
     
     for mod in builtin_strategies:
