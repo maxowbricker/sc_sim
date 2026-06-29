@@ -6,6 +6,17 @@ from simulator.behavior import evaluate_worker_acceptance
 
 AVG_SPEED_KMH = 30
 
+def _defer_composite(state, task, now, kwargs):
+    """Defer a task and schedule expiry + record in deferral tracker."""
+    if state.defer_task(task, now):
+        expiry_scheduler = kwargs.get("expiry_scheduler")
+        if expiry_scheduler:
+            expiry_scheduler(task)
+        deferral_tracker = kwargs.get("deferral_tracker")
+        if deferral_tracker:
+            deferral_tracker.record_deferral(str(task.id), now, 0.0, "no_candidates")
+
+
 def _normalize_components(components: List[float]) -> List[float]:
     """Apply min-max normalization to component values."""
     if not components:
@@ -238,10 +249,7 @@ def assign_new_tasks_composite(
             if result:
                 assignments.append(result)
             else:
-                if state.defer_task(task, now):
-                    expiry_scheduler = _.get("expiry_scheduler")
-                    if expiry_scheduler:
-                        expiry_scheduler(task)
+                _defer_composite(state, task, now, _)
             continue
 
         best_worker, best_score = _find_best_assignment_for_task(
@@ -264,10 +272,7 @@ def assign_new_tasks_composite(
             state.assign_task(assigned_task, best_worker)
             assignments.append((assigned_task, best_worker, best_score))
         else:
-            if state.defer_task(task, now):
-                expiry_scheduler = _.get("expiry_scheduler")
-                if expiry_scheduler:
-                    expiry_scheduler(task)
+            _defer_composite(state, task, now, _)
 
     return assignments
 

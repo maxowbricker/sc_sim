@@ -78,6 +78,7 @@ def _process_entity(
     onrta_rt_state: Dict[str, Any],
     seed: int,
     expiry_scheduler=None,
+    deferral_tracker=None,
 ) -> List[Tuple[Any, Any, float]]:
     theta = _ensure_theta(onrta_rt_state, seed)
     targets = state.available_workers if is_task else state.deferred_tasks
@@ -122,8 +123,11 @@ def _process_entity(
         state.assign_task(assigned_task, worker)
         assignments.append((assigned_task, worker, 1.0 / (1.0 + final_d_pick)))
     elif is_task:
-        if state.defer_task(entity, now) and expiry_scheduler:
-            expiry_scheduler(entity)
+        if state.defer_task(entity, now):
+            if expiry_scheduler:
+                expiry_scheduler(entity)
+            if deferral_tracker:
+                deferral_tracker.record_deferral(str(entity.id), now, 0.0, "no_candidates")
 
     return assignments
 
@@ -135,6 +139,7 @@ def assign_new_tasks_onrta_rt(
     onrta_rt_state: Optional[Dict[str, Any]] = None,
     seed: int = 42,
     expiry_scheduler=None,
+    deferral_tracker=None,
     **_,
 ):
     if onrta_rt_state is None:
@@ -151,6 +156,7 @@ def assign_new_tasks_onrta_rt(
                 onrta_rt_state=onrta_rt_state,
                 seed=seed,
                 expiry_scheduler=expiry_scheduler,
+                deferral_tracker=deferral_tracker,
             )
         )
     return assignments

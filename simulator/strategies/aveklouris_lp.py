@@ -15,7 +15,6 @@ from __future__ import annotations
 from typing import Any, List, Tuple
 
 import numpy as np
-from scipy.optimize import linear_sum_assignment
 
 from simulator.spatial_index import fast_manhattan_km
 from simulator.strategies import register
@@ -81,6 +80,7 @@ def execute_discrete_review(state, now: float, **_) -> List[Tuple[Any, Any, floa
                 utility[i, j] = value
 
     # Minimize negative utility to maximize total assignment value.
+    from scipy.optimize import linear_sum_assignment
     row_ind, col_ind = linear_sum_assignment(-utility)
 
     assignments: List[Tuple[Any, Any, float]] = []
@@ -120,13 +120,17 @@ def assign_new_tasks_discrete_review(
     tasks_to_assign,
     review_period_seconds: float = 60.0,
     expiry_scheduler=None,
+    deferral_tracker=None,
     review_scheduler=None,
     **_,
 ):
     """Defer arrivals and ensure a review epoch is queued."""
     for task in tasks_to_assign:
-        if state.defer_task(task, now) and expiry_scheduler:
-            expiry_scheduler(task)
+        if state.defer_task(task, now):
+            if expiry_scheduler:
+                expiry_scheduler(task)
+            if deferral_tracker:
+                deferral_tracker.record_deferral(str(task.id), now, 0.0, "no_candidates")
 
     _schedule_review_if_needed(review_scheduler, review_period_seconds)
     return []

@@ -15,7 +15,6 @@ simulator's event interface, not a full HST online algorithm.
 from __future__ import annotations
 
 import numpy as np
-from scipy.optimize import linear_sum_assignment
 
 from simulator.strategies import register
 from simulator.spatial_index import fast_manhattan_km
@@ -94,6 +93,7 @@ def _batch_min_sum_power_delay(state, now: float, **_ignore) -> list:
     # Min-max emphasis: minimize sum of delay^p
     powered = np.where(raw >= _INFEASIBLE_COST / 2, _INFEASIBLE_COST, np.power(raw, _DELAY_POWER))
 
+    from scipy.optimize import linear_sum_assignment
     row_ind, col_ind = linear_sum_assignment(powered)
 
     assignments: list = []

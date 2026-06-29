@@ -222,11 +222,15 @@ def assign_new_tasks_tsgf(
     k: int = 15,
     seed: int = 42,
     expiry_scheduler=None,
+    deferral_tracker=None,
     **_,
 ):
     for task in tasks_to_assign:
-        if state.defer_task(task, now) and expiry_scheduler:
-            expiry_scheduler(task)
+        if state.defer_task(task, now):
+            if expiry_scheduler:
+                expiry_scheduler(task)
+            if deferral_tracker:
+                deferral_tracker.record_deferral(str(task.id), now, 0.0, "no_candidates")
 
     return _sample_and_dispatch(state, now, alpha, beta, gamma, k, seed)
 

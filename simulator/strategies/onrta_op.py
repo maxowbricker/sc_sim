@@ -15,7 +15,6 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-from scipy.optimize import linear_sum_assignment
 
 from simulator.spatial_index import fast_manhattan_km
 from simulator.strategies import register
@@ -104,6 +103,7 @@ def _solve_global_optimal(tasks, workers, now: float) -> Dict[Any, Any]:
             if feasible:
                 utility[i, j] = value
 
+    from scipy.optimize import linear_sum_assignment
     row_ind, col_ind = linear_sum_assignment(-utility)
 
     optimal_pairs: Dict[Any, Any] = {}
@@ -127,6 +127,7 @@ def _process_arrival(
     expected_b: float,
     onrta_tracker: Dict[str, int],
     expiry_scheduler=None,
+    deferral_tracker=None,
 ) -> List[Tuple[Any, Any, float]]:
     onrta_tracker["arrivals"] += 1
     is_stage_two = onrta_tracker["arrivals"] > _stage_two_threshold(expected_a, expected_b)
@@ -171,8 +172,11 @@ def _process_arrival(
             state.assign_task(assigned_task, worker)
             assignments.append((assigned_task, worker, score))
         elif is_task:
-            if state.defer_task(entity, now) and expiry_scheduler:
-                expiry_scheduler(entity)
+            if state.defer_task(entity, now):
+                if expiry_scheduler:
+                    expiry_scheduler(entity)
+                if deferral_tracker:
+                    deferral_tracker.record_deferral(str(entity.id), now, 0.0, "no_candidates")
 
     return assignments
 
@@ -185,6 +189,7 @@ def assign_new_tasks_onrta(
     expected_b: float = 1000.0,
     onrta_tracker: Optional[Dict[str, int]] = None,
     expiry_scheduler=None,
+    deferral_tracker=None,
     **_,
 ):
     if onrta_tracker is None:
@@ -202,6 +207,7 @@ def assign_new_tasks_onrta(
                 expected_b=expected_b,
                 onrta_tracker=onrta_tracker,
                 expiry_scheduler=expiry_scheduler,
+                deferral_tracker=deferral_tracker,
             )
         )
     return assignments

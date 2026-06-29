@@ -78,6 +78,7 @@ def _process_entity(
     rank_tracker: Dict[str, Any],
     seed: int,
     expiry_scheduler=None,
+    deferral_tracker=None,
 ) -> List[Tuple[Any, Any, float]]:
     _get_or_create_rank(entity, rank_tracker, seed)
     targets = state.available_workers if is_task else state.deferred_tasks
@@ -108,8 +109,11 @@ def _process_entity(
         state.assign_task(assigned_task, worker)
         assignments.append((assigned_task, worker, 1.0 / (1.0 + final_d_pick)))
     elif is_task:
-        if state.defer_task(entity, now) and expiry_scheduler:
-            expiry_scheduler(entity)
+        if state.defer_task(entity, now):
+            if expiry_scheduler:
+                expiry_scheduler(entity)
+            if deferral_tracker:
+                deferral_tracker.record_deferral(str(entity.id), now, 0.0, "no_candidates")
 
     return assignments
 
@@ -121,6 +125,7 @@ def assign_new_tasks_biranking(
     rank_tracker: Optional[Dict[str, Any]] = None,
     seed: int = 42,
     expiry_scheduler=None,
+    deferral_tracker=None,
     **_,
 ):
     if rank_tracker is None:
@@ -137,6 +142,7 @@ def assign_new_tasks_biranking(
                 rank_tracker=rank_tracker,
                 seed=seed,
                 expiry_scheduler=expiry_scheduler,
+                deferral_tracker=deferral_tracker,
             )
         )
     return assignments
