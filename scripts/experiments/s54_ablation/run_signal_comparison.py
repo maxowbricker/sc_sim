@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Section 2 — Fairness Signal Comparison
+Section 5.4.2 — Ablation & Sensitivity Analysis: Fairness Signal Comparison
 k=15, Didi 20161109
 
 Compares five O(k) or O(W) fairness signals applied on top of the same
@@ -18,11 +18,11 @@ k=15 spatial candidate pool, plus Greedy as the no-fairness anchor:
 This directly answers the paper's central question:
   "Which O(k) fairness signal best balances JFI improvement against wait-time cost?"
 
-Output: results/s2_ewma_validation/signal_comparison_20161109.csv
+Output: results/s54_ablation/signal_comparison_20161109.csv
 
 Usage:
-    python scripts/experiments/s2_ewma_validation/run_signal_comparison.py
-    python scripts/experiments/s2_ewma_validation/run_signal_comparison.py --output path/out.csv
+    python scripts/experiments/s54_ablation/run_signal_comparison.py
+    python scripts/experiments/s54_ablation/run_signal_comparison.py --output path/out.csv
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ from data.loader import load_workers_tasks
 
 DATA_ROOT   = os.path.join(PROJECT_ROOT, "data", "didi", "full_didi_gaia")
 TARGET_DAY  = "496528674@qq.com_20161109"
-RESULTS_DIR = os.path.join(PROJECT_ROOT, "results", "s2_ewma_validation")
+RESULTS_DIR = os.path.join(PROJECT_ROOT, "results", "s54_ablation")
 
 # (display_label, strategy_key, params, complexity_note)
 STRATEGIES: List[Tuple[str, str, dict, str]] = [
@@ -250,7 +250,7 @@ def main():
     output_path = args.output or os.path.join(RESULTS_DIR, "signal_comparison_20161109.csv")
 
     print("=" * 75)
-    print("  Section 2 — Fairness Signal Comparison (k=15, Didi 20161109)")
+    print("  Section 5.4.2 — Fairness Signal Comparison (k=15, Didi 20161109)")
     print()
     print("  Signal          Strategy")
     for label, key, _, note in STRATEGIES:

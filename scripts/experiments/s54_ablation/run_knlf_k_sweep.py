@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Section 3 — Ablation Study
+Section 5.4.1 — Ablation & Sensitivity Analysis
 k-NLF Candidate Pool Size (k) Sweep — Didi 20161109
 
 Sweeps k ∈ {3, 5, 10, 15} for the k-Nearest Least-First strategy to show the
@@ -14,11 +14,11 @@ fairness–throughput tradeoff as the spatial constraint is relaxed:
 Also runs Greedy (k=∞ but nearest-only) and LAF (k=W, all workers) as anchors
 so the entire tradeoff curve is visible in a single plot.
 
-Output: results/s3_ablation/knlf_k_sweep_20161109.csv
+Output: results/s54_ablation/knlf_k_sweep_20161109.csv
 
 Usage:
-    python scripts/experiments/s3_ablation/run_knlf_k_sweep.py
-    python scripts/experiments/s3_ablation/run_knlf_k_sweep.py --output path/to/out.csv
+    python scripts/experiments/s54_ablation/run_knlf_k_sweep.py
+    python scripts/experiments/s54_ablation/run_knlf_k_sweep.py --output path/to/out.csv
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ from data.loader import load_workers_tasks
 
 DATA_ROOT   = os.path.join(PROJECT_ROOT, "data", "didi", "full_didi_gaia")
 TARGET_DAY  = "496528674@qq.com_20161109"
-RESULTS_DIR = os.path.join(PROJECT_ROOT, "results", "s3_ablation")
+RESULTS_DIR = os.path.join(PROJECT_ROOT, "results", "s54_ablation")
 
 # Anchor strategies for context on the tradeoff curve
 ANCHORS: List[Tuple[str, str, dict]] = [
@@ -197,7 +197,7 @@ def main():
 
     n_total = len(ANCHORS) + len(K_VALUES)
     print("=" * 75)
-    print("  Section 3 — k-NLF Candidate Pool Size (k) Sweep")
+    print("  Section 5.4.1 — k-NLF Candidate Pool Size (k) Sweep")
     print(f"  Day:    {TARGET_DAY}")
     print(f"  k values: {K_VALUES}  +  Greedy and LAF anchors")
     print(f"  Total runs: {n_total}")

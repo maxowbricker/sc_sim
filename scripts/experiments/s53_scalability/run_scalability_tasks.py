@@ -1,30 +1,31 @@
 #!/usr/bin/env python3
 """
 Section 5.3 — Computational Efficiency & Scalability
-Experiment A: Vary Fleet Size |W|, Fix Task Count |T|
+Experiment B: Vary Task Volume |T|, Fix Fleet Size |W|
 
-Holds tasks at the full Didi 20161109 volume (224,219) and increases the
-worker fleet from 10,000 to 36,799 using STRATIFIED temporal sampling.
-This directly tests the O(k log W) vs O(W) complexity claim: k-NLF and
-Composite runtimes should stay nearly flat as |W| grows, while Greedy and
-LAF grow approximately linearly.
+Holds the worker fleet at a fixed 10,000 workers (stratified sample) and
+increases the task volume from 50,000 to the full 224,219 using STRATIFIED
+temporal sampling.
 
-O(W×T) strategies (Discrete Review LP, ONRTA-OP) are excluded — their
-runtimes grow super-linearly and would dominate the y-axis at large scale.
-Mention exclusion in the paper.
+When |W| is fixed, both O(W) and O(k log W) strategies scale approximately
+linearly in |T| (more tasks → more events). The important distinction is the
+SLOPE: O(W) strategies (Greedy, LAF) have a steeper per-event cost than
+O(k log W) strategies (k-NLF, Composite), so their runtime lines diverge as
+|T| grows. This provides complementary evidence to Experiment A's fleet-
+scaling test.
 
-Worker counts: [10,000 · 15,000 · 20,000 · 25,000 · 30,000 · 36,799]
-Tasks:         full 224,219 (no task subsampling)
-Bins:          288  (5-minute temporal bins; preserves intra-day density)
-Seed:          42
+Worker count: 10,000  (stratified sample, same seed across all runs)
+Task counts:  [50,000 · 100,000 · 150,000 · 200,000 · 224,219]
+Bins:         288  (5-minute temporal bins; preserves intra-day density)
+Seed:         42
 
 Output:
-    results/s4_robustness/scalability_fleet.csv
+    results/s4_robustness/scalability_tasks.csv
 
 Usage:
-    python scripts/experiments/s4_robustness/run_scalability_fleet.py
-    python scripts/experiments/s4_robustness/run_scalability_fleet.py --timeout 1200
-    python scripts/experiments/s4_robustness/run_scalability_fleet.py --seed 99
+    python scripts/experiments/s4_robustness/run_scalability_tasks.py
+    python scripts/experiments/s4_robustness/run_scalability_tasks.py --timeout 1200
+    python scripts/experiments/s4_robustness/run_scalability_tasks.py --seed 99
 """
 
 from __future__ import annotations
@@ -51,29 +52,28 @@ from data.stratified_sampler import stratified_temporal_sample
 
 DATA_ROOT   = os.path.join(PROJECT_ROOT, "data", "didi", "full_didi_gaia")
 TARGET_DAY  = "496528674@qq.com_20161109"
-RESULTS_DIR = os.path.join(PROJECT_ROOT, "results", "s4_robustness")
+RESULTS_DIR = os.path.join(PROJECT_ROOT, "results", "s53_scalability")
 
-# Fleet sizes to sweep (workers); tasks stay at full 224,219
-WORKER_COUNTS = [10_000, 15_000, 20_000, 25_000, 30_000, 36_799]
+# Fixed worker fleet size across all task-volume runs
+WORKER_COUNT = 10_000
+
+# Task volumes to sweep; fleet stays at WORKER_COUNT
+TASK_COUNTS = [50_000, 100_000, 150_000, 200_000, 224_219]
 
 # Temporal stratification bins (288 × 5 min = 24 h)
 NUM_BINS = 288
 
 TIMEOUT_SEC = 900  # 15 min hard cap per run
 
-# Strategies ordered by ascending expected wall time.
-# O(W×T) strategies (Disc. Review LP, ONRTA-OP) excluded — see docstring.
+# Same strategy set as Experiment A for consistent comparison
 STRATEGIES: List[tuple] = [
-    # Proposed O(k log W) strategies
     ("k-NLF (k=15)",       "knlf",      {"k": 15}),
     ("Composite (static)", "composite", {
         "fairness_weight": 1.6, "starvation_weight": 0.0,
         "utility_weight": 1.0, "gamma": 0.1, "k": 15, "soft_threshold": 0.0,
     }),
-    # O(W) baselines — expected to grow linearly
     ("Greedy",             "greedy",    {}),
     ("LAF",                "laf",       {}),
-    # O(k log W) published baseline — high constant factor despite same asymptotics
     ("FATP-ANN",           "fatp_ann",  {
         "mu": 1.5, "alpha_scale": 0.5, "use_k_nearest": True, "k": 15,
     }),
@@ -86,7 +86,7 @@ FIELDNAMES = [
 
 
 # ---------------------------------------------------------------------------
-# Simulation runner
+# Simulation runner (identical to fleet script)
 # ---------------------------------------------------------------------------
 
 def _sim_thread(sim, exc_holder: dict) -> None:
@@ -165,50 +165,59 @@ def main() -> None:
     args = parser.parse_args()
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    output_path = args.output or os.path.join(RESULTS_DIR, "scalability_fleet.csv")
+    output_path = args.output or os.path.join(RESULTS_DIR, "scalability_tasks.csv")
 
-    n_points     = len(WORKER_COUNTS)
+    n_points     = len(TASK_COUNTS)
     n_strategies = len(STRATEGIES)
     n_total      = n_points * n_strategies
 
     print("=" * 72)
-    print("  §5.3 Scalability — Experiment A: Vary Fleet Size |W|, Fix |T|")
+    print("  §5.3 Scalability — Experiment B: Vary Task Volume |T|, Fix |W|")
     print(f"  Dataset:    {TARGET_DAY}")
-    print(f"  Workers:    {WORKER_COUNTS}")
-    print(f"  Tasks:      full dataset (no subsampling)")
+    print(f"  Workers:    fixed at {WORKER_COUNT:,} (stratified)")
+    print(f"  Tasks:      {TASK_COUNTS}")
     print(f"  Strategies: {', '.join(s[0] for s in STRATEGIES)}")
     print(f"  Total runs: {n_total}  |  Timeout: {args.timeout}s  |  Seed: {args.seed}")
     print(f"  Output:     {output_path}")
     print("=" * 72)
 
-    # ── Load full dataset ────────────────────────────────────────────────────
+    # ── Load full dataset once ───────────────────────────────────────────────
     day_path = os.path.join(DATA_ROOT, TARGET_DAY)
     print(f"\n  Loading {TARGET_DAY} ...")
     all_workers, all_tasks = load_workers_tasks("didi", root_path=day_path)
     print(f"  {len(all_workers):,} workers | {len(all_tasks):,} tasks  (full load)")
 
-    # ── Stratified sampling — all worker counts in one pass ──────────────────
-    # target_tasks = len(all_tasks) ensures tasks are returned unmodified;
-    # workers are stratified across NUM_BINS temporal windows.
+    # ── Stratified sampling — one worker sample reused across all task volumes
     print(f"\n  Stratified sampling ({NUM_BINS} bins, seed={args.seed}) ...")
-    sampled_tasks, worker_samples = stratified_temporal_sample(
-        all_workers=all_workers,
-        all_tasks=all_tasks,
-        target_tasks=len(all_tasks),  # keep all tasks
-        worker_counts=WORKER_COUNTS,
-        num_bins=NUM_BINS,
-        seed=args.seed,
-    )
-    print(f"  Tasks retained: {len(sampled_tasks):,}")
-    for wc in WORKER_COUNTS:
-        print(f"    workers[{wc:>6,}] → {len(worker_samples[wc]):,} sampled")
+    print(f"  Building task samples for volumes: {TASK_COUNTS} ...")
+
+    # Sample tasks at all target volumes; workers sampled once (WORKER_COUNT)
+    # We call the sampler once per target_tasks value so each task sample is
+    # independently stratified to the correct volume.
+    task_samples: Dict[int, list] = {}
+    workers_subset: Optional[list] = None  # reuse the same worker sample
+
+    for target_t in TASK_COUNTS:
+        sampled_tasks, worker_samples = stratified_temporal_sample(
+            all_workers=all_workers,
+            all_tasks=all_tasks,
+            target_tasks=target_t,
+            worker_counts=[WORKER_COUNT],
+            num_bins=NUM_BINS,
+            seed=args.seed,  # same seed → same worker sample every call
+        )
+        task_samples[target_t] = sampled_tasks
+        if workers_subset is None:
+            workers_subset = worker_samples[WORKER_COUNT]
+        print(f"    tasks[{target_t:>7,}] → {len(sampled_tasks):,} sampled  |  "
+              f"workers → {len(workers_subset):,}")
 
     # ── Run sweep ────────────────────────────────────────────────────────────
     all_results: List[Dict] = []
     run_idx = 0
 
     COL_W = 26
-    hdr = (f"  {'Fleet / Strategy':<{COL_W}}"
+    hdr = (f"  {'Task vol. / Strategy':<{COL_W}}"
            f"  {'TAR':>7}  {'JFI':>7}  {'Wait(m)':>8}  {'Time(s)':>8}")
     sep = "  " + "─" * (len(hdr) - 2)
 
@@ -216,27 +225,26 @@ def main() -> None:
         writer = _csv.DictWriter(f, fieldnames=FIELDNAMES, extrasaction="ignore")
         writer.writeheader()
 
-        for wc in WORKER_COUNTS:
-            workers_subset = worker_samples[wc]
+        for target_t in TASK_COUNTS:
+            tasks_list = task_samples[target_t]
             print(f"\n{sep}")
-            print(f"  Fleet size: {wc:,} workers  |  {len(sampled_tasks):,} tasks")
+            print(f"  Task volume: {len(tasks_list):,}  |  Fleet: {len(workers_subset):,} workers")
             print(sep)
             print(hdr)
             print(sep)
 
             for strat_name, strat_key, strat_params in STRATEGIES:
                 run_idx += 1
-                label = f"  [{run_idx:>2}/{n_total}] {strat_name}"
 
                 m = run_one(
-                    workers_subset, sampled_tasks,
+                    workers_subset, tasks_list,
                     strat_key, strat_params,
                     timeout_sec=args.timeout,
                 )
 
                 if m is None:
-                    print(f"{label:<{COL_W + 4}}  TIMEOUT / FAILED")
-                    row = {"n_workers": wc, "n_tasks": len(sampled_tasks),
+                    print(f"  [{run_idx:>2}/{n_total}] {strat_name:<{COL_W}}  TIMEOUT / FAILED")
+                    row = {"n_workers": len(workers_subset), "n_tasks": len(tasks_list),
                            "strategy": strat_name,
                            "elapsed_s": args.timeout, "TAR": None,
                            "JFI (tasks)": None, "Avg Wait (m)": None}
@@ -262,14 +270,14 @@ def main() -> None:
     # ── Quick summary table ──────────────────────────────────────────────────
     if all_results:
         print(f"\n  Runtime summary (seconds):")
-        print(f"  {'Strategy':<26}" + "".join(f"  {wc:>7,}" for wc in WORKER_COUNTS))
-        print("  " + "─" * (26 + 9 * len(WORKER_COUNTS)))
+        print(f"  {'Strategy':<26}" + "".join(f"  {tc:>8,}" for tc in TASK_COUNTS))
+        print("  " + "─" * (26 + 10 * len(TASK_COUNTS)))
         for strat_name, _, _ in STRATEGIES:
             row_str = f"  {strat_name:<26}"
-            for wc in WORKER_COUNTS:
+            for tc in TASK_COUNTS:
                 match = [r for r in all_results
-                         if r["strategy"] == strat_name and r["n_workers"] == wc]
-                row_str += f"  {match[0]['elapsed_s']:>7.1f}" if match else f"  {'---':>7}"
+                         if r["strategy"] == strat_name and r["n_tasks"] == tc]
+                row_str += f"  {match[0]['elapsed_s']:>8.1f}" if match else f"  {'---':>8}"
             print(row_str)
 
 
