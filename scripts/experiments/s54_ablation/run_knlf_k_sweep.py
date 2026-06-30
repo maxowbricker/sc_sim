@@ -53,7 +53,7 @@ ANCHORS: List[Tuple[str, str, dict]] = [
 ]
 
 # k-NLF sweep configs: (display_label, k)
-K_VALUES = [3, 5, 10, 15]
+K_VALUES = [3, 5, 10, 15, 25, 50, 100]
 
 TIMEOUT_SEC = 300
 
