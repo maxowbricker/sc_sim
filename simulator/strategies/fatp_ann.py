@@ -20,9 +20,15 @@ Paper fidelity notes (declare in methodology):
   assigned tasks, the paper relocates them toward historical task clusters
   learned via Gaussian Mixture Models. This simulator leaves idle workers
   stationary; only the assignment logic (TP/WP + cap) is reproduced.
-- mu time scaling: utility decay uses wait time in hours (see _calculate_utility).
-  The paper uses dataset-specific time units; mu must be tuned per experiment
-  so exp(-mu * wait_hours) retains meaningful curvature (see config.py fatp_ann).
+- mu calibration: utility decay uses (completion_time - release_time) in hours,
+  matching the paper's f_r - b_r definition. mu is calibrated as ln(2) / T_mean_h,
+  where T_mean is the mean (task age + pickup travel + service travel) at assignment.
+  Analytical estimates: Didi T_mean ≈ 23.6 min → mu ≈ 1.76; Gowalla T_mean ≈ 15.5
+  min → mu ≈ 2.68. A shared value of mu=1.5 (50% retention at ~27.7 min) is used
+  across both datasets for cross-dataset consistency (same principle as Composite's
+  fixed weights). The previous default mu=0.5 produced only a ~16% utility spread
+  across feasible tasks — effectively flat — making WP task selection near-random.
+  mu=1.5 widens the spread to ~28%, giving the strategy real discriminating power.
 """
 
 from simulator.strategies import register

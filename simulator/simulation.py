@@ -65,6 +65,8 @@ class EventSimulator:
         
         self.total_tasks_count = len(tasks)
         self.event_count = 0
+        # Base limit: each task can generate at most ~10 events in normal strategies
+        # (TASK_RELEASE, TASK_EXPIRE, TASK_COMPLETE, FREE_WORKER, plus margin).
         self.max_events = len(tasks) * 10
         if self.review_batch_handler is not None:
             review_period = float(self.strategy_params.get("review_period_seconds", 60.0))
@@ -78,9 +80,18 @@ class EventSimulator:
                 default=0.0,
             )
             review_epochs = int(max(0.0, horizon - start) / max(review_period, 1.0)) + 1
+            # Batch-review strategies accumulate far more events than other strategies:
+            # every arriving task is deferred (TASK_EXPIRE), assigned at a review epoch
+            # (TASK_COMPLETE + FREE_WORKER), and may sit in the deferred pool across
+            # many epochs before assignment. The formula below provides a generous
+            # upper bound that prevents premature termination (which corrupts JFI
+            # metrics because snapshot_step is never called on the final state).
+            # Formula: tasks × 50 (RELEASE + EXPIRE + COMPLETE + FREE_WORKER + margin)
+            #         + workers × 5 (WORKER_RELEASE + multiple FREE_WORKER callbacks)
+            #         + review_epochs × 100 (REVIEW_BATCH + associated cascades)
             self.max_events = max(
                 self.max_events,
-                len(tasks) * 30 + review_epochs * 5,
+                len(tasks) * 50 + len(workers) * 5 + review_epochs * 100,
             )
         self.step_start_time = None
         self._next_review_time = None
@@ -186,6 +197,7 @@ class EventSimulator:
             if self.strategy_params.get("expected_a") is None:
                 self.strategy_params["expected_a"] = len(current_tasks)
             if self.strategy_params.get("expected_b") is None:
+                # Paper b = sum(w.c); unit-capacity workers => len(workers)
                 self.strategy_params["expected_b"] = len(current_workers)
 
         if self.strategy_name == "onrta_rt":
@@ -260,6 +272,11 @@ class EventSimulator:
             self.event_count += 1
             if self.event_count > self.max_events:
                 print(f"Simulation terminated: Exceeded {self.max_events:,} events")
+                # Ensure final metrics (JFI, idle-time distributions) are computed
+                # even on early termination — without this, snapshot_step is never
+                # called and metrics like JFI remain at their initialised default (1.0).
+                if self.step_start_time:
+                    self.metrics.snapshot_step(self.state, self.current_time, self.step_start_time)
                 return True
                 
             event_time, event_type, event_id = heappop(self.event_queue)

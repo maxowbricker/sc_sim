@@ -130,16 +130,18 @@ STRATEGY_PARAMS = {
     # === COMPOSITE STRATEGY (DRL Target) ===
     "composite": {
         # Weights for scoring function: Score = (fairness_weight * F) + (starvation_weight * S) + (1.0 * U)
-        "fairness_weight": 1.0,                 # Dynamic parameter controlled by DRL
-        "starvation_weight": 0.2,               # Dynamic parameter controlled by DRL
+        # fw=1.6, sw=0.0 confirmed as Pareto-optimal for pure-fairness operation on Didi 20161109
+        # (best JFI among all sw=0.0 configs; Pareto-dominates sw>0 on wait time at similar JFI).
+        "fairness_weight": 1.6,                 # Static weight for paper experiments (Pareto sweep confirmed)
+        "starvation_weight": 0.0,               # Disabled: ablation showed sw hurts idle-time equity on Didi
         "utility_weight": 1.0,                  # HARDCODED: Anchors the DRL action space
-        
+
         # EWMA fairness calculation
         "gamma": 0.1,                           # EWMA smoothing factor (0.1=responsive, 0.9=smooth), (0.1/0.15 was found to be optimal for a single days simulation)
         
         # Assignment mechanism
         "k": 15,                                # Number of nearest workers to consider
-        "soft_threshold": 0.05,                  # Minimum score to assign immediately (0.0 = disabled)
+        "soft_threshold": 0.0,                   # Disabled: sensitivity test showed negligible effect; cleaner JFI
         
         # Diagnostic Trackers
         "enable_diagnostics": False,            # Enable heavy evaluation metrics (IOR, Fairness Loss) - DISABLE FOR RL
@@ -164,7 +166,15 @@ STRATEGY_PARAMS = {
     },
     
     "fatp_ann": {
-        "mu": 0.5,                              # Decay factor for utility calculation 
+        # mu calibrated so utility retains ~50% at the dataset mean task completion time.
+        # Formula: mu = ln(2) / T_mean_hours.
+        # Didi  (T_mean ≈ 23.6 min = 0.39h) → mu ≈ 1.76
+        # Gowalla (T_mean ≈ 15.5 min = 0.26h) → mu ≈ 2.68
+        # Shared value mu=1.5 (50% at ~27.7 min) used across both datasets for
+        # cross-dataset generalisation, consistent with Composite's fixed-weight policy.
+        # With the previous mu=0.5, the utility range across all feasible tasks was
+        # only ~16% (flat); mu=1.5 gives a ~28% spread, providing real discriminating power.
+        "mu": 1.5,
         "alpha_scale": 0.5,                     # Scaling factor for base utility (task distance)
         "use_k_nearest": False,                 # Use full worker scan (k-NN optimization disabled)
         "k": 15,                                # Number of nearest workers (only used if use_k_nearest=True)
@@ -187,12 +197,12 @@ STRATEGY_PARAMS = {
 
     # === DISCRETE REVIEW LP BASELINE (Aveklouris et al.) ===
     "discrete_review_lp": {
-        "review_period_seconds": 60.0,          # Review interval l (seconds); sweep for Pareto curves
+        "review_period_seconds": 15.0,          # Review interval l (seconds); confirmed optimal by Gowalla sweep (JFI peaks at 15s > 5s/10s/30s)
     },
 
     # === ONRTA-OP BASELINE ===
     "onrta_op": {
-        # Expected market size for phase transition; reset() defaults to len(tasks/workers)
+        # Phase transition: expected_a=|R|, expected_b=sum(w.c); reset() fills from dataset
         "expected_a": None,
         "expected_b": None,
     },

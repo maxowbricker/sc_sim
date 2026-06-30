@@ -268,3 +268,5 @@ cython_debug/
 
 # Large dataset files (download separately)
 data/nyc_taxi/*.parquet
+data/**/*.gz
+data/**/*.npz
