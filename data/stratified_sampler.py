@@ -10,6 +10,7 @@ This addresses the temporal misalignment issue discovered in Experiment 011
 where early tasks had insufficient worker availability.
 """
 
+import bisect
 import random
 from typing import List, Tuple
 from datetime import datetime
@@ -64,29 +65,37 @@ def stratified_temporal_sample(
     
     bin_duration = task_duration / num_bins
     total_raw_tasks = len(sorted_tasks)
-    
+
+    # Pre-extract release times once for O(log N) bisect lookups
+    task_times_list = task_times  # already a plain list of floats
+
     sampled_tasks = []
     task_bin_counts = []
-    
+
     for i in range(num_bins):
         bin_start = task_start + i * bin_duration
         bin_end = bin_start + bin_duration
-        
-        bin_tasks = [t for t in sorted_tasks if bin_start <= t.release_time < bin_end]
-        
+
+        # Binary search instead of O(N) linear scan
+        lo = bisect.bisect_left(task_times_list, bin_start)
+        hi = bisect.bisect_left(task_times_list, bin_end)
+        bin_tasks = sorted_tasks[lo:hi]
+
         # Proportional: if this bin has 5% of day's tasks, it gets 5% of target_tasks
         bin_weight = len(bin_tasks) / total_raw_tasks if total_raw_tasks > 0 else 0
         n_to_sample = int(target_tasks * bin_weight)
         n_to_sample = min(n_to_sample, len(bin_tasks))
-        
+
         bin_sample = random.sample(bin_tasks, n_to_sample)
         sampled_tasks.extend(bin_sample)
-        
+
         task_bin_counts.append((bin_start, bin_end, len(bin_tasks), n_to_sample))
-    
+
     if len(sampled_tasks) < target_tasks:
         remaining = target_tasks - len(sampled_tasks)
-        last_bin_tasks = [t for t in sorted_tasks if t.release_time >= task_bin_counts[-1][0]]
+        last_bin_start = task_bin_counts[-1][0]
+        lo = bisect.bisect_left(task_times_list, last_bin_start)
+        last_bin_tasks = sorted_tasks[lo:]
         additional = random.sample(last_bin_tasks, min(remaining, len(last_bin_tasks)))
         sampled_tasks.extend(additional)
     
@@ -118,20 +127,26 @@ def stratified_temporal_sample(
     
     overlap_start = max(task_start, worker_start)
     overlap_end = min(task_end, worker_end)
-    
+
     # overlap_start_dt = datetime.fromtimestamp(overlap_start)
     # overlap_end_dt = datetime.fromtimestamp(overlap_end)
-    # print(f"  ✅ Overlap window: {overlap_start_dt} to {overlap_end_dt}")
+    # print(f"  ✅ Overlap window: {overlap_start_dt} to {worker_end_dt}")
     # print(f"     Duration: {(overlap_end - overlap_start) / 3600:.2f} hours")
     # print()
-    
-    # Precompute total worker slots across all bins (for proportional math)
-    total_worker_slots = sum(
-        1 for i in range(num_bins)
-        for w in sorted_workers
-        if (w.release_time <= overlap_start + (i + 1) * bin_duration
-            and w.deadline >= overlap_start + i * bin_duration)
-    )
+
+    # Build per-bin worker lists once (O(W × avg_bins_per_worker) instead of O(B×W))
+    bin_boundaries = [overlap_start + i * bin_duration for i in range(num_bins + 1)]
+    worker_bin_lists: list = [[] for _ in range(num_bins)]
+    for w in sorted_workers:
+        # Worker overlaps bin i iff w.release_time < bin_end AND w.deadline >= bin_start
+        first_bin = bisect.bisect_right(bin_boundaries, w.release_time) - 1
+        last_bin  = bisect.bisect_left(bin_boundaries, w.deadline) - 1
+        first_bin = max(0, first_bin)
+        last_bin  = min(num_bins - 1, last_bin)
+        for b in range(first_bin, last_bin + 1):
+            worker_bin_lists[b].append(w)
+
+    total_worker_slots = sum(len(bl) for bl in worker_bin_lists)
     
     # ========================================================================
     # STEP 4: Sample workers stratified across temporal bins (PROPORTIONAL)
@@ -147,29 +162,26 @@ def stratified_temporal_sample(
         sampled_workers = []
         sampled_workers_set = set()  # O(1) lookup set to fix O(N^2) list traversal
         worker_bin_counts = []
-        
+
         for i in range(num_bins):
             bin_start = overlap_start + i * bin_duration
             bin_end = bin_start + bin_duration
-            
-            bin_workers = [
-                w for w in sorted_workers
-                if (w.release_time <= bin_end and w.deadline >= bin_start)
-            ]
-            
+
+            bin_workers = worker_bin_lists[i]  # precomputed — no linear scan
+
             # Proportional: if this bin has X% of worker slots, it gets X% of worker_count
             bin_weight = len(bin_workers) / total_worker_slots if total_worker_slots > 0 else 0
             n_to_sample = int(worker_count * bin_weight)
-            
+
             # Fast O(1) duplicate check
             available_for_sampling = [w for w in bin_workers if w not in sampled_workers_set]
             n_to_sample = min(n_to_sample, len(available_for_sampling))
-            
+
             if n_to_sample > 0:
                 bin_sample = random.sample(available_for_sampling, n_to_sample)
                 sampled_workers.extend(bin_sample)
                 sampled_workers_set.update(bin_sample)
-            
+
             worker_bin_counts.append((bin_start, bin_end, len(bin_workers), n_to_sample))
         
         if len(sampled_workers) < worker_count:
