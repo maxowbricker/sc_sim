@@ -28,7 +28,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)
 )))
 INPUT  = os.path.join(PROJECT_ROOT, "results", "s54_ablation",
-                      "knlf_k_sweep_20161109_cluster.csv")
+                      "knlf_k_sweep_20161109_v2.csv")
 OUT_PDF = os.path.join(PROJECT_ROOT, "results", "figures", "k_sweep.pdf")
 OUT_PNG = os.path.join(PROJECT_ROOT, "results", "figures", "k_sweep.png")
 
@@ -62,9 +62,11 @@ COLOR_LAF   = "#4dac26"
 df = pd.read_csv(INPUT)
 
 # Separate anchors from the k-NLF sweep
-greedy_row = df[df["strategy"] == "greedy"].iloc[0]
-laf_row    = df[df["strategy"] == "laf"].iloc[0]
-sweep_knlf = df[df["strategy"] == "knlf"].copy()
+greedy_row  = df[df["strategy"] == "greedy"].iloc[0]
+_laf_rows   = df[df["strategy"] == "laf"]
+laf_row     = _laf_rows.iloc[0] if len(_laf_rows) > 0 else None
+has_laf     = laf_row is not None
+sweep_knlf  = df[df["strategy"] == "knlf"].copy()
 sweep_comp = df[df["strategy"] == "composite"].copy()
 
 for s in (sweep_knlf, sweep_comp):
@@ -87,7 +89,7 @@ if has_composite:
 
 greedy_jfi  = greedy_row["JFI (tasks)"]
 greedy_wait = greedy_row["Avg Wait (m)"]
-laf_jfi     = laf_row["JFI (tasks)"]
+laf_jfi     = laf_row["JFI (tasks)"] if has_laf else None
 
 # ── Figure ────────────────────────────────────────────────────────────────────
 fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(9.0, 2.6))
@@ -102,8 +104,9 @@ if has_composite:
 
 ax1.axhline(greedy_jfi, linestyle="--", linewidth=1.0,
             color=COLOR_GREEDY, label=f"Greedy  ({greedy_jfi:.3f})")
-ax1.axhline(laf_jfi, linestyle=":",  linewidth=1.0,
-            color=COLOR_LAF,    label=f"LAF  ({laf_jfi:.3f})")
+if has_laf:
+    ax1.axhline(laf_jfi, linestyle=":",  linewidth=1.0,
+                color=COLOR_LAF,    label=f"LAF  ({laf_jfi:.3f})")
 
 ax1.axvline(PAPER_K, linestyle="--", linewidth=0.8, color="#aaaaaa")
 ax1.text(PAPER_K + 1, min(jfi) - 0.005,
@@ -150,8 +153,9 @@ if has_composite:
 
 ax3.axhline(greedy_row["elapsed_s"], linestyle="--", linewidth=1.0,
             color=COLOR_GREEDY, label=f"Greedy  ({greedy_row['elapsed_s']:.0f}s)")
-ax3.axhline(laf_row["elapsed_s"], linestyle=":", linewidth=1.0,
-            color=COLOR_LAF,    label=f"LAF  ({laf_row['elapsed_s']:.0f}s)")
+if has_laf:
+    ax3.axhline(laf_row["elapsed_s"], linestyle=":", linewidth=1.0,
+                color=COLOR_LAF,    label=f"LAF  ({laf_row['elapsed_s']:.0f}s)")
 
 ax3.axvline(PAPER_K, linestyle="--", linewidth=0.8, color="#aaaaaa")
 ax3.text(PAPER_K + 1, min(runtime) - 1.5,

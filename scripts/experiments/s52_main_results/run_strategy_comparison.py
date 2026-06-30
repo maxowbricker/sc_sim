@@ -238,7 +238,9 @@ def print_table(all_metrics: List[Dict]) -> None:
 # Runner
 # ---------------------------------------------------------------------------
 
-def run_one_day(day_folder: str, verbose: bool = True) -> List[Dict]:
+def run_one_day(day_folder: str, verbose: bool = True, strategies=None) -> List[Dict]:
+    if strategies is None:
+        strategies = STRATEGIES
     day_path = os.path.join(DATA_ROOT, day_folder)
     if verbose:
         print(f"\n  Loading data: {day_folder}")
@@ -248,7 +250,7 @@ def run_one_day(day_folder: str, verbose: bool = True) -> List[Dict]:
         print(f"  {n_w:,} workers | {n_t:,} tasks")
 
     results = []
-    for display_name, strategy_key, extra_params in STRATEGIES:
+    for display_name, strategy_key, extra_params in strategies:
         cfg = create_composite_config(
             assignment_strategy=strategy_key,
             **extra_params,
@@ -297,7 +299,19 @@ def main():
                         help="Specific day suffix, e.g. 20161109")
     parser.add_argument("--output", type=str, default=None,
                         help="Optional CSV output path")
+    parser.add_argument("--only",   type=str, default=None,
+                        help="Comma-separated strategy keys to run, e.g. greedy,knlf,composite")
     args = parser.parse_args()
+
+    # Filter STRATEGIES if --only is specified
+    active_strategies = STRATEGIES
+    if args.only:
+        keys = {k.strip() for k in args.only.split(",")}
+        active_strategies = [s for s in STRATEGIES if s[1] in keys]
+        if not active_strategies:
+            print(f"ERROR: No strategies matched keys: {keys}")
+            print(f"  Available keys: {[s[1] for s in STRATEGIES]}")
+            sys.exit(1)
 
     # Resolve day folders
     all_days = sorted(
@@ -320,8 +334,8 @@ def main():
     print("=" * 80)
     print("  STRATEGY BENCHMARK — Spatial Crowdsourcing Simulator")
     print(f"  Days: {', '.join(eval_days)}")
-    strat_names = [s[0] for s in STRATEGIES]
-    print(f"  Strategies ({len(STRATEGIES)}): " + " | ".join(strat_names))
+    strat_names = [s[0] for s in active_strategies]
+    print(f"  Strategies ({len(active_strategies)}): " + " | ".join(strat_names))
     print("=" * 80)
 
     # Accumulate across days
@@ -330,7 +344,7 @@ def main():
         print(f"\n{'─'*80}")
         print(f"  Day: {day}")
         print(f"{'─'*80}")
-        day_results.append(run_one_day(day))
+        day_results.append(run_one_day(day, strategies=active_strategies))
 
     # Average across days if multiple
     if len(day_results) == 1:

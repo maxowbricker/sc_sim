@@ -29,7 +29,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)
 )))
 INPUT   = os.path.join(PROJECT_ROOT, "results", "s54_ablation",
-                       "fairness_weight_sweep_20161109_cluster.csv")
+                       "fairness_weight_sweep_20161109_v2.csv")
 OUT_PDF = os.path.join(PROJECT_ROOT, "results", "figures", "fairness_weight_sweep.pdf")
 OUT_PNG = os.path.join(PROJECT_ROOT, "results", "figures", "fairness_weight_sweep.png")
 

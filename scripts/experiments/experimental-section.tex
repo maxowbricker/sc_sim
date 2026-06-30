@@ -1,276 +1,29 @@
+\section{Experiments}
+\label{sec:experiments}
+
+
 \subsection{Experimental Setup}
 \label{sec:setup}
 
 \textbf{Datasets.}
 \label{sec:datasets}
-We evaluate our framework on the \textit{DiDi GAIA Open Dataset}. The dataset contains high-resolution GPS trajectories and trip dispatch logs from November 2016, covering approximately 7.06 million completed trips and over 1.09 billion GPS pings. We use 9 November 2016, a representative weekday, as the primary evaluation instance, which includes 36,799 workers and 224,219 tasks in the core urban area around Chengdu. Each unique driver is modeled as a worker, with their first GPS ping used to determine the online time and initial location, and an 8-hour shift duration is applied. Each completed trip is converted into one task, where the dispatch timestamp is used as the release time, the billing-completion timestamp is used as the expiry deadline, and the recorded fare is used as the revenue signal. Distances are computed using Manhattan distance under a flat-earth projection, and travel time is estimated using a constant urban speed of 30,km/h.
+We evaluate our framework on the \textit{DiDi GAIA Open Dataset}. The dataset contains high-resolution GPS trajectories and trip dispatch logs from November 2016, covering approximately 7.06 million completed trips and over 1.09 billion GPS pings. We use 9 November 2016, a representative weekday, as the primary evaluation instance, which includes 36,799 workers and 224,219 tasks in the core urban area around Chengdu. Each unique driver is modeled as a worker, with their first GPS ping used to determine the online time and initial location, and an 8-hour shift duration is applied. Each completed trip is converted into one task, where the dispatch timestamp is used as the release time and the billing-completion timestamp as the expiry deadline. Following the methodology in \cite{CR-04}, we compute task revenue $m_j$ using a base fare $\beta_{base} = \$2.00$ and a distance rate $\beta_{dist} = \$1.50$/km, where $\alpha_j$ is the Manhattan distance between $l_j^o$ and $l_j^d$. Total platform revenue is the aggregate $m_j$ of all completed tasks. 
 
-To test whether the observed strategy behavior generalizes beyond dense ride-hailing scenarios, we also evaluate on the \textit{Gowalla} location-based social network dataset~\cite{cho2011friendship}. We focus on the Austin, Texas region during September 2010, which provides the densest usable check-in cluster in the dataset. Since raw LBSN check-ins are much sparser than ride-hailing requests, we apply temporal compression by projecting all check-ins onto a single 24-hour reference window while preserving their wall-clock times and spatial distribution. Each unique user-day pair is treated as one worker, and each check-in is converted into one task with a 30-minute expiry window. Because Gowalla does not contain trip destinations or fares, drop-off locations and revenues are generated using distance-based proxies. After compression and worker downsampling, the Gowalla evaluation instance contains 8,758 workers and 43,788 tasks, providing a sparser and structurally different environment for testing the robustness of assignment strategies.
-% \paragraph{DiDi GAIA Dataset (Chengdu, China).}
-% \label{sec:dataset_didi}
-% We evaluate on the \textit{DiDi GAIA Open Dataset}, a publicly available corpus
-% of high-resolution GPS trajectories and trip dispatch logs collected from
-% ride-hailing operations in Chengdu, China. The full corpus covers 30 days in
-% November 2016, comprising approximately 7.06 million completed trips and over
-% 1.09 billion GPS pings. To measure strategy performance under a realistic but
-% reproducible demand profile, we designate a single held-out test day
-% (9 November 2016, a representative weekday) as our primary evaluation
-% instance, comprising 36,799 workers and 224,219 tasks.
-
-% We focus on the core urban area centred at approximately $30.67^\circ$N,
-% $104.07^\circ$E. All distance computations use a flat-earth (equirectangular)
-% projection calibrated to the mean latitude of all simulation participants,
-% converting geographic coordinates to kilometres with a worst-case
-% approximation error below 0.15\% over the city extent. Travel times assume a
-% constant average urban speed of 30\,km/h with Manhattan-distance routing.
-
-% \textit{Entity modelling.}
-% Simulation entities are derived from the raw logs as follows.
-
-% \begin{itemize}
-%     \item \textbf{Workers.} Each unique driver identifier active on the test
-%     day yields one worker. The worker's spawn location and online time are
-%     taken from their first recorded GPS ping. A nominal shift duration of
-%     8 hours is applied; workers are removed from the candidate pool once they
-%     can no longer complete a trip before their shift deadline.
-
-%     \item \textbf{Tasks.} Each trip record is converted into one matching
-%     request. The original dispatch timestamp serves as the task release time
-%     $r_j$, and the billing-completion timestamp serves as the expiry deadline
-%     $e_j$. Task revenue is taken from the actual trip fare recorded in the
-%     billing log, providing a realistic revenue signal for platform-utility
-%     evaluation.
-% \end{itemize}
-
-% \paragraph{Gowalla LBSN Dataset (Austin, Texas).}
-% \label{sec:dataset_gowalla}
-% To assess the generalisability of our strategies beyond the ride-hailing
-% domain, we incorporate the \textit{Gowalla} location-based social network
-% (LBSN) check-in dataset~\cite{cho2011friendship}, made publicly available via
-% the Stanford SNAP repository. Gowalla records voluntary user check-ins at
-% named venues, providing a geographically diverse, community-sourced
-% alternative to operator-logged ride-hailing data. We use this dataset to
-% evaluate whether strategy rankings observed on DiDi hold under a
-% fundamentally different platform type, geographic region, and participant
-% behaviour model — with all strategy hyperparameters held fixed at their
-% DiDi-tuned values.
-
-% \textit{Regional realisation.}
-% We restrict our analysis to the Austin, Texas cluster
-% (29.9°–30.7°N, 97.5°–98.1°W), the densest Gowalla check-in cluster in the
-% continental United States, providing the highest concurrent task density
-% available in the dataset. We further restrict to September 2010 (29 days),
-% explicitly excluding March 2010, which is inflated by South by Southwest
-% (SXSW) festival activity and would introduce an unrepresentative spatial
-% concentration.
-
-% \textit{Temporal compression.}
-% Raw LBSN check-in arrival rates are approximately 150$\times$ lower than
-% ride-hailing trip rates. Without preprocessing, the September 2010 Austin
-% corpus yields only $\sim$31 tasks active simultaneously across the 29-day
-% horizon — a density too sparse for strategies to differentiate. To recover a
-% city-scale simulation environment while preserving the authentic intra-day
-% demand rhythm, we apply \textit{temporal compression}: the calendar date is
-% stripped from every check-in, retaining only the wall-clock time (HH:MM:SS),
-% and all events are projected onto a single 24-hour reference window. This
-% stacks 29 days of check-ins into one simulated day, increasing concurrent
-% task density from $\sim$31 to $\sim$910 — comparable to the DiDi environment —
-% without altering spatial distributions or relative intra-day ordering.
-
-% \textit{Entity modelling.}
-% Simulation entities are derived from the compressed check-in log as follows.
-
-% \begin{itemize}
-%     \item \textbf{Workers.} Each unique (user\_id, calendar\_day) pair
-%     yields one worker, with spawn location and online time taken from that
-%     user's first check-in on that day. Worker deduplication is performed on
-%     the original calendar dates (prior to compression) to preserve the full
-%     pool of 8,758 unique worker-days; using post-compression dates would
-%     collapse all days to a single reference date and reduce the pool to
-%     $\sim$2,600 unique users. A shift duration of 8 hours is applied, and
-%     workers are downsampled to a worker-to-task ratio of 1:5 (random seed 42)
-%     to match the supply-demand regime observed in the DiDi dataset.
-
-%     \item \textbf{Tasks.} Each individual check-in is converted into one
-%     matching request, with the check-in location as the pickup point and a
-%     30-minute expiry window ($e_j = r_j + 1800$\,s). As LBSN data records
-%     only the arrival venue and not a subsequent destination, dropoff
-%     locations are generated synthetically by displacing the pickup point by
-%     Gaussian noise with $\sigma = 2$\,km (converted to degrees using the
-%     local great-circle approximation). Revenue is computed as a
-%     distance-proportional proxy based on the Euclidean pickup-to-dropoff
-%     distance.
-% \end{itemize}
-
-% After compression and downsampling, the Gowalla evaluation instance
-% comprises 8,758 workers and 43,788 tasks.
+To test whether the observed strategy behavior generalizes beyond dense ride-hailing scenarios, we also evaluate utilising the \textit{Gowalla} location-based social network dataset. We focus on the Austin, Texas region during September 2010, which provides the densest usable check-in cluster in the dataset. Since raw LBSN check-ins are much sparser than ride-hailing requests, we apply temporal compression by projecting all check-ins onto a single 24-hour reference window while preserving their wall-clock times and spatial distribution. Each unique user-day pair is treated as one worker, and each check-in is converted into one task with a 30-minute expiry window. Because Gowalla does not contain trip destinations or fares, drop-off locations and revenues are generated using the distance-proportional proxies described above. After compression and worker downsampling, the Gowalla evaluation instance contains 8,758 workers and 43,788 tasks.
 
 \textbf{Implementation Details.}
 \label{sec:framework}
-We implement a dataset-agnostic discrete event simulator (DES) driven by a min-heap priority queue ordered by Unix timestamps, ensuring that all events are processed chronologically without artificial batching or future lookahead, consistent with the instantaneous matching constraint in online spatial crowdsourcing~\cite{tong2019survey}. The simulator supports worker release, task release, task completion, and task expiration events: newly available workers trigger a \textsc{FreeWorker} handler to search for pending tasks, newly released tasks trigger a \textsc{NewTask} handler to search for available workers, completed tasks return workers to the candidate pool, and expired tasks are removed from the pending pool. Each assignment strategy is implemented through the same pair of handlers, $(\textsc{NewTask}, \textsc{FreeWorker})$, which receive the current system state and return at most one assignment per event. Available workers are maintained in an incrementally updated $k$-d tree spatial index based on their current locations, enabling efficient $k$-nearest-neighbour queries without rebuilding the full index at every event. Distances are computed using Manhattan distance under a flat-earth equirectangular projection, and travel times assume a constant average urban speed of 30,km/h. Each candidate pair is filtered by two feasibility constraints: the worker must reach the pickup location before the task deadline, i.e., $t_{\text{now}} + d_{\text{pick}}/v \leq e_j$, and must complete the trip before the worker's shift deadline, i.e., $t_{\text{now}} + (d_{\text{pick}} + d_{\text{drop}})/v \leq t_{\text{deadline}}^w$. Candidate assignments violating either condition are rejected before scoring, which prevents infeasible matches without introducing additional penalty terms.
+We implement a dataset-agnostic discrete event simulator (DES) driven by a min-heap priority queue ordered by timestamps, ensuring that all events are processed chronologically without artificial batching or future lookahead, consistent with the instantaneous matching constraint in online spatial crowdsourcing~\cite{tong2019survey}. The simulator supports worker release, task release, task completion, and task expiration events. Each assignment strategy is implemented through a pair of handlers, $(\textsc{NewTask}, \textsc{FreeWorker})$, which receive the current system state and return at most one assignment per event. Individual worker earnings are tracked as the sum of revenues $m_j$ from their completed tasks. Available workers are maintained in an incrementally updated $k$-d tree spatial index based on their current locations, enabling efficient $k$-nearest-neighbor queries without rebuilding the full index at every event. Distances are computed using Manhattan distance under a locally-scaled flat-earth projection, where longitude is rescaled by $\cos(\bar{\phi})$ at the city's mean latitude $\bar{\phi}$. This approach reduces geodetic error to below 0.15\% over the urban extent while preserving the $\mathcal{O}(k \log n)$ query efficiency required for city-scale dispatch. Travel times assume a constant average urban speed of 30\,km/h. Each candidate pair is filtered by two feasibility constraints: the worker must reach the pickup location before the task deadline, and must complete the trip before their shift deadline. Candidate assignments violating either condition are rejected before scoring, which prevents infeasible matches without introducing additional penalty terms.
 
-% \textbf{Discrete event simulation.}
-% We implement a discrete event simulator (DES) driven by a min-heap priority
-% queue ordered on Unix timestamps, ensuring that strategy decisions are
-% processed in strict chronological order with no artificial batching or
-% lookahead. This adheres to the \textit{instantaneous matching constraint} of
-% online spatial crowdsourcing~\cite{tong2019survey}: each assignment decision
-% must be made the moment a participant arrives, without knowledge of future
-% events. Four event types are supported:
-
-% \begin{itemize}
-%     \item \textsc{WorkerRelease} — a worker comes online and immediately
-%     triggers the \textsc{FreeWorker} handler to scan for pending tasks.
-%     \item \textsc{TaskRelease} — a task enters the pending pool and
-%     immediately triggers the \textsc{NewTask} handler to scan for available
-%     workers.
-%     \item \textsc{TaskComplete} — a worker finishes a trip, returns to the
-%     candidate pool, and triggers a second \textsc{FreeWorker} call to claim
-%     the next pending task.
-%     \item \textsc{TaskExpire} — an unassigned task whose deadline $e_j$ has
-%     elapsed is purged from the pending pool, preventing infeasible
-%     assignments.
-% \end{itemize}
-
-% Each strategy is implemented as a pair of handlers
-% $(\textsc{NewTask}, \textsc{FreeWorker})$ that receive the current system
-% state and return zero or one assignments. The simulator is dataset-agnostic:
-% the same engine processes both the DiDi and Gowalla instances without
-% modification.
-
-% \textbf{Spatial index.}
-% Available workers are maintained in a $k$-d tree spatial index keyed on
-% their current position. This enables O($k\log n$) $k$-nearest-neighbour
-% queries, which underpin the O($k$) complexity of our proposed strategies.
-% The index is updated incrementally as workers transition between available
-% and busy states, avoiding full rebuilds on each event.
-
-% \textbf{Distance model and feasibility.}
-% All distances are computed using Manhattan distance under a flat-earth
-% equirectangular projection calibrated to the mean latitude of all simulation
-% participants, with worst-case coordinate error below 0.15\% over the city
-% extent. Travel times assume a constant average urban speed of 30\,km/h.
-% Every candidate assignment is gated by a dual feasibility check: (i) the
-% worker must reach the pickup point before the task deadline,
-% $t_{\text{now}} + d_{\text{pick}}/v \leq e_j$; and (ii) the worker must
-% reach the dropoff destination before their shift deadline,
-% $t_{\text{now}} + (d_{\text{pick}} + d_{\text{drop}})/v \leq
-% t_{\text{deadline}}^w$. Assignments failing either condition are silently
-% rejected, preventing constraint violations without requiring explicit
-% penalty terms.
 
 \textbf{Baselines.}
 We compare our approach with representative online, fairness-aware, randomized, and batch-based assignment baselines. Greedy minimizes pickup distance only by setting $\lambda_1,\lambda_2=0$, while Least Allocated Worker First (LAF) assigns tasks to workers with the fewest completed tasks as a pure fairness baseline. EWMA-Only uses only the proposed EWMA idle-time fairness signal without utility or starvation terms, and Fixed-Composite applies a static grid-searched weight configuration of our composite framework. BiRanking (BRK) is a randomized ranking-based policy inspired by \cite{[CITATION]}, which greedily matches feasible workers and tasks according to fixed random ranks. FATP-ANN is an existing fairness-aware online assignment method \cite{CR-08}. TSGF Sampling adapts the Two-Sided Group Fairness framework \cite{[CITATION]} by randomly selecting operator-profit, worker-fairness, or task-fairness heuristics at each dispatch event. Cost-Balancing (CB) \cite{[CITATION]} and MMD-Batch (MMD-BB) \cite{CR-11} are online batching baselines that defer decisions to balance matching cost or minimize worst-case delay. Discrete Review LP \cite{[CITATION]} periodically solves a global bipartite assignment problem via the Hungarian algorithm, while ONRTA-RT and ONRTA-OP \cite{[CITATION]} represent randomized-threshold and optimal-threshold variants of the Online Non-Rejection Task Assignment policy.
 
-% We benchmark our approach against the following existing task assignment
-% approaches in the literature.
-
-% \begin{itemize}
-%     \item \textbf{Greedy:} Minimizes pickup distance only
-%     ($\lambda_1, \lambda_2 = 0$).
-
-%     \item \textbf{Least Allocated Worker First (LAF):} Pure fairness
-%     baseline that assigns tasks to workers with the fewest completed tasks.
-
-%     \item \textbf{EWMA-Only:} A fairness-only baseline that prioritises
-%     worker assignment using an exponentially weighted moving average (EWMA)
-%     of idle time, following the same fairness signal as our composite
-%     framework but without utility or starvation components.
-
-%     \item \textbf{BiRanking (BRK):} A randomised baseline inspired
-%     by \cite{[CITATION]} that assigns permanent random ranks to workers and
-%     tasks at arrival time, then greedily matches the lowest-ranked feasible
-%     pair at each event.
-
-%     \item \textbf{FATP-ANN:} A fairness-aware baseline from existing
-%     work \cite{CR-08}.
-
-%     \item \textbf{Fixed-Composite:} A static weight configuration of the
-%     proposed composite assignment framework, tuned via grid search on the
-%     training set.
-
-%     \item \textbf{TSGF Sampling:} A randomised policy-sampling baseline
-%     adapted from the Two-Sided Group Fairness framework \cite{[CITATION]},
-%     which samples one of three sub-heuristics — operator profit, worker
-%     fairness, or task fairness — at each dispatch event with probabilities
-%     $\alpha$, $\beta$, $\gamma$ respectively.
-
-%     \item \textbf{Cost-Balancing (CB):} An online batching
-%     baseline \cite{[CITATION]} that defers assignment until the estimated
-%     matching cost is bounded by a factor $\alpha$ of the accumulated
-%     waiting cost, then runs a greedy batch match.
-
-%     \item \textbf{Discrete Review LP:} A fixed-interval batch-matching
-%     baseline from \cite{[CITATION]} that defers all arrivals and solves a
-%     global bipartite assignment problem via the Hungarian algorithm at
-%     periodic review epochs, maximising spatial utility subject to task
-%     expiry and worker deadline constraints.
-
-%     \item \textbf{ONRTA-RT:} The randomised-threshold variant of the
-%     Online Non-Rejection Task Assignment policy \cite{[CITATION]}, which
-%     draws a random utility threshold $\theta$ at the start of each episode
-%     and accepts only worker–task pairs whose utility exceeds $\theta$.
-
-%     \item \textbf{ONRTA-OP:} The optimal-threshold variant
-%     of \cite{[CITATION]}, a two-stage policy that applies a greedy
-%     heuristic in the first half of the horizon and switches to a globally
-%     optimal bipartite matching in the second half, using expected arrival
-%     counts to set the stage transition point.
-
-%     \item \textbf{MMD-Batch (MMD-BB):} A batch-based heuristic
-%     baseline from \cite{CR-11} that periodically buffers tasks and
-%     available workers to minimise the bottleneck (maximum) delay, defined
-%     as the summation of task buffering time and worker travel time. This
-%     approach utilises a periodic bipartite matching process to optimise
-%     worst-case individual performance rather than global average utility.
-% \end{itemize}
 
 \textbf{Evaluation Metrics.}
 To evaluate how well the proposed composite assignment framework navigates the tripartite trade-off among efficiency, fairness, and starvation prevention, we report metrics covering platform performance, worker equity, service reliability, and computational cost. Platform efficiency is measured by the \textit{Task Assignment Ratio} (TAR), defined as the fraction of successfully matched requests over all task arrivals ($|M|/|\mathcal{T}|$), together with \textit{Total Platform Revenue} ($k$), which reflects the economic viability of the assignment strategy. Supply-side equity is evaluated using Jain's Fairness Index (JFI) \cite{JFI-Original}, computed over the vector of cumulative task counts $\mathbf{x}$ across active workers:
 $JFI(\mathbf{x}) = \left.{(\sum_{i=1}^{n} x_i)^2} \middle/n {\sum_{i=1}^{n} x_i^2} \right.$,
 where $n$ is the number of workers and a value closer to 1.0 indicates a more equitable task distribution. Demand-side reliability is captured by \textit{Mean Wait Time}, which measures the average interval from task release $r_j$ to worker pickup, and \textit{Average Pickup Distance}, which measures the mean empty travel distance required for workers to reach pickup locations. Together, these metrics indicate whether a strategy achieves responsiveness through efficient spatial matching or at the cost of longer detours. Finally, we report \textit{Peak Backlog}, defined as the maximum number of simultaneously unassigned tasks during a simulation day, to assess resilience to demand spikes, and \textit{Wall-clock Runtime} to evaluate whether the method remains computationally practical for city-scale deployment.
-
-% To evaluate the effectiveness of the proposed composite assignment framework
-% in navigating the tripartite trade-off between efficiency, fairness, and
-% starvation prevention, we report the following metrics across all strategies.
-
-% \textbf{1) Platform Economics \& Efficiency:}
-% We use the \textit{Task Assignment Ratio} (TAR) as the primary indicator of
-% system throughput, defined as the fraction of successfully matched requests
-% relative to total task arrivals ($|M| / |\mathcal{T}|$). We additionally
-% report \textit{Total Platform Revenue} (k\$) to capture economic viability,
-% as higher-revenue trips contribute disproportionately to overall platform
-% sustainability.
-
-% \textbf{2) Supply-Side Equity:}
-% We measure distributive fairness using \textbf{Jain's Fairness Index (JFI)}
-% \cite{JFI-Original} computed over the vector of cumulative task counts
-% $\mathbf{x}$ across all active workers:
-% \begin{equation}
-%     JFI(\mathbf{x}) = \frac{(\sum_{i=1}^{n} x_i)^2}{n \sum_{i=1}^{n} x_i^2}
-% \end{equation}
-% where $n$ is the number of workers. A JFI approaching 1.0 indicates that
-% tasks are distributed equitably across the workforce.
-
-% \textbf{3) Demand-Side Reliability:}
-% We quantify customer-facing service quality through two complementary
-% metrics. \textit{Mean Wait Time} (minutes) measures the average interval
-% from task release $r_j$ to worker pickup, capturing overall responsiveness
-% of the assignment policy. \textit{Average Pickup Distance} (km) measures
-% the mean empty distance a worker travels to reach the pickup origin,
-% serving as a direct proxy for the spatial cost of each dispatch decision.
-% Together, these metrics reveal whether a strategy achieves low wait times
-% through genuinely efficient spatial matching or by accepting long,
-% costly detours to serve requests quickly.
-
-% \textbf{4) Starvation \& Operational Overhead:}
-% We report \textit{Peak Backlog} — the maximum number of simultaneously
-% unassigned tasks observed during a simulation day — as a measure of
-% the system's resilience to demand spikes. A backlog of zero indicates that
-% the strategy drains the active task pool without accumulation. Finally, we
-% include \textit{Wall-clock Runtime} (seconds) to assess the practical
-% computational cost of each strategy, as tractability at city-scale is a
-% prerequisite for real-world deployment.
 
 \subsection{Effectiveness}
 \label{sec:overall_results}
@@ -278,13 +31,12 @@ where $n$ is the number of workers and a value closer to 1.0 indicates a more eq
 \scriptsize
 \renewcommand\arraystretch{1}
 \setlength\tabcolsep{2pt}
-\caption{Strategy comparison on the held-out Didi Chengdu test day
+\caption{Strategy comparison on the DiDi Chengdu held-out test day
   (9 Nov 2016; 36,799 workers, 224,219 tasks).
   $^\dagger$ proposed method. Bold = column-best among strategies with TAR $\geq$~0.85.
-  $^\ddagger$ Degenerate at city scale (TAR $=$ 0.599, peak backlog $=$ 39{,}298)
-  due to threshold-parameter distribution shift; values in parentheses and
-  excluded from bolding.
-  Source: \texttt{scripts/run\_strategy\_comparison.py} (MacBook Pro, 9 Nov 2016).}
+  $^\ddagger$ FATP-ANN exhibits degenerate throughput at city scale (TAR $=$ 0.599,
+  peak backlog $=$ 39{,}298), attributable to threshold-parameter sensitivity to
+  distribution shift; values shown in parentheses and excluded from comparison.}
 \label{tab:didi_results}
 \begin{tabular}{@{}l cccc c c@{}}
 \toprule
@@ -322,14 +74,12 @@ Disc.\ Review LP
 \renewcommand\arraystretch{1}
 \setlength\tabcolsep{2pt}
 \caption{Strategy comparison on the Gowalla Austin dataset
-  (Sep 2010, temporally compressed; 8,758 workers, 43,788 tasks, 1:5 ratio).
+  (Sep 2010, temporally compressed; 8,758 workers, 43,788 tasks, worker-to-task ratio~1:5).
   $^\dagger$ proposed method. Bold = column-best among strategies with TAR $\geq$~0.99.
-  FATP-ANN achieves high JFI at a severe throughput cost (TAR $=$ 0.700 vs
-  $>$~0.99 elsewhere); its JFI is shown in parentheses and excluded from bolding.
-  Rev.\ = synthetic distance-proportional proxy (distance-based fare).
-  All values from cluster run (EC2, \texttt{results/s52\_main\_results/gowalla\_austin\_compressed\_cluster.csv}).}
+  FATP-ANN achieves high JFI at a severe throughput cost (TAR $=$ 0.700 vs $\geq$~0.987 elsewhere);
+  values shown in parentheses and excluded from bolding.
+  Revenue is a synthetic distance-proportional proxy, as Gowalla contains no recorded fares.}
 \label{tab:gowalla_results}
-% \centering\small\setlength{\tabcolsep}{5pt}
 \begin{tabular}{@{}l cccc c c@{}}
 \toprule
 \textbf{Strategy}
@@ -341,81 +91,68 @@ Disc.\ Review LP
   & \textbf{Time (s)} $\downarrow$ \\
 \midrule
 Greedy (baseline)
-  & \textbf{0.999} & 2.87 & 0.566 & 0.600 & \textbf{297.7} & 126.5 \\
+  & 0.998 & 5.12 & 0.591 & 0.621 & 297.5 & \textbf{4.4} \\
 k-NLF ($k{=}15$)$^\dagger$
-  & 0.998 & 5.24 & 0.672 & 0.693 & 297.5 & \textbf{4.6} \\
+  & 0.998 & 5.16 & 0.672 & 0.693 & 297.5 & 27.3 \\
 Composite (static)$^\dagger$
-  & 0.998 & 5.14 & 0.609 & 0.650 & 297.6 & 27.3 \\
+  & 0.998 & 5.11 & 0.612 & 0.654 & \textbf{297.6} & 28.1 \\
 \midrule
 LAF
-  & 0.998 & 11.84 & \textbf{0.894} & \textbf{0.875} & 297.5 & 98.9 \\
+  & 0.998 & 11.82 & \textbf{0.894} & \textbf{0.877} & \textbf{297.6} & 91.0 \\
 BiRanking (BRK)
-  & 0.988 & 15.87 & 0.360 & 0.579 & 294.5 & 134.5 \\
+  & 0.988 & 15.87 & 0.360 & 0.579 & 294.5 & 115.7 \\
 FATP-ANN
-  & 0.700 & 9.40 & (0.949) & (0.921) & 226.9 & 218.8 \\
+  & 0.700 & 9.33 & (0.950) & (0.921) & 227.1 & 209.8 \\
 ONRTA-RT
-  & 0.988 & 15.91 & 0.671 & 0.707 & 294.5 & 128.8 \\
+  & 0.987 & 15.97 & 0.671 & 0.708 & 294.3 & 108.6 \\
 Disc.\ Review LP
-  & \textbf{0.999} & \textbf{2.72} & 0.576 & 0.602 & 297.6 & 169.5 \\
+  & \textbf{0.999} & \textbf{2.72} & 0.575 & 0.601 & \textbf{297.6} & 142.9 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 
 
-\textbf{Throughput.}
-Across all strategies, the Task Assignment Ratio is near-constant at TAR $\approx$ 0.863 on DiDi and $\approx$ 0.999 on Gowalla (Tables~\ref{tab:didi_results}--\ref{tab:gowalla_results}).
-The near-invariance reflects that the matching bottleneck is task expiry and worker availability, not the assignment rule — almost every task that can feasibly be matched is matched.
-This removes TAR as a differentiating metric and shifts the analysis to the three-way trade-off between fairness, latency, and compute.
-The one exception is FATP-ANN (TAR $=$ 0.599 on DiDi), which loses 26\% of tasks due to threshold over-rejection at city scale; its results are shown in parentheses and excluded from the column-best comparison.
-
-\textbf{Worker fairness.}
-k-NLF achieves JFI $=$ 0.649 on DiDi, a 9.3\% improvement over Greedy (0.594), with JFI (earnings) rising from 0.613 to 0.669 ($+$9.1\%).
-On Gowalla the absolute gains are larger — JFI 0.566 $\to$ 0.672 ($+$18.7\%) — confirming that the local task-count signal provides consistent fairness improvements across both dataset types.
-LTF achieves the highest raw fairness (JFI $=$ 0.705 DiDi, 0.894 Gowalla), but does so by globally sorting workers on task count, incurring an average wait of 9.63\,min on DiDi — 3.7$\times$ worse than Greedy (2.62\,min) and 2.8$\times$ worse than k-NLF (3.45\,min).
-This confirms that unconstrained global fairness is achievable but operationally unacceptable at city scale.
-BiRanking falls \emph{below} the Greedy baseline on both datasets (DiDi: JFI $=$ 0.592 $<$ 0.594; Gowalla: 0.360 $\ll$ 0.566), demonstrating that randomised ranking simultaneously degrades both fairness and throughput.
-
-Composite achieves JFI (tasks) $=$ 0.589 on DiDi, marginally below Greedy, because its EWMA idle-time signal optimises temporal participation equity rather than snapshot task counts.
-Its JFI rate (0.870) nonetheless exceeds Greedy (0.864), and its average wait (3.20\,min) is lower than k-NLF (3.45\,min), indicating that the two proposed methods are complementary: k-NLF leads on task-count equity, Composite on temporal participation equity and task latency.
-The ablation in \S\ref{sec:ablation} characterises this trade-off further.
-
-\textbf{Task latency.}
-Discrete Review LP achieves the lowest average wait on both datasets (1.64\,min DiDi, 2.72\,min Gowalla), consistent with its batch-deferral design: by holding arrivals until a globally optimal bipartite assignment is solved, it reduces unnecessary detours.
-This benefit comes, however, at a 133$\times$ runtime cost over k-NLF (5{,}060\,s vs.\ 38\,s on DiDi), rendering it impractical for real-time deployment.
-Among online strategies, Greedy achieves low wait (2.62\,min) by always dispatching the nearest worker, but sacrifices worker fairness to do so.
-
-\textbf{Platform revenue.}
-Revenue is effectively flat across all valid strategies, ranging from 2{,}749.8–2{,}765.8\,k\$ on DiDi — a spread of just 0.06\%.
-The same pattern holds on Gowalla (294.5–297.7\,k\$, 1.1\% spread).
-This confirms that the fairness improvements delivered by k-NLF and Composite come at zero cost to platform revenue.
-The only outlier is FATP-ANN (2{,}206.9\,k\$, $-$20\%), entirely attributable to its task dropout.
-
-\textbf{Computational cost.}
-k-NLF completes the full DiDi day in 38\,s — 9.4$\times$ faster than Greedy (357\,s) — because its $k{=}15$ candidate pool caps the per-event feasibility scan, whereas Greedy must traverse the k-d tree until it finds the nearest \emph{feasible} worker, a search whose depth grows with the infeasible-worker fraction.
-This inversion — a fairness-aware method outperforming a throughput-only baseline in wall-clock runtime — is a key practical property of the proposed approach.
-ONRTA-RT (416\,s) and BiRanking (434\,s) are both slower than Greedy despite achieving lower fairness, further demonstrating that algorithmic complexity and fairness quality are not in a simple trade-off.
-
-\textbf{Cross-dataset consistency.}
-Strategy rankings on Gowalla mirror DiDi: k-NLF leads among online $O(k)$ methods on JFI, LTF achieves maximum JFI at prohibitive wait cost, BiRanking falls below the Greedy baseline, and FATP-ANN remains degenerate.
-This stability across two structurally different platforms — high-density ride-hailing versus sparse LBSN check-ins, with all hyperparameters held fixed at their DiDi-tuned values — supports the generalisability of the proposed approach.
-
 \subsection{Efficiency \& Scalability}
+\label{sec:scalability}
 
-\subsection{Ablation & Sensitivity Analysis}
-\subsubsection{Impact of k}
-\subsubsection{Task-Count vs EWMA}
+% TODO: insert scalability plots and prose once scalability\_tasks\_v2.csv arrives from cluster.
+
+\subsection{Ablation \& Sensitivity Analysis}
+\label{sec:ablation}
+
+\subsubsection{Impact of Candidate Pool Size ($k$).}
+Figure~\ref{fig:k_sweep} shows how varying the candidate pool size $k$ affects JFI, average wait time, and wall-clock runtime for both k-NLF and Composite.
+
+\begin{figure}[t]
+  \includegraphics[width=\textwidth]{figures/5.4/k_sweep.pdf}
+  \caption{Impact of candidate pool size $k$ on (a) task-count fairness (JFI), (b) average task wait time, and (c) wall-clock runtime for k-NLF and Composite (DiDi, 9 Nov 2016). The dashed grey line indicates the Greedy baseline; the vertical guide marks the paper default $k{=}15$. Fairness returns diminish beyond $k{\approx}25$ while runtime remains stable, validating $k{=}15$ as a practical operating point.}
+  \label{fig:k_sweep}
+\end{figure}
+
+The parameter $k$ determines the search radius for fairness interventions, governing the trade-off between local proximity and distributive equity. We sweep $k \in \{3, \dots, 100\}$ across both proposed strategies, using the Greedy strategy as a baseline anchor.
+
+\paragraph{Fairness Returns and the Local Advantage.} 
+As illustrated in Fig.~\ref{fig:k_sweep}(a), worker fairness (JFI) generally increases with $k$ for both strategies. The task-count equity of k-NLF exhibits high sensitivity to pool size, rising from 0.593 ($k=3$) to 0.731 ($k=100$). Crucially, k-NLF surpasses the fairness of the global LAF baseline reported in Table~\ref{tab:didi_results} (JFI = 0.705) once $k \geq 50$. This suggests that in high-density urban environments, localized selection from a sufficient pool can more effectively mitigate task-monopolization hotspots than global optimization. In contrast, the Composite strategy exhibits more conservative fairness growth, remaining substantially below k-NLF across all pool sizes, which reflects its focus on temporal participation equity rather than snapshot task counts.
+
+\paragraph{The U-Shaped Efficiency Response.} 
+Fig.~\ref{fig:k_sweep}(b) reveals a distinct \textit{U-shaped response} in average task wait times for both strategies. At low search radii ($k=3$), wait times are significantly higher ($\sim$4.6\,min) than the Greedy baseline. This occurs because a pool of three candidates is often too restrictive to find a geographically close worker who also satisfies the fairness criteria. As $k$ increases, wait times drop to a global minimum at $k=25$ (3.32\,min for k-NLF; 3.16\,min for Composite). This identifies a ``Pareto Sweet Spot'' around $k \approx 25$ where the pool is large enough to contain workers who are both relatively nearby and underserved. While $k=25$ minimizes latency, $k=15$ was selected as the paper default because the wait-time penalty relative to the minimum is marginal ($+0.11$\,min) while still providing robust fairness gains and a smaller computational footprint for high-frequency deployment.
+
+\paragraph{Scalability and Overhead.} 
+A primary claim of this work is that $O(k)$ dispatching enables city-scale fairness at a tractable cost. Fig.~\ref{fig:k_sweep}(c) demonstrates that after an initial drop in runtime as $k$ moves from 3 to 15---likely attributable to the increased ease of finding feasible candidates in a larger pool---the wall-clock runtimes remain remarkably stable for $k \geq 25$. While k-NLF and Composite incur higher overhead than the proximity-only Greedy baseline, their runtimes are significantly lower than the global LP and LAF models reported in Table~\ref{tab:didi_results}. This stability confirms that the search radius can be expanded to maximize fairness without triggering the superlinear scaling bottlenecks characteristic of globally-coupled dispatchers.
+
+\subsubsection{Fairness Signal Comparison.}
+\label{sec:signal_comparison}
 
 \begin{table}[t]
 \scriptsize
 \renewcommand\arraystretch{1}
 \setlength\tabcolsep{2pt}
-\caption{Fairness signal comparison at $k{=}15$ (Didi, 9 Nov 2016).
-  $^\dagger$ proposed method. Bold = column-best.
-  CV = coefficient of variation (lower $\downarrow$ = more uniform distribution).
-  k-NTF-EPH targets earnings equity; k-NTF-IR targets idle-time equity.
-  Notably, k-NLF dominates every column including those each alternative directly optimises.
-  Source: \texttt{signal\_comparison\_20161109\_v2.csv} (MacBook Pro).}
+\caption{Comparison of $k$-NN fairness signals at $k{=}15$ (DiDi, 9 Nov 2016).
+  $^\dagger$ proposed method. Bold = column-best among fairness-signal strategies.
+  CV = coefficient of variation of the named quantity across workers (lower $\downarrow$ = more uniform distribution).
+  k-NTF-EPH directly optimises earnings equity (CV earn.); k-NTF-IR directly optimises idle-time equity (CV idle).
+  k-NLF achieves the best value in every fairness column, including those each alternative directly optimises.}
 \label{tab:signal_comparison}
 \begin{tabular}{@{}l cccc c c@{}}
 \toprule
@@ -428,18 +165,77 @@ This stability across two structurally different platforms — high-density ride
   & \textbf{Time (s)} $\downarrow$ \\
 \midrule
 Greedy (baseline)
-  & 0.593 & 0.610 & 1.978 & 0.947 & 2.64 & 372 \\
+  & 0.562 & 0.619 & 1.418 & 0.949 & 3.40 & 31 \\
 \midrule
 k-NTF-EPH ($k{=}15$)
-  & 0.611 & 0.645 & 1.489 & 0.864 & 3.30 & 26 \\
+  & 0.613 & 0.645 & 1.560 & 0.863 & 3.25 & \textbf{35} \\
 k-NTF-IR ($k{=}15$)
-  & 0.622 & 0.650 & 1.561 & 0.854 & 3.32 & 25 \\
+  & 0.618 & 0.651 & 1.563 & 0.860 & 3.34 & \textbf{35} \\
 k-NLF ($k{=}15$)$^\dagger$
-  & \textbf{0.648} & \textbf{0.670} & \textbf{1.475} & \textbf{0.825} & 3.40 & \textbf{24} \\
+  & \textbf{0.647} & \textbf{0.669} & \textbf{1.467} & \textbf{0.824} & 3.48 & 133 \\
 \midrule
 Composite (static)$^\dagger$
-  & 0.589 & 0.624 & 1.561 & 0.918 & 3.22 & 100 \\
+  & 0.589 & 0.626 & 1.602 & 0.918 & \textbf{3.21} & 114 \\
 \bottomrule
 \end{tabular}
 \end{table}
-\subsubsection{Weighted Scorer Sensitvity}
+
+\subsubsection{Fairness Weight Sensitivity.}
+\label{sec:fw_sensitivity}
+
+Figure~\ref{fig:fw_sweep} reports the effect of the fairness weight $\lambda_f$ on worker participation equity and task tail latency for the Composite strategy, with all other hyperparameters held fixed at their paper defaults.
+
+\begin{figure}[t]
+  \includegraphics[width=\textwidth]{figures/5.4/fairness_weight_sweep.pdf}
+  \caption{Sensitivity of the Composite dispatcher to the fairness weight $\lambda_f$ (all other parameters fixed: $\lambda_s{=}0$, $\lambda_u{=}1$, $\gamma{=}0.1$, $k{=}15$; DiDi, 9 Nov 2016). Panel~(a): JFI rate (worker participation equity). Panel~(b): P95 task wait time (tail latency). Dashed grey = Greedy baseline; dash-dot purple = k-NLF reference. The vertical guide marks the paper default $\lambda_f{=}1.6$.}
+  \label{fig:fw_sweep}
+\end{figure}
+
+Figure~\ref{fig:fw_sweep} examines how varying the fairness weight
+$\lambda_f \in [0, 3]$ affects worker participation equity and task tail
+latency in the Composite dispatcher, with all other parameters fixed at
+their paper defaults ($\lambda_s{=}0$, $\lambda_u{=}1$, $\gamma{=}0.1$,
+$k{=}15$).
+
+\paragraph{The Critical Role of the EWMA Signal.}
+At $\lambda_f{=}0$, the Composite dispatcher reduces to a
+proximity-only selector restricted to $k{=}15$ candidates. This
+degenerate configuration produces a JFI rate of 0.852---\textit{below}
+the Greedy baseline (0.864)---because the spatial restriction of
+$k{=}15$ limits worker diversity without any compensating fairness
+mechanism. This result directly motivates the EWMA signal: even a small
+fairness weight of $\lambda_f{=}0.2$ is sufficient to cross the Greedy
+baseline, lifting JFI rate to 0.870 in a single step.
+
+\paragraph{Plateau Robustness.}
+As illustrated in Fig.~\ref{fig:fw_sweep}(a), for $\lambda_f \geq 0.2$
+the JFI rate stabilises in the range $[0.866, 0.871]$, remaining
+consistently above the Greedy baseline across the entire sweep. The
+peak of 0.871 occurs at $\lambda_f \approx 1.4$; the paper default of
+$\lambda_f{=}1.6$ lies within this plateau at 0.867. This near-flat
+response confirms that the Composite dispatcher is robust to precise
+hyperparameter selection---operators do not need to fine-tune
+$\lambda_f$ to achieve consistent fairness improvements.
+
+\paragraph{Dual Benefit on Task Tail Latency.}
+Fig.~\ref{fig:fw_sweep}(b) reveals that increasing $\lambda_f$ also
+reduces P95 task wait time. At $\lambda_f{=}0$, P95 is 14.1\,min,
+marginally exceeding the k-NLF reference (14.0\,min). As $\lambda_f$
+increases, P95 drops to a sustained band of $12.9$--$13.1$\,min for
+$\lambda_f \geq 0.6$, a reduction of approximately 1.0--1.2\,min at
+the paper default. This improvement arises because the EWMA signal
+increasingly redirects assignments away from repeatedly-served workers
+toward underserved workers who are also spatially distributed, reducing
+the tail of long-wait outliers. Notably, TAR remains flat across the
+entire sweep ($\Delta\text{TAR} < 0.0001$), confirming that these
+efficiency gains come at zero throughput cost.
+
+\paragraph{Design Implication.}
+The results collectively support a practical design guideline: any
+$\lambda_f \in [0.2, 3.0]$ delivers consistent fairness and latency
+improvements over both the pure-utility baseline ($\lambda_f{=}0$) and
+the Greedy dispatcher. The paper default $\lambda_f{=}1.6$ was selected
+from within this stable region; the near-identical performance across
+the plateau means that grid-search precision is not required in
+deployment, lowering the operational cost of adopting the Composite
+framework.
