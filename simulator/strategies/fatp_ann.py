@@ -31,8 +31,13 @@ Paper fidelity notes (declare in methodology):
   mu=1.5 widens the spread to ~28%, giving the strategy real discriminating power.
 """
 
+from itertools import chain
+from math import exp
+
 from simulator.strategies import register
-from math import fabs, cos, radians, exp
+# Shared O(1) flat-earth distance (precomputed longitude scalar) — avoids the
+# per-call cos()/radians() of a local Manhattan helper.
+from simulator.spatial_index import fast_manhattan_km
 
 AVG_SPEED_KMH = 30
 
@@ -98,15 +103,6 @@ class FairnessCapTracker:
 # UTILITY FUNCTIONS
 # ============================================================================
 
-def manhattan_km(lat1, lon1, lat2, lon2):
-    """Calculate Manhattan distance in kilometers between two lat/lon points."""
-    km_per_deg = 111
-    d_lat = fabs(lat1 - lat2) * km_per_deg
-    avg_lat = (lat1 + lat2) / 2
-    d_lon = fabs(lon1 - lon2) * km_per_deg * cos(radians(avg_lat))
-    return d_lat + d_lon
-
-
 def _calculate_utility(task, worker_lat, worker_lon, worker_time, mu, alpha_scale):
     """
     Calculate utility for assigning a task from a worker's current position/time.
@@ -124,9 +120,9 @@ def _calculate_utility(task, worker_lat, worker_lon, worker_time, mu, alpha_scal
         float: Calculated utility value
     """
     # Calculate completion time
-    pickup_dist = manhattan_km(worker_lat, worker_lon, task.pickup_lat, task.pickup_lon)
-    service_dist = manhattan_km(task.pickup_lat, task.pickup_lon, 
-                                task.dropoff_lat, task.dropoff_lon)
+    pickup_dist = fast_manhattan_km(worker_lat, worker_lon, task.pickup_lat, task.pickup_lon)
+    service_dist = fast_manhattan_km(task.pickup_lat, task.pickup_lon,
+                                     task.dropoff_lat, task.dropoff_lon)
     
     total_hours = (pickup_dist + service_dist) / AVG_SPEED_KMH
     completion_time = worker_time + (total_hours * 3600)
@@ -157,13 +153,15 @@ def _is_valid_assignment(worker, task, now):
         now: Current simulation time
     
     Returns:
-        bool: True if assignment is valid
+        Tuple[bool, float]: (validity, pickup_dist). The pickup distance is
+        returned so callers can reuse it for nearest-worker selection instead
+        of recomputing it.
     """
     now = _ensure_timestamp(now)
-    pickup_dist = manhattan_km(worker.start_lat, worker.start_lon, 
-                               task.pickup_lat, task.pickup_lon)
-    service_dist = manhattan_km(task.pickup_lat, task.pickup_lon,
-                               task.dropoff_lat, task.dropoff_lon)
+    pickup_dist = fast_manhattan_km(worker.start_lat, worker.start_lon,
+                                    task.pickup_lat, task.pickup_lon)
+    service_dist = fast_manhattan_km(task.pickup_lat, task.pickup_lon,
+                                     task.dropoff_lat, task.dropoff_lon)
     
     # Calculate ETAs
     pickup_eta = now + ((pickup_dist / AVG_SPEED_KMH) * 3600)
@@ -171,11 +169,11 @@ def _is_valid_assignment(worker, task, now):
     
     # Check constraints
     if pickup_eta > task.expire_time:
-        return False
+        return False, pickup_dist
     if finish_eta > worker.deadline:
-        return False
+        return False, pickup_dist
     
-    return True
+    return True, pickup_dist
 
 
 def _is_valid_from_shadow(task, shadow_location, shadow_time, worker):
@@ -194,10 +192,10 @@ def _is_valid_from_shadow(task, shadow_location, shadow_time, worker):
     """
     shadow_lat, shadow_lon = shadow_location
     
-    pickup_dist = manhattan_km(shadow_lat, shadow_lon, 
-                               task.pickup_lat, task.pickup_lon)
-    service_dist = manhattan_km(task.pickup_lat, task.pickup_lon,
-                               task.dropoff_lat, task.dropoff_lon)
+    pickup_dist = fast_manhattan_km(shadow_lat, shadow_lon,
+                                    task.pickup_lat, task.pickup_lon)
+    service_dist = fast_manhattan_km(task.pickup_lat, task.pickup_lon,
+                                     task.dropoff_lat, task.dropoff_lon)
     
     # Calculate ETAs from shadow state
     pickup_eta = shadow_time + ((pickup_dist / AVG_SPEED_KMH) * 3600)
@@ -212,7 +210,7 @@ def _is_valid_from_shadow(task, shadow_location, shadow_time, worker):
     return True
 
 
-def _commit_assignment(task, worker, now):
+def _commit_assignment(task, worker, now, pickup_distance=None):
     """
     Commit a task assignment to a worker.
     Calculates timing, updates task and worker state.
@@ -221,14 +219,17 @@ def _commit_assignment(task, worker, now):
         task: Task object to assign
         worker: Worker object to assign to
         now: Current simulation timestamp (float in seconds)
+        pickup_distance: Optional precomputed worker->pickup distance. When
+            provided (TP path), avoids recomputing the same value a third time.
     
     Returns:
         The assigned task object
     """
-    pickup_distance = manhattan_km(worker.start_lat, worker.start_lon, 
-                                   task.pickup_lat, task.pickup_lon)
-    drop_distance = manhattan_km(task.pickup_lat, task.pickup_lon, 
-                                 task.dropoff_lat, task.dropoff_lon)
+    if pickup_distance is None:
+        pickup_distance = fast_manhattan_km(worker.start_lat, worker.start_lon,
+                                            task.pickup_lat, task.pickup_lon)
+    drop_distance = fast_manhattan_km(task.pickup_lat, task.pickup_lon,
+                                      task.dropoff_lat, task.dropoff_lon)
     
     task.pickup_km = pickup_distance
     task.drop_km = drop_distance
@@ -291,8 +292,8 @@ def assign_new_tasks_fatp_ann(state, now, tasks_to_assign,
             # Optimization: Only consider k nearest workers
             worker_distances = []
             for worker in state.available_workers:
-                dist = manhattan_km(worker.start_lat, worker.start_lon, 
-                                   task.pickup_lat, task.pickup_lon)
+                dist = fast_manhattan_km(worker.start_lat, worker.start_lon,
+                                         task.pickup_lat, task.pickup_lon)
                 worker_distances.append((worker, dist))
             worker_distances.sort(key=lambda x: x[1])
             candidate_pool = [w for w, _ in worker_distances[:k]]
@@ -307,13 +308,12 @@ def assign_new_tasks_fatp_ann(state, now, tasks_to_assign,
             if worker.completed_tasks > cap:
                 continue
             
-            # Check validity (feasibility)
-            if not _is_valid_assignment(worker, task, now):
+            # Feasibility check returns the pickup distance, reused below for
+            # nearest selection (no recompute).
+            valid, dist = _is_valid_assignment(worker, task, now)
+            if not valid:
                 continue
             
-            # Calculate distance for nearest selection
-            dist = manhattan_km(worker.start_lat, worker.start_lon,
-                               task.pickup_lat, task.pickup_lon)
             eligible_candidates.append((worker, dist))
         
         # Step 3: Assign to nearest eligible worker
@@ -324,7 +324,7 @@ def assign_new_tasks_fatp_ann(state, now, tasks_to_assign,
             
             # Commit assignment; paper Count_w increments on assignment (Alg. 4)
             old_count = best_worker.completed_tasks
-            assigned_task = _commit_assignment(task, best_worker, now)
+            assigned_task = _commit_assignment(task, best_worker, now, best_dist)
             state.assign_task(assigned_task, best_worker)
 
             fairness_cap_tracker.update_worker_count(old_count, old_count + 1)
@@ -377,10 +377,13 @@ def match_worker_fatp_ann(state, now, worker,
     # Paper Alg. 1: bundle tasks while Count_w <= c_hat; GMM idle relocation omitted
     # (see module docstring — idle workers stay at last drop-off / release location).
     while worker.completed_tasks + len(tasks_assigned_in_loop) <= cap:
-        # Rebuild pending each iteration — tasks may have been assigned in prior loops
-        pending = list(state.deferred_tasks) + list(state.active_tasks)
+        # Iterate the live pending pools directly. state.assign_task() removes a
+        # task from these sets the moment it is assigned, so a fresh pass over the
+        # live sets already excludes tasks claimed in earlier loop iterations —
+        # no per-iteration list rebuild needed. Candidates are collected before
+        # any mutation, so iterating the sets here is safe.
         valid_tasks = []
-        for task in pending:
+        for task in chain(state.deferred_tasks, state.active_tasks):
             if _is_valid_from_shadow(task, shadow_location, shadow_time, worker):
                 utility = _calculate_utility(task, shadow_location[0], shadow_location[1],
                                             shadow_time, mu, alpha_scale)
@@ -398,10 +401,10 @@ def match_worker_fatp_ann(state, now, worker,
 
         fairness_cap_tracker.update_worker_count(old_count, old_count + 1)
 
-        pickup_dist = manhattan_km(shadow_location[0], shadow_location[1],
-                                   best_task.pickup_lat, best_task.pickup_lon)
-        service_dist = manhattan_km(best_task.pickup_lat, best_task.pickup_lon,
-                                    best_task.dropoff_lat, best_task.dropoff_lon)
+        pickup_dist = fast_manhattan_km(shadow_location[0], shadow_location[1],
+                                        best_task.pickup_lat, best_task.pickup_lon)
+        service_dist = fast_manhattan_km(best_task.pickup_lat, best_task.pickup_lon,
+                                         best_task.dropoff_lat, best_task.dropoff_lon)
 
         shadow_time = shadow_time + (((pickup_dist + service_dist) / AVG_SPEED_KMH) * 3600)
         shadow_location = (best_task.dropoff_lat, best_task.dropoff_lon)

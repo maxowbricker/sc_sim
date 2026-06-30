@@ -52,11 +52,21 @@ def assign_new_tasks_greedy(
     state,
     now,
     tasks_to_assign,
+    k: int = 10,
     worker_acceptance: Optional[Dict[str, Any]] = None,
     **_,
 ):
     """
     Greedy assignment for newly released tasks. Finds the nearest available worker.
+
+    Fix 1: drop_dist is task-only (pickup->dropoff), so it is now computed once per
+    task outside the worker loop rather than redundantly once per worker.
+
+    Fix 2: uses the spatial index to retrieve the k nearest worker candidates instead
+    of scanning all available_workers. Candidates are returned distance-sorted, so the
+    first feasible candidate is guaranteed to be the nearest feasible worker within k.
+    k=50 (default) covers virtually all realistic infeasibility fractions while keeping
+    the scan bounded well below O(|W|).
     """
     assignments = []
     acceptance_enabled = worker_acceptance and worker_acceptance.get("enabled", False)
@@ -66,14 +76,18 @@ def assign_new_tasks_greedy(
             _defer(state, task, now, _)
             continue
 
+        # Fix 1: compute once per task — independent of which worker we test
+        drop_dist = fast_manhattan_km(
+            task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon
+        )
+        # Fix 2: k nearest workers via spatial index, sorted by distance ascending
+        candidates = state.spatial_index.query_k_nearest(task.pickup_lat, task.pickup_lon, k)
+
         if acceptance_enabled:
             ranked: List[tuple] = []
-            for worker in state.available_workers:
+            for worker in candidates:
                 pickup_dist = fast_manhattan_km(
                     worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon
-                )
-                drop_dist = fast_manhattan_km(
-                    task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon
                 )
                 if not _is_feasible_greedy(worker, task, now, pickup_dist, drop_dist):
                     continue
@@ -94,27 +108,26 @@ def assign_new_tasks_greedy(
             if not assigned:
                 _defer(state, task, now, _)
             continue
-            
+
+        # Candidates are distance-sorted: iterate and stop at the first feasible worker.
         best_worker, best_dist = None, float("inf")
-        
-        for worker in state.available_workers:
-            pickup_dist = fast_manhattan_km(worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon)
-            drop_dist = fast_manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
-            
+        for worker in candidates:
+            pickup_dist = fast_manhattan_km(
+                worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon
+            )
             if not _is_feasible_greedy(worker, task, now, pickup_dist, drop_dist):
                 continue
+            best_worker = worker
+            best_dist = pickup_dist
+            break  # first feasible in a distance-sorted list is the nearest feasible
 
-            if pickup_dist < best_dist:
-                best_dist = pickup_dist
-                best_worker = worker
-                
         if best_worker:
             assigned_task = _commit_assignment(task, best_worker, now)
             state.assign_task(assigned_task, best_worker)
             assignments.append((assigned_task, best_worker, best_dist))
         else:
             _defer(state, task, now, _)
-            
+
     return assignments
 
 

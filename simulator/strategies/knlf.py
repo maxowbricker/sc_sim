@@ -118,24 +118,29 @@ def assign_new_tasks_knlf(state, now, tasks_to_assign, k=15, **_):
     return assignments
 
 
-def match_worker_knlf(state, now, worker, **_):
+def match_worker_knlf(state, now, worker, k=15, **_):
     """
-    FREE_WORKER handler: greedy nearest-task selection (same as Greedy baseline).
+    FREE_WORKER handler: greedy nearest-task selection via the deferred task
+    spatial index — consistent with the Composite FREE_WORKER pattern.
 
-    The fairness signal applies at task-assignment time (when a task chooses among
-    k workers).  On worker release we simply find the closest pending task —
-    this keeps pickup distances low and is symmetric with Greedy's FREE_WORKER.
+    The fairness signal (task-count minimisation) only applies at NEW_TASK events
+    where the dispatcher chooses among k workers.  On worker release we simply
+    find the closest pending deferred task, keeping pickup distances low.
 
-    Scans both deferred_tasks and active_tasks so no pending task is missed.
+    Using the spatial index bounds the scan to k candidates in O(k log n) rather
+    than a full O(|T_deferred|) linear scan.  Candidates are returned
+    distance-sorted, so the first feasible result is the nearest feasible task.
     """
-    pending = list(state.deferred_tasks) + list(state.active_tasks)
-    if not pending:
+    if not state.deferred_tasks:
         return None
 
-    best_task = None
-    best_dist = float("inf")
+    nearby_tasks = state.deferred_task_index.query_k_nearest(
+        worker.start_lat, worker.start_lon, k=k
+    )
+    if not nearby_tasks:
+        return None
 
-    for task in pending:
+    for task in nearby_tasks:
         pickup_km = fast_manhattan_km(
             worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon
         )
@@ -144,14 +149,9 @@ def match_worker_knlf(state, now, worker, **_):
         )
         if not _is_feasible(worker, task, now, pickup_km, drop_km):
             continue
-        if pickup_km < best_dist:
-            best_dist = pickup_km
-            best_task = task
-
-    if best_task:
-        assigned_task = _commit_assignment(best_task, worker, now)
+        assigned_task = _commit_assignment(task, worker, now)
         state.assign_task(assigned_task, worker)
-        return (assigned_task, worker, best_dist)
+        return (assigned_task, worker, pickup_km)
 
     return None
 

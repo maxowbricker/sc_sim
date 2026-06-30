@@ -43,25 +43,24 @@ from simulator.strategies import register
 AVG_SPEED_KMH = 30.0
 
 
-def _is_feasible(worker, task, now: float) -> Tuple[bool, float]:
+def _is_feasible(worker, task, now: float, drop_distance=None) -> Tuple[bool, float, float]:
     d_pick = fast_manhattan_km(
         worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon
     )
-    drop_distance = fast_manhattan_km(
-        task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon
-    )
+    # drop_distance depends only on the task; accept a precomputed value so the
+    # caller can hoist it out of the per-worker loop and reuse it on commit.
+    if drop_distance is None:
+        drop_distance = fast_manhattan_km(
+            task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon
+        )
 
     pickup_eta = now + (d_pick / AVG_SPEED_KMH) * 3600.0
     finish_eta = now + ((d_pick + drop_distance) / AVG_SPEED_KMH) * 3600.0
     feasible = pickup_eta <= task.expire_time and finish_eta <= worker.deadline
-    return feasible, d_pick
+    return feasible, d_pick, drop_distance
 
 
-def _commit_assignment(task, worker, now, d_pick: float):
-    drop_distance = fast_manhattan_km(
-        task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon
-    )
-
+def _commit_assignment(task, worker, now, d_pick: float, drop_distance: float):
     task.pickup_km = d_pick
     task.drop_km = drop_distance
 
@@ -106,15 +105,25 @@ def _process_entity(
     _get_or_create_rank(entity, rank_tracker, seed)
     targets = state.available_workers if is_task else state.deferred_tasks
 
+    # When the arriving entity is the task, drop distance is constant across all
+    # worker candidates — compute it once and reuse it for every feasibility test
+    # and the final commit.
+    entity_drop = None
+    if is_task:
+        entity_drop = fast_manhattan_km(
+            entity.pickup_lat, entity.pickup_lon, entity.dropoff_lat, entity.dropoff_lon
+        )
+
     best_target = None
     lowest_target_rank = float("inf")
     final_d_pick = None
+    final_d_drop = None
 
     for target in targets:
         worker = target if is_task else entity
         task = entity if is_task else target
 
-        feasible, d_pick = _is_feasible(worker, task, now)
+        feasible, d_pick, d_drop = _is_feasible(worker, task, now, entity_drop)
         if not feasible:
             continue
 
@@ -123,12 +132,13 @@ def _process_entity(
             lowest_target_rank = target_rank
             best_target = target
             final_d_pick = d_pick
+            final_d_drop = d_drop
 
     assignments: List[Tuple[Any, Any, float]] = []
     if best_target is not None and final_d_pick is not None:
         worker = best_target if is_task else entity
         task = entity if is_task else best_target
-        assigned_task = _commit_assignment(task, worker, now, final_d_pick)
+        assigned_task = _commit_assignment(task, worker, now, final_d_pick, final_d_drop)
         state.assign_task(assigned_task, worker)
         assignments.append((assigned_task, worker, 1.0 / (1.0 + final_d_pick)))
     elif is_task:

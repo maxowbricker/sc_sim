@@ -153,6 +153,7 @@ STRATEGY_PARAMS = {
 
     # === GREEDY BASELINE ===
     "greedy": {
+        "k": 10,                                # k nearest workers queried via spatial index
         "worker_acceptance": dict(WORKER_ACCEPTANCE),
     },
     

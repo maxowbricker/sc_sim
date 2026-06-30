@@ -42,13 +42,16 @@ AVG_SPEED_KMH = 30.0
 _INFEASIBLE_UTILITY = -1e18
 
 
-def _commit_assignment(task, worker, now):
+def _commit_assignment(task, worker, now, drop_distance=None):
     pickup_distance = fast_manhattan_km(
         worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon
     )
-    drop_distance = fast_manhattan_km(
-        task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon
-    )
+    # drop_distance is task-only; reuse the value computed during matrix build
+    # when available instead of recomputing it.
+    if drop_distance is None:
+        drop_distance = fast_manhattan_km(
+            task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon
+        )
 
     task.pickup_km = pickup_distance
     task.drop_km = drop_distance
@@ -64,13 +67,14 @@ def _commit_assignment(task, worker, now):
     return task
 
 
-def _pair_utility(worker, task, now: float) -> float | None:
-    """Return v_jk matching value, or None if the impatient constraints bind."""
+def _pair_utility(worker, task, now: float, d_drop: float) -> float | None:
+    """Return v_jk matching value, or None if the impatient constraints bind.
+
+    d_drop (task-only pickup->dropoff distance) is passed in by the caller, which
+    hoists it out of the O(|T|x|W|) inner loop to avoid recomputing it per worker.
+    """
     d_pick = fast_manhattan_km(
         worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon
-    )
-    d_drop = fast_manhattan_km(
-        task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon
     )
 
     pickup_eta = now + (d_pick / AVG_SPEED_KMH) * 3600.0
@@ -92,9 +96,17 @@ def execute_discrete_review(state, now: float, **_) -> List[Tuple[Any, Any, floa
 
     utility = np.full((len(tasks), len(workers)), _INFEASIBLE_UTILITY, dtype=np.float64)
 
+    # Drop distance depends only on the task — compute once per task instead of
+    # once per (task, worker) pair in the inner loop.
+    task_drops = [
+        fast_manhattan_km(t.pickup_lat, t.pickup_lon, t.dropoff_lat, t.dropoff_lon)
+        for t in tasks
+    ]
+
     for i, task in enumerate(tasks):
+        d_drop = task_drops[i]
         for j, worker in enumerate(workers):
-            value = _pair_utility(worker, task, now)
+            value = _pair_utility(worker, task, now, d_drop)
             if value is not None:
                 utility[i, j] = value
 
@@ -119,7 +131,7 @@ def execute_discrete_review(state, now: float, **_) -> List[Tuple[Any, Any, floa
         if task not in state.deferred_tasks and task not in state.active_tasks:
             continue
 
-        assigned_task = _commit_assignment(task, worker, now)
+        assigned_task = _commit_assignment(task, worker, now, task_drops[i])
         state.assign_task(assigned_task, worker)
         used_workers.add(worker)
         used_tasks.add(task)

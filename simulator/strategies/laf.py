@@ -11,19 +11,9 @@ Research Context:
 """
 
 from simulator.strategies import register
-import pandas as pd
-from math import fabs, cos, radians
+from simulator.spatial_index import fast_manhattan_km
 
 AVG_SPEED_KMH = 30
-
-
-def manhattan_km(lat1, lon1, lat2, lon2):
-    """Calculate Manhattan distance in kilometers between two points."""
-    km_per_deg = 111
-    d_lat = fabs(lat1 - lat2) * km_per_deg
-    avg_lat = (lat1 + lat2) / 2
-    d_lon = fabs(lon1 - lon2) * km_per_deg * cos(radians(avg_lat))
-    return d_lat + d_lon
 
 
 def _commit_assignment(task, worker, now):
@@ -39,10 +29,10 @@ def _commit_assignment(task, worker, now):
     Returns:
         The assigned task object
     """
-    pickup_distance = manhattan_km(worker.start_lat, worker.start_lon, 
-                                   task.pickup_lat, task.pickup_lon)
-    drop_distance = manhattan_km(task.pickup_lat, task.pickup_lon, 
-                                 task.dropoff_lat, task.dropoff_lon)
+    pickup_distance = fast_manhattan_km(worker.start_lat, worker.start_lon,
+                                        task.pickup_lat, task.pickup_lon)
+    drop_distance = fast_manhattan_km(task.pickup_lat, task.pickup_lon,
+                                      task.dropoff_lat, task.dropoff_lon)
     
     task.pickup_km = pickup_distance
     task.drop_km = drop_distance
@@ -86,12 +76,12 @@ def assign_new_tasks_laf(state, now, tasks_to_assign, **_):
         best_task_count = float("inf")
         best_dist = float("inf")  # Tie-breaker
         
-        drop_dist = manhattan_km(task.pickup_lat, task.pickup_lon, 
-                                task.dropoff_lat, task.dropoff_lon)
-        
+        drop_dist = fast_manhattan_km(task.pickup_lat, task.pickup_lon,
+                                      task.dropoff_lat, task.dropoff_lon)
+
         for worker in state.available_workers:
-            pickup_dist = manhattan_km(worker.start_lat, worker.start_lon,
-                                      task.pickup_lat, task.pickup_lon)
+            pickup_dist = fast_manhattan_km(worker.start_lat, worker.start_lon,
+                                            task.pickup_lat, task.pickup_lon)
             
             # Feasibility check: pickup before expiry, finish before worker shift ends
             pickup_eta = now + ((pickup_dist / AVG_SPEED_KMH) * 3600)
@@ -144,11 +134,11 @@ def match_worker_laf(state, now, worker, **_):
     best_dist = float("inf")
 
     for task in pending:
-        pickup_dist = manhattan_km(worker.start_lat, worker.start_lon,
-                                  task.pickup_lat, task.pickup_lon)
+        pickup_dist = fast_manhattan_km(worker.start_lat, worker.start_lon,
+                                        task.pickup_lat, task.pickup_lon)
 
-        drop_dist = manhattan_km(task.pickup_lat, task.pickup_lon,
-                                task.dropoff_lat, task.dropoff_lon)
+        drop_dist = fast_manhattan_km(task.pickup_lat, task.pickup_lon,
+                                      task.dropoff_lat, task.dropoff_lon)
         pickup_eta = now + ((pickup_dist / AVG_SPEED_KMH) * 3600)
         finish_eta = now + (((pickup_dist + drop_dist) / AVG_SPEED_KMH) * 3600)
 
