@@ -55,6 +55,15 @@ ANCHORS: List[Tuple[str, str, dict]] = [
 # k-NLF sweep configs: (display_label, k)
 K_VALUES = [3, 5, 10, 15, 25, 50, 100]
 
+# Paper-final Composite params — only k is varied, all others locked
+COMPOSITE_FIXED = dict(
+    fairness_weight=1.6,
+    starvation_weight=0.0,
+    utility_weight=1.0,
+    gamma=0.1,
+    soft_threshold=0.0,
+)
+
 TIMEOUT_SEC = 300
 
 FIELDNAMES = [
@@ -199,11 +208,12 @@ def main():
     os.makedirs(RESULTS_DIR, exist_ok=True)
     output_path = args.output or os.path.join(RESULTS_DIR, "knlf_k_sweep_20161109.csv")
 
-    n_total = len(ANCHORS) + len(K_VALUES)
+    n_total = len(ANCHORS) + len(K_VALUES) * 2  # k-NLF + Composite for each k
     print("=" * 75)
-    print("  Section 5.4.1 — k-NLF Candidate Pool Size (k) Sweep")
+    print("  Section 5.4.1 — k-NLF & Composite Candidate Pool Size (k) Sweep")
     print(f"  Day:    {TARGET_DAY}")
     print(f"  k values: {K_VALUES}  +  Greedy and LAF anchors")
+    print(f"  Strategies per k: k-NLF, Composite (static)")
     print(f"  Total runs: {n_total}")
     print(f"  Est. time: ~{n_total * 5} min")
     print(f"  Output: {output_path}")
@@ -257,6 +267,30 @@ def main():
                 f"wait={m['Avg Wait (m)']:.2f}m  [{m['elapsed_s']:.1f}s]"
             )
             row = {"label": f"k-NLF k={k}", "strategy": "knlf", "k": k, **m}
+            writer.writerow(row)
+            f.flush()
+            m["label"] = label
+            all_results.append(m)
+
+        print()
+
+        # --- Composite sweep (same k values, paper-final weights) ---
+        for k in K_VALUES:
+            label = f"Composite (k={k})" + ("  ← default" if k == 15 else "")
+            print(f"  Running {label:<28}", end="  ", flush=True)
+            m = run_config(
+                workers_template, tasks_template,
+                "composite", {"k": k, **COMPOSITE_FIXED},
+                args.timeout,
+            )
+            if m is None:
+                print("TIMEOUT / FAILED")
+                continue
+            print(
+                f"TAR={m['TAR']:.4f}  JFI={m['JFI (tasks)']:.4f}  "
+                f"wait={m['Avg Wait (m)']:.2f}m  [{m['elapsed_s']:.1f}s]"
+            )
+            row = {"label": f"Composite k={k}", "strategy": "composite", "k": k, **m}
             writer.writerow(row)
             f.flush()
             m["label"] = label

@@ -74,7 +74,7 @@ FIELDNAMES = [
     "fairness_weight",
     "starvation_weight", "utility_weight", "gamma", "k", "soft_threshold",
     "TAR", "Revenue ($)", "JFI (tasks)", "JFI (earnings)", "JFI rate",
-    "Gini (tasks)",
+    "Gini (tasks)", "CV (idle)",
     "Avg Wait (m)", "P95 Wait (m)", "Avg Pickup (km)",
     "Completed", "Total", "elapsed_s",
 ]
@@ -98,6 +98,16 @@ def extract_metrics(stats: Dict[str, Any], workers) -> Dict[str, Any]:
     worker_task_counts = [w.completed_tasks for w in workers]
     jfi_rate = sum(1 for c in worker_task_counts if c > 0) / max(len(worker_task_counts), 1)
 
+    # CV (idle) — coefficient of variation of worker idle time.
+    # Lower = more uniform idle distribution.
+    # Direct validation that the EWMA signal (inter-task wait time) reduces
+    # idle inequality as λ_f increases.
+    idle_times = [w.total_idle_time for w in workers if hasattr(w, "total_idle_time")]
+    if idle_times and float(np.mean(idle_times)) > 0:
+        cv_idle = float(np.std(idle_times) / np.mean(idle_times))
+    else:
+        cv_idle = 0.0
+
     avg_wait = float(np.mean(wait_times))            if wait_times else 0.0
     p95_wait = float(np.percentile(wait_times, 95))  if wait_times else 0.0
 
@@ -108,6 +118,7 @@ def extract_metrics(stats: Dict[str, Any], workers) -> Dict[str, Any]:
         "JFI (earnings)":  jfi_earn,
         "JFI rate":        jfi_rate,
         "Gini (tasks)":    gini,
+        "CV (idle)":       cv_idle,
         "Avg Wait (m)":    avg_wait,
         "P95 Wait (m)":    p95_wait,
         "Avg Pickup (km)": stats.get("avg_pickup_distance_km", 0.0),

@@ -65,7 +65,9 @@ NUM_BINS = 288
 
 TIMEOUT_SEC = 900  # 15 min hard cap per run
 
-# Same strategy set as Experiment A for consistent comparison
+# Strategies: O(k log W) first (fast), O(W) last.
+# LAF and FATP-ANN placed at the end — expected to timeout at larger task volumes.
+# If you kill the script early, k-NLF / Composite / Greedy results are already in the CSV.
 STRATEGIES: List[tuple] = [
     ("k-NLF (k=15)",       "knlf",      {"k": 15}),
     ("Composite (static)", "composite", {
@@ -73,6 +75,7 @@ STRATEGIES: List[tuple] = [
         "utility_weight": 1.0, "gamma": 0.1, "k": 15, "soft_threshold": 0.0,
     }),
     ("Greedy",             "greedy",    {}),
+    # Slower strategies last — timeout gracefully, primary results already written
     ("LAF",                "laf",       {}),
     ("FATP-ANN",           "fatp_ann",  {
         "mu": 1.5, "alpha_scale": 0.5, "use_k_nearest": True, "k": 15,

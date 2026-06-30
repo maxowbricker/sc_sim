@@ -50,16 +50,27 @@ DATA_ROOT   = os.path.join(PROJECT_ROOT, "data", "didi", "full_didi_gaia")
 TARGET_DAY  = "496528674@qq.com_20161109"
 RESULTS_DIR = os.path.join(PROJECT_ROOT, "results", "s54_ablation")
 
+# Paper-final Composite params
+COMPOSITE_FIXED = dict(
+    fairness_weight=1.6,
+    starvation_weight=0.0,
+    utility_weight=1.0,
+    gamma=0.1,
+    soft_threshold=0.0,
+)
+
 # (display_label, strategy_key, params, complexity_note)
 STRATEGIES: List[Tuple[str, str, dict, str]] = [
     # --- Lower bound: no fairness ---
-    ("Greedy",           "greedy",    {},               "O(W) scan, nearest wins"),
+    ("Greedy",              "greedy",    {},                              "O(W) scan, nearest wins"),
     # --- O(k) signals (same k=15 spatial pool, different sort key) ---
-    ("k-NLF (k=15)",     "knlf",      {"k": 15},        "O(k): fewest tasks (raw count)"),
-    ("k-NTF-EPH (k=15)", "kntf_eph",  {"k": 15},        "O(k): lowest earnings/hr"),
-    ("k-NTF-EPH (k=15)", "kntf_eph",  {"k": 5},        "O(k): lowest earnings/hr")
-    ,("k-NTF-IR  (k=15)", "kntf_ir",   {"k": 15},        "O(k): highest idle ratio"),
-    ("k-NTF-IR  (k=15)", "kntf_ir",   {"k": 5},        "O(k): highest idle ratio")
+    ("k-NTF-EPH (k=15)",   "kntf_eph",  {"k": 15},                       "O(k): lowest earnings/hr"),
+    ("k-NTF-EPH (k=5)",    "kntf_eph",  {"k": 5},                        "O(k): lowest earnings/hr"),
+    ("k-NTF-IR  (k=15)",   "kntf_ir",   {"k": 15},                       "O(k): highest idle ratio"),
+    ("k-NTF-IR  (k=5)",    "kntf_ir",   {"k": 5},                        "O(k): highest idle ratio"),
+    ("k-NLF (k=15)",        "knlf",      {"k": 15},                       "O(k): fewest tasks (raw count)"),
+    # --- Proposed composite (EWMA signal + utility + starvation) ---
+    ("Composite (k=15)",   "composite", {"k": 15, **COMPOSITE_FIXED},    "O(k): weighted EWMA+utility+starvation"),
 ]
 
 TIMEOUT_SEC = 600

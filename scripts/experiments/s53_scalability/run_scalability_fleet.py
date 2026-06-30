@@ -53,16 +53,21 @@ DATA_ROOT   = os.path.join(PROJECT_ROOT, "data", "didi", "full_didi_gaia")
 TARGET_DAY  = "496528674@qq.com_20161109"
 RESULTS_DIR = os.path.join(PROJECT_ROOT, "results", "s53_scalability")
 
-# Fleet sizes to sweep (workers); tasks stay at full 224,219
+# Fleet sizes to sweep (workers); tasks are subsampled to TARGET_TASKS
 WORKER_COUNTS = [10_000, 15_000, 20_000, 25_000, 30_000, 36_799]
+
+# Task count for fleet sweep — 50k keeps all strategies within timeout at all fleet sizes.
+# Full 224k is too slow for Greedy at >15k workers.
+TARGET_TASKS = 50_000
 
 # Temporal stratification bins (288 × 5 min = 24 h)
 NUM_BINS = 288
 
 TIMEOUT_SEC = 900  # 15 min hard cap per run
 
-# Strategies ordered by ascending expected wall time.
-# O(W×T) strategies (Disc. Review LP, ONRTA-OP) excluded — see docstring.
+# Strategies: O(k log W) first (fast), O(W) last.
+# LAF and FATP-ANN are placed at the end — they are expected to timeout at larger
+# fleet sizes. If you kill the script early, the primary results are already in the CSV.
 STRATEGIES: List[tuple] = [
     # Proposed O(k log W) strategies
     ("k-NLF (k=15)",       "knlf",      {"k": 15}),
@@ -70,10 +75,10 @@ STRATEGIES: List[tuple] = [
         "fairness_weight": 1.6, "starvation_weight": 0.0,
         "utility_weight": 1.0, "gamma": 0.1, "k": 15, "soft_threshold": 0.0,
     }),
-    # O(W) baselines — expected to grow linearly
+    # O(W) baseline — grows linearly with fleet
     ("Greedy",             "greedy",    {}),
+    # Slower strategies last — timeout gracefully, primary results already written
     ("LAF",                "laf",       {}),
-    # O(k log W) published baseline — high constant factor despite same asymptotics
     ("FATP-ANN",           "fatp_ann",  {
         "mu": 1.5, "alpha_scale": 0.5, "use_k_nearest": True, "k": 15,
     }),
@@ -188,13 +193,14 @@ def main() -> None:
     print(f"  {len(all_workers):,} workers | {len(all_tasks):,} tasks  (full load)")
 
     # ── Stratified sampling — all worker counts in one pass ──────────────────
-    # target_tasks = len(all_tasks) ensures tasks are returned unmodified;
-    # workers are stratified across NUM_BINS temporal windows.
+    # TARGET_TASKS keeps Greedy feasible at all fleet sizes (50k << 224k).
+    # Workers are stratified across NUM_BINS temporal windows.
     print(f"\n  Stratified sampling ({NUM_BINS} bins, seed={args.seed}) ...")
+    print(f"  Task target: {TARGET_TASKS:,} (subsampled from {len(all_tasks):,})")
     sampled_tasks, worker_samples = stratified_temporal_sample(
         all_workers=all_workers,
         all_tasks=all_tasks,
-        target_tasks=len(all_tasks),  # keep all tasks
+        target_tasks=TARGET_TASKS,
         worker_counts=WORKER_COUNTS,
         num_bins=NUM_BINS,
         seed=args.seed,
