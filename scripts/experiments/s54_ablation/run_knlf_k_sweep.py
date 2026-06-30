@@ -59,7 +59,7 @@ TIMEOUT_SEC = 300
 
 FIELDNAMES = [
     "label", "strategy", "k",
-    "TAR", "JFI (tasks)", "Gini (tasks)", "JFI (earnings)", "JFI rate",
+    "TAR", "Revenue ($)", "JFI (tasks)", "Gini (tasks)", "JFI (earnings)", "JFI rate",
     "P10 tasks", "P25 tasks",
     "Avg Wait (m)", "P95 Wait (m)", "Avg Pickup (km)",
     "Completed", "Total", "elapsed_s",
@@ -76,6 +76,7 @@ def extract_metrics(stats: Dict[str, Any], workers) -> Dict[str, Any]:
     wait_times = stats.get("wait_times", [])
 
     tar      = completed / total if total else 0.0
+    revenue  = stats.get("total_platform_revenue", 0.0)
     jfi      = stats.get("final_jains_fairness_index", 0.0)
     gini     = stats.get("final_gini_coefficient", 0.0)
     jfi_earn = stats.get("final_jfi_earnings", 0.0)
@@ -90,6 +91,7 @@ def extract_metrics(stats: Dict[str, Any], workers) -> Dict[str, Any]:
 
     return {
         "TAR":             tar,
+        "Revenue ($)":     revenue,
         "JFI (tasks)":     jfi,
         "Gini (tasks)":    gini,
         "JFI (earnings)":  jfi_earn,
@@ -155,7 +157,7 @@ def run_config(
 
 COL_W  = 22
 STAT_W = 12
-DISPLAY_KEYS = ["TAR", "JFI (tasks)", "Gini (tasks)", "JFI rate", "P10 tasks", "Avg Wait (m)", "P95 Wait (m)"]
+DISPLAY_KEYS = ["TAR", "Revenue ($)", "JFI (tasks)", "Gini (tasks)", "JFI rate", "P10 tasks", "Avg Wait (m)", "P95 Wait (m)"]
 
 
 def _fmt(v, key):
@@ -164,6 +166,8 @@ def _fmt(v, key):
             return f"{v:.4f}"
         if key in ("P10 tasks", "P25 tasks"):
             return f"{v:.1f}"
+        if key == "Revenue ($)":
+            return f"{v:,.0f}"
         return f"{v:.3f}"
     return str(v)
 

@@ -66,7 +66,7 @@ TIMEOUT_SEC = 600
 
 FIELDNAMES = [
     "strategy", "complexity",
-    "TAR", "JFI (tasks)", "Gini (tasks)", "JFI (earnings)", "Gini (earn)",
+    "TAR", "Revenue ($)", "JFI (tasks)", "Gini (tasks)", "JFI (earnings)", "Gini (earn)",
     "JFI rate", "P10 tasks", "P25 tasks",
     "CV (idle)", "CV (earn)",
     "Avg Wait (m)", "P50 Wait (m)", "P95 Wait (m)", "Avg Pickup (km)",
@@ -95,6 +95,7 @@ def extract_metrics(stats: Dict[str, Any], workers) -> Dict[str, Any]:
     wait_times = stats.get("wait_times", [])
 
     tar      = completed / total if total else 0.0
+    revenue  = stats.get("total_platform_revenue", 0.0)
     jfi      = stats.get("final_jains_fairness_index", 0.0)
     gini     = stats.get("final_gini_coefficient", 0.0)
     jfi_earn = stats.get("final_jfi_earnings", 0.0)
@@ -125,6 +126,7 @@ def extract_metrics(stats: Dict[str, Any], workers) -> Dict[str, Any]:
 
     return {
         "TAR":             tar,
+        "Revenue ($)":     revenue,
         "JFI (tasks)":     jfi,
         "Gini (tasks)":    gini,
         "JFI (earnings)":  jfi_earn,
@@ -201,9 +203,9 @@ VALIDATION_COLS = [
     "CV (idle)", "CV (earn)", "Gini (earn)",
 ]
 
-# Block 3: Efficiency / spatial cost
+# Block 3: Efficiency / spatial cost + platform revenue
 EFFICIENCY_COLS = [
-    "TAR", "Avg Wait (m)", "P50 Wait (m)", "P95 Wait (m)", "Avg Pickup (km)",
+    "TAR", "Revenue ($)", "Avg Wait (m)", "P50 Wait (m)", "P95 Wait (m)", "Avg Pickup (km)",
 ]
 
 
@@ -216,6 +218,8 @@ def _fmt(v, key):
             return f"{v:.1f}"
         if key in ("CV (idle)", "CV (earn)"):
             return f"{v:.4f}"
+        if key == "Revenue ($)":
+            return f"{v:,.0f}"
         return f"{v:.3f}"
     return str(v)
 
