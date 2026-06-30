@@ -1,8 +1,9 @@
 """
 FATP-ANN: Fairness-Aware Task Planning with Approximate Nearest Neighbor
 
-Implementation of the FATP-ANN algorithm from the paper:
-"Fair Task Allocation in Crowdsourced Delivery"
+Implementation of the FATP-ANN algorithm from:
+"An Online Fairness-Aware Task Planning Approach for Spatial Crowdsourcing"
+(Zhang et al., TMC). Algorithms 1 (WP) and 4 (TP); fairness cap Eq. 8.
 
 Key Features:
 - Fairness cap (c_hat) to balance task distribution across workers
@@ -13,6 +14,15 @@ Key Features:
 Event Handlers:
 - assign_new_tasks_fatp_ann: Handles TASK_RELEASE events (TP)
 - match_worker_fatp_ann: Handles WORKER_RELEASE/TASK_COMPLETE events (WP)
+
+Paper fidelity notes (declare in methodology):
+- GMM idle movement (Alg. 4, lines 6-7): when a worker is free with zero
+  assigned tasks, the paper relocates them toward historical task clusters
+  learned via Gaussian Mixture Models. This simulator leaves idle workers
+  stationary; only the assignment logic (TP/WP + cap) is reproduced.
+- mu time scaling: utility decay uses wait time in hours (see _calculate_utility).
+  The paper uses dataset-specific time units; mu must be tuned per experiment
+  so exp(-mu * wait_hours) retains meaningful curvature (see config.py fatp_ann).
 """
 
 from simulator.strategies import register
@@ -115,12 +125,12 @@ def _calculate_utility(task, worker_lat, worker_lon, worker_time, mu, alpha_scal
     total_hours = (pickup_dist + service_dist) / AVG_SPEED_KMH
     completion_time = worker_time + (total_hours * 3600)
     
-    # Calculate time penalty (wait time since release)
-    # Convert task.release_time to float if it's a Timestamp
+    # Wait time since release, normalized to hours (simulator timestamps are seconds).
+    # Paper: u_r = alpha_r * exp(-mu * (f_r - b_r)); mu is dataset-specific — tune
+    # in config.py so decay is comparable across datasets (see module docstring).
     release_time_float = task.release_time if isinstance(task.release_time, (int, float)) else task.release_time.timestamp()
     wait_time_hours = (completion_time - release_time_float) / 3600.0
-    
-    # Calculate utility with exponential decay
+
     base_utility = task.base_utility * alpha_scale
     utility = base_utility * exp(-mu * wait_time_hours)
     
@@ -245,7 +255,7 @@ def assign_new_tasks_fatp_ann(state, now, tasks_to_assign,
     
     Algorithm:
     1. For each new task, scan all available workers (or k-nearest if enabled)
-    2. Filter candidates: worker.completed_tasks_count < cap AND is_valid
+    2. Filter candidates: worker.completed_tasks <= cap AND is_valid
     3. If candidates exist, assign to nearest worker
     4. Else, task remains in pool (simulation handles automatically)
     
@@ -285,10 +295,10 @@ def assign_new_tasks_fatp_ann(state, now, tasks_to_assign,
             candidate_pool = list(state.available_workers)
         
         # Step 2: Filter eligible candidates (fairness cap + validity check)
+        # Paper Alg. 4: Count_w <= c_hat (inclusive; differs from strict < cap)
         eligible_candidates = []
         for worker in candidate_pool:
-            # Check fairness cap
-            if worker.completed_tasks >= cap:
+            if worker.completed_tasks > cap:
                 continue
             
             # Check validity (feasibility)
@@ -306,13 +316,12 @@ def assign_new_tasks_fatp_ann(state, now, tasks_to_assign,
             eligible_candidates.sort(key=lambda x: x[1])
             best_worker, best_dist = eligible_candidates[0]
             
-            # Commit assignment
+            # Commit assignment; paper Count_w increments on assignment (Alg. 4)
             old_count = best_worker.completed_tasks
             assigned_task = _commit_assignment(task, best_worker, now)
             state.assign_task(assigned_task, best_worker)
-            
-            # Update fairness cap tracker
-            fairness_cap_tracker.update_worker_count(old_count, best_worker.completed_tasks)
+
+            fairness_cap_tracker.update_worker_count(old_count, old_count + 1)
             
             assignments.append((assigned_task, best_worker, best_dist))
         
@@ -335,7 +344,7 @@ def match_worker_fatp_ann(state, now, worker,
 
     Algorithm with shadow state tracking:
     1. Initialize shadow state (location, time)
-    2. While worker.completed_tasks_count < cap:
+    2. While worker task count <= cap:
         a. Find all valid tasks from combined deferred + active task pools
         b. Calculate utility for each valid task
         c. Select task with max utility
@@ -359,7 +368,9 @@ def match_worker_fatp_ann(state, now, worker,
 
     cap = fairness_cap_tracker.get_cap()
 
-    while worker.completed_tasks < cap:
+    # Paper Alg. 1: bundle tasks while Count_w <= c_hat; GMM idle relocation omitted
+    # (see module docstring — idle workers stay at last drop-off / release location).
+    while worker.completed_tasks + len(tasks_assigned_in_loop) <= cap:
         # Rebuild pending each iteration — tasks may have been assigned in prior loops
         pending = list(state.deferred_tasks) + list(state.active_tasks)
         valid_tasks = []
@@ -374,12 +385,12 @@ def match_worker_fatp_ann(state, now, worker,
 
         best_task, best_utility = max(valid_tasks, key=lambda x: x[1])
 
-        old_count = worker.completed_tasks
+        old_count = worker.completed_tasks + len(tasks_assigned_in_loop)
         assigned_task = _commit_assignment(best_task, worker, now)
         state.assign_task(assigned_task, worker)
         tasks_assigned_in_loop.append(assigned_task)
 
-        fairness_cap_tracker.update_worker_count(old_count, worker.completed_tasks)
+        fairness_cap_tracker.update_worker_count(old_count, old_count + 1)
 
         pickup_dist = manhattan_km(shadow_location[0], shadow_location[1],
                                    best_task.pickup_lat, best_task.pickup_lon)
