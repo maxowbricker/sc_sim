@@ -1,13 +1,32 @@
 """
-Discrete review LP matching baseline (Aveklouris et al.).
+Discrete review LP matching baseline (Aveklouris et al. 2024).
 
 Defers all arrivals until fixed review intervals, then solves a bipartite
 assignment that maximizes spatial utility subject to task expiry and worker
 deadline constraints (impatient-agent reneging).
 
-Reference: discrete review policy with LP-based matching at each review epoch.
-'aveklouris-et-al-2024-matching-impatient-and-heterogeneous-demand-and-supply.pdf'
+Reference: Aveklouris, Fikioris, Trichakis, & Vaidya — "Matching Impatient
+and Heterogeneous Demand and Supply". Implements the Section 7 LP-based discrete
+review policy with zero holding costs (c_j^D = c_k^S = 0, Eq. 36).
 
+Paper fidelity notes (for WISE methodology):
+
+- Faithful elements: discrete review buffering (review period l), impatient-agent
+  reneging via deadline/expiry feasibility checks, and max-weight bipartite
+  matching at each review epoch. With unit-capacity workers/tasks, Hungarian
+  assignment on v_jk is equivalent to the integer LP in Eq. 36.
+- Zero holding cost variant: utility is purely spatial (1/(1 + d_pick)); no
+  penalty for time spent waiting in queue. Performance on wait-time-heavy metrics
+  should be interpreted in light of this myopic, zero-holding-cost instantiation.
+- Review period l: critical hyperparameter (paper Sec. 6.2). Default
+  review_period_seconds=60 must be swept/tuned per dataset arrival rate and
+  expiry horizons — too long → reneging/expiry; too short → greedy-like behavior.
+- Spatial adaptation: patience is modeled via dataset expire_time / worker.deadline
+  plus travel-time feasibility (30 km/h Manhattan), not sampled patience draws.
+  v_jk = 1/(1 + d_pick) is a spatial-crowdsourcing instantiation of matching value.
+- Simulator detail: empty reviews are skipped when no backlog exists (see
+  simulation.py _should_schedule_review); strict fixed-interval reviews regardless
+  of queue state would differ slightly.
 """
 
 from __future__ import annotations
