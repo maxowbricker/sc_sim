@@ -54,7 +54,7 @@ echo "Launching stale-result re-runs in tmux session '$SESSION'..."
 # ---------------------------------------------------------------------------
 tmux new-session -d -s $SESSION -n didi
 tmux send-keys -t $SESSION:didi \
-  "python scripts/experiments/s52_main_results/run_strategy_comparison.py \
+  "python3 scripts/experiments/s52_main_results/run_strategy_comparison.py \
     --day 20161109 \
     --output ${RESULTS_52}/didi_20161109_v2.csv \
     2>&1 | tee ${RESULTS_52}/log_didi_v2.log; echo '=== didi DONE ==='" \
@@ -67,7 +67,7 @@ tmux send-keys -t $SESSION:didi \
 # ---------------------------------------------------------------------------
 tmux new-window -t $SESSION -n gowalla
 tmux send-keys -t $SESSION:gowalla \
-  "python scripts/experiments/s52_main_results/run_gowalla_comparison.py \
+  "python3 scripts/experiments/s52_main_results/run_gowalla_comparison.py \
     --compression compressed \
     --ratio 0.2 \
     --output ${RESULTS_52}/gowalla_austin_compressed_v2.csv \
@@ -84,7 +84,7 @@ tmux send-keys -t $SESSION:gowalla \
 # ---------------------------------------------------------------------------
 tmux new-window -t $SESSION -n fleet
 tmux send-keys -t $SESSION:fleet \
-  "python scripts/experiments/s53_scalability/run_scalability_fleet.py \
+  "python3 scripts/experiments/s53_scalability/run_scalability_fleet.py \
     --output ${RESULTS_53}/scalability_fleet_v2.csv \
     2>&1 | tee ${RESULTS_53}/log_fleet_v2.log; echo '=== fleet DONE ==='" \
   Enter
@@ -96,7 +96,7 @@ tmux send-keys -t $SESSION:fleet \
 # ---------------------------------------------------------------------------
 tmux new-window -t $SESSION -n tasks
 tmux send-keys -t $SESSION:tasks \
-  "python scripts/experiments/s53_scalability/run_scalability_tasks.py \
+  "python3 scripts/experiments/s53_scalability/run_scalability_tasks.py \
     --output ${RESULTS_53}/scalability_tasks_v2.csv \
     2>&1 | tee ${RESULTS_53}/log_tasks_v2.log; echo '=== tasks DONE ==='" \
   Enter
@@ -108,7 +108,7 @@ tmux send-keys -t $SESSION:tasks \
 # ---------------------------------------------------------------------------
 tmux new-window -t $SESSION -n knlf
 tmux send-keys -t $SESSION:knlf \
-  "python scripts/experiments/s54_ablation/run_knlf_k_sweep.py \
+  "python3 scripts/experiments/s54_ablation/run_knlf_k_sweep.py \
     --output ${RESULTS_54}/knlf_k_sweep_20161109_v2.csv \
     2>&1 | tee ${RESULTS_54}/log_knlf_k_sweep_v2.log; echo '=== knlf DONE ==='" \
   Enter
@@ -121,7 +121,7 @@ tmux send-keys -t $SESSION:knlf \
 # ---------------------------------------------------------------------------
 tmux new-window -t $SESSION -n signal
 tmux send-keys -t $SESSION:signal \
-  "python scripts/experiments/s54_ablation/run_signal_comparison.py \
+  "python3 scripts/experiments/s54_ablation/run_signal_comparison.py \
     --output ${RESULTS_54}/signal_comparison_20161109_v3.csv \
     2>&1 | tee ${RESULTS_54}/log_signal_comparison_v3.log; echo '=== signal DONE ==='" \
   Enter
