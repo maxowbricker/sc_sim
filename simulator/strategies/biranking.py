@@ -7,6 +7,29 @@ than the closest spatial distance, spreading assignments across the map.
 
 Reference: Bipartite Ranking (BRK) for two-sided online spatial crowdsourcing.
 'Two-sided_Online_Stable_Task_Assignment_with_Incomplete_Lists_and_Ties_in_Spatial_Crowdsourcing.pdf'
+
+ADAPTATION NOTE (mention in paper):
+This implementation preserves the core mechanism of the original algorithm —
+permanent random ranks and lowest-rank-first selection — but omits two
+constructs that are incompatible with this simulator's unit-capacity,
+instantaneous-matching model:
+
+  1. Stability constraints (Definition 4 / Algorithm 3, Lines 11 & 20):
+     The paper requires that a matched pair (u, v) satisfies a stability
+     condition (no unmatched neighbour offers both shorter distance AND lower
+     total travel weight). Implementing this correctly requires simultaneous
+     knowledge of all available neighbours at the same timestamp, which
+     conflicts with the DES's sequential, irrevocable event processing.
+
+  2. Multi-capacity exhaustion loop (Algorithm 3, Line 3):
+     The paper wraps matching in a `while i.cap > 0` loop, allowing a single
+     arriving entity to claim multiple partners per event. This simulator uses
+     a strict unit-capacity model (one task per worker at a time); the concept
+     of capacity > 1 does not exist in the worker or task state.
+
+The behavioural property that matters for baseline comparison — random
+persistent priority rather than distance or fairness priority — is fully
+preserved. Disclose the adaptation when citing BRK results in the paper.
 """
 
 from __future__ import annotations
