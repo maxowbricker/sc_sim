@@ -76,8 +76,11 @@ tmux send-keys -t $SESSION:gowalla \
 
 # ---------------------------------------------------------------------------
 # Window 3 — §5.3 Fleet scalability (vary |W|, fix |T|)
-# Estimated: ~3–4 h (LAF and FATP-ANN time out at every fleet size — expected).
-# Kill the cluster run first, then this window becomes the new source of truth.
+# Config: TARGET_TASKS=50k (not full 224k), 6 fleet sizes, 900s timeout/run.
+# Estimated: ~1–1.5 h. Greedy (now k=10 spatial index) and LAF (now
+# fast_manhattan_km) are both faster than the old cluster run. FATP-ANN will
+# still timeout at larger fleet sizes — expected and reportable.
+# Fast strategies (k-NLF, Composite, Greedy) write first; kill anytime safely.
 # ---------------------------------------------------------------------------
 tmux new-window -t $SESSION -n fleet
 tmux send-keys -t $SESSION:fleet \
@@ -88,7 +91,8 @@ tmux send-keys -t $SESSION:fleet \
 
 # ---------------------------------------------------------------------------
 # Window 4 — §5.3 Task scalability (vary |T|, fix |W|)
-# Estimated: ~1.5–2 h (FATP-ANN times out at ≥100k tasks — expected).
+# Config: fixed 10k workers, 5 task volumes (50k–224k), 900s timeout/run.
+# Estimated: ~45 min–1 h. FATP-ANN will timeout at ≥100k tasks — expected.
 # ---------------------------------------------------------------------------
 tmux new-window -t $SESSION -n tasks
 tmux send-keys -t $SESSION:tasks \
