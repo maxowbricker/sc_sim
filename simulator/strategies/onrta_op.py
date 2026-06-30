@@ -6,8 +6,26 @@ count crosses half the expected market size; Stage 2 global utility-maximizing
 bipartite matching with continuous pruning (commit only if the new arrival is in
 the optimal match, otherwise fall back to greedy).
 
-Reference: ONRTA-OP two-stage online matching for spatial crowdsourcing.
-'Non-Rejection_Aware_Online_Task_Assignment_in_Spatial_Crowdsourcing.pdf'
+Reference: "Non-Rejection Aware Online Task Assignment in Spatial Crowdsourcing"
+(Algorithm 3 / ONRTA-OP built on ONRTA-Base, Sec. V-B).
+
+Paper fidelity notes (for WISE methodology):
+
+- Stage 1 / Stage 2 split: arrival counter increments on every task and worker
+  release; Stage 2 begins when arrivals > floor((expected_a + expected_b) / 2).
+  expected_a = |R| (task count); expected_b = sum of worker capacities (sum w.c).
+  In this simulator workers have unit capacity (c=1), so expected_b = |W| is
+  correct. If multi-capacity workers are added, set expected_b to sum(w.c), not
+  |W| — otherwise Stage 2 triggers too early (see simulation.py reset() defaults).
+- Stage 2 matching: Hungarian max-utility over pending tasks x available workers;
+  incoming entity is assigned only if it appears in the optimal matching; otherwise
+  ONRTA-Base greedy fallback (Alg. 2) — matches paper non-rejection behavior.
+- Continuous pruning: state.assign_task removes workers from available_workers and
+  tasks from deferred/active pools, mirroring the pruned subset R<R_delta, W<W_delta.
+- Feasibility / impatience: _pair_utility enforces expire_time and worker.deadline
+  at current simulation time now (spatial travel at 30 km/h Manhattan).
+- Spatial instantiation: utility v = 1/(1 + d_pick); not the paper's raw distance
+  formulation but consistent with other baselines in this codebase.
 """
 
 from __future__ import annotations
@@ -114,6 +132,7 @@ def _solve_global_optimal(tasks, workers, now: float) -> Dict[Any, Any]:
 
 
 def _stage_two_threshold(expected_a: float, expected_b: float) -> float:
+    # Paper: floor((a + b) / 2) where a = |R|, b = sum(w.c) — tune expected_b accordingly.
     return (expected_a + expected_b) / 2.0
 
 
@@ -135,6 +154,7 @@ def _process_arrival(
     assigned = False
 
     if is_stage_two:
+        # Alg. 3: global optimal over pruned pending sets; commit only if arrival in match.
         tasks = _pending_tasks(state)
         if is_task and entity not in tasks:
             tasks.append(entity)
@@ -161,6 +181,7 @@ def _process_arrival(
             assigned = True
 
     if not assigned:
+        # ONRTA-Base greedy fallback (Stage 1, or Stage 2 when not in optimal matching).
         targets = state.available_workers if is_task else _pending_tasks(state)
         best_target, d_pick = _get_greedy_match(entity, targets, now, is_task=is_task)
 
@@ -185,8 +206,8 @@ def assign_new_tasks_onrta(
     state,
     now,
     tasks_to_assign,
-    expected_a: float = 1000.0,
-    expected_b: float = 1000.0,
+    expected_a: float = 1000.0,   # |R|; reset() defaults to len(tasks) if None in config
+    expected_b: float = 1000.0,   # sum(w.c); reset() defaults to len(workers) when c=1
     onrta_tracker: Optional[Dict[str, int]] = None,
     expiry_scheduler=None,
     deferral_tracker=None,
