@@ -31,100 +31,61 @@
 #   Ctrl+b w   — list windows / jump
 #   Ctrl+b d   — detach (scripts keep running)
 
-set -euo pipefail
-
 SESSION="rerun"
 RESULTS_52="results/s52_main_results"
 RESULTS_53="results/s53_scalability"
 RESULTS_54="results/s54_ablation"
 
 tmux kill-session -t $SESSION 2>/dev/null || true
+sleep 1
 
 mkdir -p "$RESULTS_52" "$RESULTS_53" "$RESULTS_54"
 
 echo "Launching stale-result re-runs in tmux session '$SESSION'..."
 
 # ---------------------------------------------------------------------------
-# Window 1 — §5.2 DiDi main results
-# Estimated: ~1–1.5 h (FATP-ANN and LP are now faster due to optimisations,
-# but still the heaviest window).
-# Includes Greedy (new k=10 numbers), k-NLF, LAF, FATP-ANN.
-# BiRanking / ONRTA-RT / Disc. Review LP included so the full table is
-# regenerated in one go — their numbers will be identical to before.
+# Window 0 — §5.2 DiDi main results (~1–1.5 h)
 # ---------------------------------------------------------------------------
 tmux new-session -d -s $SESSION -n didi
-tmux send-keys -t $SESSION:didi \
-  "python3 scripts/experiments/s52_main_results/run_strategy_comparison.py \
-    --day 20161109 \
-    --output ${RESULTS_52}/didi_20161109_v2.csv \
-    2>&1 | tee ${RESULTS_52}/log_didi_v2.log; echo '=== didi DONE ==='" \
-  Enter
+sleep 0.5
+tmux send-keys -t $SESSION:didi "python3 scripts/experiments/s52_main_results/run_strategy_comparison.py --day 20161109 --output ${RESULTS_52}/didi_20161109_v2.csv; echo '=== didi DONE ==='" Enter
 
 # ---------------------------------------------------------------------------
-# Window 2 — §5.2 Gowalla main results
-# Estimated: ~25–40 min (smaller dataset; FATP-ANN faster with optimisations).
-# Greedy, k-NLF, LAF, FATP-ANN all produce slightly different numbers.
+# Window 1 — §5.2 Gowalla main results (~25–40 min)
 # ---------------------------------------------------------------------------
 tmux new-window -t $SESSION -n gowalla
-tmux send-keys -t $SESSION:gowalla \
-  "python3 scripts/experiments/s52_main_results/run_gowalla_comparison.py \
-    --compression compressed \
-    --ratio 0.2 \
-    --output ${RESULTS_52}/gowalla_austin_compressed_v2.csv \
-    2>&1 | tee ${RESULTS_52}/log_gowalla_v2.log; echo '=== gowalla DONE ==='" \
-  Enter
+sleep 0.5
+tmux send-keys -t $SESSION:gowalla "python3 scripts/experiments/s52_main_results/run_gowalla_comparison.py --compression compressed --ratio 0.2 --output ${RESULTS_52}/gowalla_austin_compressed_v2.csv; echo '=== gowalla DONE ==='" Enter
 
 # ---------------------------------------------------------------------------
-# Window 3 — §5.3 Fleet scalability (vary |W|, fix |T|)
-# Config: TARGET_TASKS=50k (not full 224k), 6 fleet sizes, 900s timeout/run.
-# Estimated: ~1–1.5 h. Greedy (now k=10 spatial index) and LAF (now
-# fast_manhattan_km) are both faster than the old cluster run. FATP-ANN will
-# still timeout at larger fleet sizes — expected and reportable.
-# Fast strategies (k-NLF, Composite, Greedy) write first; kill anytime safely.
+# Window 2 — §5.3 Fleet scalability (~1–1.5 h)
+# TARGET_TASKS=50k, 6 fleet sizes, 900s timeout/run.
 # ---------------------------------------------------------------------------
 tmux new-window -t $SESSION -n fleet
-tmux send-keys -t $SESSION:fleet \
-  "python3 scripts/experiments/s53_scalability/run_scalability_fleet.py \
-    --output ${RESULTS_53}/scalability_fleet_v2.csv \
-    2>&1 | tee ${RESULTS_53}/log_fleet_v2.log; echo '=== fleet DONE ==='" \
-  Enter
+sleep 0.5
+tmux send-keys -t $SESSION:fleet "python3 scripts/experiments/s53_scalability/run_scalability_fleet.py --output ${RESULTS_53}/scalability_fleet_v2.csv; echo '=== fleet DONE ==='" Enter
 
 # ---------------------------------------------------------------------------
-# Window 4 — §5.3 Task scalability (vary |T|, fix |W|)
-# Config: fixed 10k workers, 5 task volumes (50k–224k), 900s timeout/run.
-# Estimated: ~45 min–1 h. FATP-ANN will timeout at ≥100k tasks — expected.
+# Window 3 — §5.3 Task scalability (~45 min–1 h)
+# Fixed 10k workers, 5 task volumes, 900s timeout/run.
 # ---------------------------------------------------------------------------
 tmux new-window -t $SESSION -n tasks
-tmux send-keys -t $SESSION:tasks \
-  "python3 scripts/experiments/s53_scalability/run_scalability_tasks.py \
-    --output ${RESULTS_53}/scalability_tasks_v2.csv \
-    2>&1 | tee ${RESULTS_53}/log_tasks_v2.log; echo '=== tasks DONE ==='" \
-  Enter
+sleep 0.5
+tmux send-keys -t $SESSION:tasks "python3 scripts/experiments/s53_scalability/run_scalability_tasks.py --output ${RESULTS_53}/scalability_tasks_v2.csv; echo '=== tasks DONE ==='" Enter
 
 # ---------------------------------------------------------------------------
-# Window 5 — §5.4.1 k-NLF k-sweep
-# Estimated: ~10–15 min (k-NLF FREE_WORKER changed; Greedy anchor will now
-# show ~19s not ~357s).
+# Window 4 — §5.4.1 k-NLF k-sweep (~80 min)
 # ---------------------------------------------------------------------------
 tmux new-window -t $SESSION -n knlf
-tmux send-keys -t $SESSION:knlf \
-  "python3 scripts/experiments/s54_ablation/run_knlf_k_sweep.py \
-    --output ${RESULTS_54}/knlf_k_sweep_20161109_v2.csv \
-    2>&1 | tee ${RESULTS_54}/log_knlf_k_sweep_v2.log; echo '=== knlf DONE ==='" \
-  Enter
+sleep 0.5
+tmux send-keys -t $SESSION:knlf "python3 scripts/experiments/s54_ablation/run_knlf_k_sweep.py --output ${RESULTS_54}/knlf_k_sweep_20161109_v2.csv; echo '=== knlf DONE ==='" Enter
 
 # ---------------------------------------------------------------------------
-# Window 6 — §5.4.2 Signal comparison
-# Estimated: ~12–15 min (Greedy baseline + k-NLF both changed; Composite
-# and k-NTF variants unaffected).
-# Existing v2 CSV is superseded by v3 here.
+# Window 5 — §5.4.2 Signal comparison (~42 min)
 # ---------------------------------------------------------------------------
 tmux new-window -t $SESSION -n signal
-tmux send-keys -t $SESSION:signal \
-  "python3 scripts/experiments/s54_ablation/run_signal_comparison.py \
-    --output ${RESULTS_54}/signal_comparison_20161109_v3.csv \
-    2>&1 | tee ${RESULTS_54}/log_signal_comparison_v3.log; echo '=== signal DONE ==='" \
-  Enter
+sleep 0.5
+tmux send-keys -t $SESSION:signal "python3 scripts/experiments/s54_ablation/run_signal_comparison.py --output ${RESULTS_54}/signal_comparison_20161109_v3.csv; echo '=== signal DONE ==='" Enter
 
 # Land on the heaviest window
 tmux select-window -t $SESSION:didi
