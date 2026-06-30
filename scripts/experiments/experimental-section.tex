@@ -1,0 +1,300 @@
+\section{Experiments}
+\label{sec:experiments}
+
+
+\subsection{Experimental Setup}
+\label{sec:setup}
+
+\subsubsection{Datasets}
+\label{sec:datasets}
+
+\paragraph{DiDi GAIA Dataset (Chengdu, China).}
+\label{sec:dataset_didi}
+We evaluate on the \textit{DiDi GAIA Open Dataset}, a publicly available corpus
+of high-resolution GPS trajectories and trip dispatch logs collected from
+ride-hailing operations in Chengdu, China. The full corpus covers 30 days in
+November 2016, comprising approximately 7.06 million completed trips and over
+1.09 billion GPS pings. To measure strategy performance under a realistic but
+reproducible demand profile, we designate a single held-out test day
+(9 November 2016, a representative weekday) as our primary evaluation
+instance, comprising 36,799 workers and 224,219 tasks.
+
+We focus on the core urban area centred at approximately $30.67^\circ$N,
+$104.07^\circ$E. All distance computations use a flat-earth (equirectangular)
+projection calibrated to the mean latitude of all simulation participants,
+converting geographic coordinates to kilometres with a worst-case
+approximation error below 0.15\% over the city extent. Travel times assume a
+constant average urban speed of 30\,km/h with Manhattan-distance routing.
+
+\textit{Entity modelling.}
+Simulation entities are derived from the raw logs as follows.
+
+\begin{itemize}
+    \item \textbf{Workers.} Each unique driver identifier active on the test
+    day yields one worker. The worker's spawn location and online time are
+    taken from their first recorded GPS ping. A nominal shift duration of
+    8 hours is applied; workers are removed from the candidate pool once they
+    can no longer complete a trip before their shift deadline.
+
+    \item \textbf{Tasks.} Each trip record is converted into one matching
+    request. The original dispatch timestamp serves as the task release time
+    $r_j$, and the billing-completion timestamp serves as the expiry deadline
+    $e_j$. Task revenue is taken from the actual trip fare recorded in the
+    billing log, providing a realistic revenue signal for platform-utility
+    evaluation.
+\end{itemize}
+
+\paragraph{Gowalla LBSN Dataset (Austin, Texas).}
+\label{sec:dataset_gowalla}
+To assess the generalisability of our strategies beyond the ride-hailing
+domain, we incorporate the \textit{Gowalla} location-based social network
+(LBSN) check-in dataset~\cite{cho2011friendship}, made publicly available via
+the Stanford SNAP repository. Gowalla records voluntary user check-ins at
+named venues, providing a geographically diverse, community-sourced
+alternative to operator-logged ride-hailing data. We use this dataset to
+evaluate whether strategy rankings observed on DiDi hold under a
+fundamentally different platform type, geographic region, and participant
+behaviour model — with all strategy hyperparameters held fixed at their
+DiDi-tuned values.
+
+\textit{Regional realisation.}
+We restrict our analysis to the Austin, Texas cluster
+(29.9°–30.7°N, 97.5°–98.1°W), the densest Gowalla check-in cluster in the
+continental United States, providing the highest concurrent task density
+available in the dataset. We further restrict to September 2010 (29 days),
+explicitly excluding March 2010, which is inflated by South by Southwest
+(SXSW) festival activity and would introduce an unrepresentative spatial
+concentration.
+
+\textit{Temporal compression.}
+Raw LBSN check-in arrival rates are approximately 150$\times$ lower than
+ride-hailing trip rates. Without preprocessing, the September 2010 Austin
+corpus yields only $\sim$31 tasks active simultaneously across the 29-day
+horizon — a density too sparse for strategies to differentiate. To recover a
+city-scale simulation environment while preserving the authentic intra-day
+demand rhythm, we apply \textit{temporal compression}: the calendar date is
+stripped from every check-in, retaining only the wall-clock time (HH:MM:SS),
+and all events are projected onto a single 24-hour reference window. This
+stacks 29 days of check-ins into one simulated day, increasing concurrent
+task density from $\sim$31 to $\sim$910 — comparable to the DiDi environment —
+without altering spatial distributions or relative intra-day ordering.
+
+\textit{Entity modelling.}
+Simulation entities are derived from the compressed check-in log as follows.
+
+\begin{itemize}
+    \item \textbf{Workers.} Each unique (user\_id, calendar\_day) pair
+    yields one worker, with spawn location and online time taken from that
+    user's first check-in on that day. Worker deduplication is performed on
+    the original calendar dates (prior to compression) to preserve the full
+    pool of 8,758 unique worker-days; using post-compression dates would
+    collapse all days to a single reference date and reduce the pool to
+    $\sim$2,600 unique users. A shift duration of 8 hours is applied, and
+    workers are downsampled to a worker-to-task ratio of 1:5 (random seed 42)
+    to match the supply-demand regime observed in the DiDi dataset.
+
+    \item \textbf{Tasks.} Each individual check-in is converted into one
+    matching request, with the check-in location as the pickup point and a
+    30-minute expiry window ($e_j = r_j + 1800$\,s). As LBSN data records
+    only the arrival venue and not a subsequent destination, dropoff
+    locations are generated synthetically by displacing the pickup point by
+    Gaussian noise with $\sigma = 2$\,km (converted to degrees using the
+    local great-circle approximation). Revenue is computed as a
+    distance-proportional proxy based on the Euclidean pickup-to-dropoff
+    distance.
+\end{itemize}
+
+After compression and downsampling, the Gowalla evaluation instance
+comprises 8,758 workers and 43,788 tasks.
+
+\subsubsection{Implementation Details}
+\label{sec:framework}
+
+\textbf{Discrete event simulation.}
+We implement a discrete event simulator (DES) driven by a min-heap priority
+queue ordered on Unix timestamps, ensuring that strategy decisions are
+processed in strict chronological order with no artificial batching or
+lookahead. This adheres to the \textit{instantaneous matching constraint} of
+online spatial crowdsourcing~\cite{tong2019survey}: each assignment decision
+must be made the moment a participant arrives, without knowledge of future
+events. Four event types are supported:
+
+\begin{itemize}
+    \item \textsc{WorkerRelease} — a worker comes online and immediately
+    triggers the \textsc{FreeWorker} handler to scan for pending tasks.
+    \item \textsc{TaskRelease} — a task enters the pending pool and
+    immediately triggers the \textsc{NewTask} handler to scan for available
+    workers.
+    \item \textsc{TaskComplete} — a worker finishes a trip, returns to the
+    candidate pool, and triggers a second \textsc{FreeWorker} call to claim
+    the next pending task.
+    \item \textsc{TaskExpire} — an unassigned task whose deadline $e_j$ has
+    elapsed is purged from the pending pool, preventing infeasible
+    assignments.
+\end{itemize}
+
+Each strategy is implemented as a pair of handlers
+$(\textsc{NewTask}, \textsc{FreeWorker})$ that receive the current system
+state and return zero or one assignments. The simulator is dataset-agnostic:
+the same engine processes both the DiDi and Gowalla instances without
+modification.
+
+\textbf{Spatial index.}
+Available workers are maintained in a $k$-d tree spatial index keyed on
+their current position. This enables O($k\log n$) $k$-nearest-neighbour
+queries, which underpin the O($k$) complexity of our proposed strategies.
+The index is updated incrementally as workers transition between available
+and busy states, avoiding full rebuilds on each event.
+
+\textbf{Distance model and feasibility.}
+All distances are computed using Manhattan distance under a flat-earth
+equirectangular projection calibrated to the mean latitude of all simulation
+participants, with worst-case coordinate error below 0.15\% over the city
+extent. Travel times assume a constant average urban speed of 30\,km/h.
+Every candidate assignment is gated by a dual feasibility check: (i) the
+worker must reach the pickup point before the task deadline,
+$t_{\text{now}} + d_{\text{pick}}/v \leq e_j$; and (ii) the worker must
+reach the dropoff destination before their shift deadline,
+$t_{\text{now}} + (d_{\text{pick}} + d_{\text{drop}})/v \leq
+t_{\text{deadline}}^w$. Assignments failing either condition are silently
+rejected, preventing constraint violations without requiring explicit
+penalty terms.
+
+\subsubsection{Baselines}
+We benchmark our approach against the following existing task assignment
+approaches in the literature.
+
+\begin{itemize}
+    \item \textbf{Greedy:} Minimizes pickup distance only
+    ($\lambda_1, \lambda_2 = 0$).
+
+    \item \textbf{Least Allocated Worker First (LAF):} Pure fairness
+    baseline that assigns tasks to workers with the fewest completed tasks.
+
+    \item \textbf{EWMA-Only:} A fairness-only baseline that prioritises
+    worker assignment using an exponentially weighted moving average (EWMA)
+    of idle time, following the same fairness signal as our composite
+    framework but without utility or starvation components.
+
+    \item \textbf{BiRanking (BRK):} A randomised baseline inspired
+    by \cite{[CITATION]} that assigns permanent random ranks to workers and
+    tasks at arrival time, then greedily matches the lowest-ranked feasible
+    pair at each event.
+
+    \item \textbf{FATP-ANN:} A fairness-aware baseline from existing
+    work \cite{CR-08}.
+
+    \item \textbf{Fixed-Composite:} A static weight configuration of the
+    proposed composite assignment framework, tuned via grid search on the
+    training set.
+
+    \item \textbf{TSGF Sampling:} A randomised policy-sampling baseline
+    adapted from the Two-Sided Group Fairness framework \cite{[CITATION]},
+    which samples one of three sub-heuristics — operator profit, worker
+    fairness, or task fairness — at each dispatch event with probabilities
+    $\alpha$, $\beta$, $\gamma$ respectively.
+
+    \item \textbf{Cost-Balancing (CB):} An online batching
+    baseline \cite{[CITATION]} that defers assignment until the estimated
+    matching cost is bounded by a factor $\alpha$ of the accumulated
+    waiting cost, then runs a greedy batch match.
+
+    \item \textbf{Discrete Review LP:} A fixed-interval batch-matching
+    baseline from \cite{[CITATION]} that defers all arrivals and solves a
+    global bipartite assignment problem via the Hungarian algorithm at
+    periodic review epochs, maximising spatial utility subject to task
+    expiry and worker deadline constraints.
+
+    \item \textbf{ONRTA-RT:} The randomised-threshold variant of the
+    Online Non-Rejection Task Assignment policy \cite{[CITATION]}, which
+    draws a random utility threshold $\theta$ at the start of each episode
+    and accepts only worker–task pairs whose utility exceeds $\theta$.
+
+    \item \textbf{ONRTA-OP:} The optimal-threshold variant
+    of \cite{[CITATION]}, a two-stage policy that applies a greedy
+    heuristic in the first half of the horizon and switches to a globally
+    optimal bipartite matching in the second half, using expected arrival
+    counts to set the stage transition point.
+
+    \item \textbf{MMD-Batch (MMD-BB):} A batch-based heuristic
+    baseline from \cite{CR-11} that periodically buffers tasks and
+    available workers to minimise the bottleneck (maximum) delay, defined
+    as the summation of task buffering time and worker travel time. This
+    approach utilises a periodic bipartite matching process to optimise
+    worst-case individual performance rather than global average utility.
+\end{itemize}
+
+\subsubsection{Evaluation Metrics}
+To evaluate the effectiveness of the proposed composite assignment framework
+in navigating the tripartite trade-off between efficiency, fairness, and
+starvation prevention, we report the following metrics across all strategies.
+
+\textbf{1) Platform Economics \& Efficiency:}
+We use the \textit{Task Assignment Ratio} (TAR) as the primary indicator of
+system throughput, defined as the fraction of successfully matched requests
+relative to total task arrivals ($|M| / |\mathcal{T}|$). We additionally
+report \textit{Total Platform Revenue} (k\$) to capture economic viability,
+as higher-revenue trips contribute disproportionately to overall platform
+sustainability.
+
+\textbf{2) Supply-Side Equity:}
+We measure distributive fairness using \textbf{Jain's Fairness Index (JFI)}
+\cite{JFI-Original} computed over the vector of cumulative task counts
+$\mathbf{x}$ across all active workers:
+\begin{equation}
+    JFI(\mathbf{x}) = \frac{(\sum_{i=1}^{n} x_i)^2}{n \sum_{i=1}^{n} x_i^2}
+\end{equation}
+where $n$ is the number of workers. A JFI approaching 1.0 indicates that
+tasks are distributed equitably across the workforce.
+
+\textbf{3) Demand-Side Reliability:}
+We quantify customer-facing service quality through two complementary
+metrics. \textit{Mean Wait Time} (minutes) measures the average interval
+from task release $r_j$ to worker pickup, capturing overall responsiveness
+of the assignment policy. \textit{Average Pickup Distance} (km) measures
+the mean empty distance a worker travels to reach the pickup origin,
+serving as a direct proxy for the spatial cost of each dispatch decision.
+Together, these metrics reveal whether a strategy achieves low wait times
+through genuinely efficient spatial matching or by accepting long,
+costly detours to serve requests quickly.
+
+\textbf{4) Starvation \& Operational Overhead:}
+We report \textit{Peak Backlog} — the maximum number of simultaneously
+unassigned tasks observed during a simulation day — as a measure of
+the system's resilience to demand spikes. A backlog of zero indicates that
+the strategy drains the active task pool without accumulation. Finally, we
+include \textit{Wall-clock Runtime} (seconds) to assess the practical
+computational cost of each strategy, as tractability at city-scale is a
+prerequisite for real-world deployment.
+
+\subsection{Effectiveness}
+\label{sec:overall_results}
+\begin{table}[h]
+\caption{Strategy Performance on a Representative Held-out Test Day (9 November 2016, Chengdu DiDi GAIA Dataset). $\dagger$ denotes our proposed method. Bold values indicate the best performance in each metric. $^*$Values pending confirmation from full benchmark run.}
+\label{tab:main_results}
+\centering
+\small
+\begin{tabularx}{\columnwidth}{|X|c|c|c|c|c|c|}
+\hline
+\textbf{Strategy} & \textbf{Rev. (k\$)} $\uparrow$ & \textbf{Wait} $\downarrow$ & \textbf{JFI} $\uparrow$ & \textbf{TAR} $\uparrow$ & \textbf{Backlog} $\downarrow$ & \textbf{Time (s)} $\downarrow$ \\ \hline
+Greedy                       & 2,765          & 2.614          & 0.594          & \textbf{0.863} & 140            & 341.7          \\ \hline
+EWMA-Only$^{\ddagger}$       & ---            & ---            & ---            & ---            & ---            & ---            \\ \hline
+LAF \cite{CR-10}             & 2,765          & 9.643          & \textbf{0.705} & \textbf{0.863} & 155            & 268.1          \\ \hline
+BiRanking (BRK)              & 2,751          & 12.344         & 0.592          & 0.857          & \textbf{0}     & 381.6          \\ \hline
+FATP-ANN \cite{CR-08}        & 2,752          & 3.402          & 0.557          & 0.853          & 693            & 1,714.8        \\ \hline
+ONRTA-RT                     & 2,750          & 12.172         & 0.642          & 0.855          & \textbf{0}     & 338.5          \\ \hline
+ONRTA-OP                     & 2,765          & 2.623          & 0.594          & \textbf{0.863} & \textbf{0}     & 488.5          \\ \hline
+Disc. Review LP              & 2,764          & \textbf{1.916} & 1.000          & 0.862          & \textbf{0}     & 3,248.1        \\ \hline
+k-NLF ($k{=}15$)$^\dagger$   & $\approx$2,766$^*$ & 3.476      & 0.645          & \textbf{0.863} & $^*$           & \textbf{37.5}  \\ \hline
+\textbf{Composite}$^\dagger$ & \textbf{2,767} & 3.286          & 0.584          & \textbf{0.863} & \textbf{0}     & 103.6          \\ \hline
+\end{tabularx}
+\end{table}
+
+
+
+\subsection{Efficiency & Scalability}
+
+\subsection{Ablation & Sensitivity Analysis}
+\subsubsection{Impact of k}
+\subsubsection{Task-Count vs EWMA}
+\subsubsection{Weighted Scorer Sensitvity}

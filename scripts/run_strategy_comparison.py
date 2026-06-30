@@ -32,41 +32,47 @@ from data.loader import load_workers_tasks
 # Ordered from least to most computationally expensive.
 # ---------------------------------------------------------------------------
 STRATEGIES: List[tuple] = [
+    # ── Proposed strategies (primary analysis interest) ──────────────────────
     # O(W) immediate scan — simplest possible baseline
     ("Greedy",                "greedy",              {}),
-    # O(k) random selection from k-NN
-    ("Random",                "random_assign",       {"k": 15}),
-    # O(k) EWMA fairness only
-    ("EWMA-Only",             "ewma_only",           {"gamma": 0.2}),
     # O(k) k-nearest least-first: fewest completed tasks in k-NN pool wins
     ("k-NLF (k=15)",          "knlf",                {"k": 15}),
+    # O(k) composite EWMA fairness + utility (sw=0.0 confirmed Pareto-optimal)
+    ("Composite (static)",    "composite",           {
+        "fairness_weight": 1.6, "starvation_weight": 0.0,
+        "utility_weight": 1.0, "gamma": 0.1, "k": 15,
+        "soft_threshold": 0.0,
+    }),
+
+    # ── O(k) signal variants (ablation / signal comparison) ──────────────────
+    # O(k) EWMA fairness only (no utility term)
+    ("EWMA-Only",             "ewma_only",           {"gamma": 0.2}),
     # O(k) k-NTF economic: lowest earnings-per-hour in k-NN pool wins
     ("k-NTF-EPH (k=15)",      "kntf_eph",            {"k": 15}),
     # O(k) k-NTF temporal: highest idle-ratio in k-NN pool wins
     ("k-NTF-IR (k=15)",       "kntf_ir",             {"k": 15}),
+    # O(k) random selection from k-NN (spatial-only random baseline)
+    ("Random",                "random_assign",       {"k": 15}),
+
+    # ── O(W) unconstrained baselines ─────────────────────────────────────────
     # O(W) look-ahead fairness (fewest completed tasks wins — unconstrained)
     ("LAF",                   "laf",                 {}),
-    # O(n) deferred cost-balance trigger  [EXCLUDED — times out on 20161109]
-    # ("Cost-Balancing",        "cost_balancing",      {"alpha": 0.5, "k": 10}),
     # O(W) KVV random-rank scan
     ("BiRanking (BRK)",       "biranking",           {"seed": 42}),
-    # O(k) composite with EWMA + starvation + utility
-    ("Composite (static)",    "composite",           {
-        "fairness_weight": 1.0, "starvation_weight": 0.2,
-        "utility_weight": 1.0, "gamma": 0.1, "k": 15,
-        "soft_threshold": 0.05,
-    }),
-    # O(1) roll + O(W) per chosen heuristic  [EXCLUDED — times out on 20161109]
-    # ("TSGF Sampling",         "tsgf",                {"alpha": 0.4, "beta": 0.3, "gamma": 0.3, "k": 15, "seed": 42}),
-    # O(k) + fairness cap tracking
-    ("FATP-ANN",              "fatp_ann",            {"mu": 0.5, "alpha_scale": 0.5, "use_k_nearest": True, "k": 15}),
-    # O(W*T) Hungarian at fixed review intervals
-    ("Discrete Review LP",    "discrete_review_lp",  {"review_period_seconds": 60.0}),
+    # O(k) + fairness cap tracking (mu=1.5 calibrated to dataset mean task time)
+    ("FATP-ANN",              "fatp_ann",            {"mu": 1.5, "alpha_scale": 0.5, "use_k_nearest": True, "k": 15}),
+
+    # ── Heavy / batch baselines (run last — slowest) ─────────────────────────
     # O(W) threshold scan — randomised theta
     ("ONRTA-RT",              "onrta_rt",            {"seed": 42}),
     # O(W*T) Hungarian in Stage 2 (triggered at midpoint)
     ("ONRTA-OP",              "onrta_op",            {}),
-    # O(W*T) Hungarian on every event — most expensive  [EXCLUDED — times out on 20161109]
+    # O(W*T) Hungarian at fixed review intervals (review_period=15s confirmed optimal)
+    ("Discrete Review LP",    "discrete_review_lp",  {"review_period_seconds": 15.0}),
+
+    # ── Excluded (time out on 20161109) ───────────────────────────────────────
+    # ("Cost-Balancing",        "cost_balancing",      {"alpha": 0.5, "k": 10}),
+    # ("TSGF Sampling",         "tsgf",                {"alpha": 0.4, "beta": 0.3, "gamma": 0.3, "k": 15, "seed": 42}),
     # ("MMD-Batch",             "mmd_batch",           {}),
 ]
 

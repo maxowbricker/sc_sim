@@ -79,15 +79,27 @@ DEFAULT_DATE_START = "2010-09-01"
 DEFAULT_DATE_END   = "2010-09-30"
 
 STRATEGIES: List[Tuple[str, str, dict]] = [
-    ("Greedy",             "greedy",    {}),
-    ("Composite (static)", "composite", {
-        "fairness_weight":   1.0,
-        "starvation_weight": 0.2,
-        "utility_weight":    1.0,
-        "gamma":             0.1,
-        "k":                 15,
-        "soft_threshold":    0.05,
+    # ── Proposed strategies ───────────────────────────────────────────────────
+    ("Greedy",                "greedy",              {}),
+    ("k-NLF (k=15)",          "knlf",                {"k": 15}),
+    ("Composite (static)",    "composite",           {
+        "fairness_weight": 1.6, "starvation_weight": 0.0,
+        "utility_weight": 1.0, "gamma": 0.1, "k": 15,
+        "soft_threshold": 0.0,
     }),
+    # ── O(k) signal variants ──────────────────────────────────────────────────
+    ("EWMA-Only",             "ewma_only",           {"gamma": 0.2}),
+    ("k-NTF-EPH (k=15)",      "kntf_eph",            {"k": 15}),
+    ("k-NTF-IR (k=15)",       "kntf_ir",             {"k": 15}),
+    ("Random",                "random_assign",       {"k": 15}),
+    # ── O(W) unconstrained baselines ─────────────────────────────────────────
+    ("LAF",                   "laf",                 {}),
+    ("BiRanking (BRK)",       "biranking",           {"seed": 42}),
+    ("FATP-ANN",              "fatp_ann",            {"mu": 1.5, "alpha_scale": 0.5, "use_k_nearest": True, "k": 15}),
+    # ── Heavy / batch baselines ───────────────────────────────────────────────
+    ("ONRTA-RT",              "onrta_rt",            {"seed": 42}),
+    ("ONRTA-OP",              "onrta_op",            {}),
+    ("Discrete Review LP",    "discrete_review_lp",  {"review_period_seconds": 15.0}),
 ]
 
 # (label, workers_per_task_ratio)
@@ -116,6 +128,7 @@ def extract_metrics(stats: Dict[str, Any], workers) -> Dict[str, Any]:
     tar      = completed / total if total else 0.0
     jfi      = stats.get("final_jains_fairness_index", 0.0)
     jfi_earn = stats.get("final_jfi_earnings", 0.0)
+    revenue  = stats.get("total_platform_revenue", 0.0)
 
     worker_task_counts = [w.completed_tasks for w in workers]
     jfi_rate = sum(1 for c in worker_task_counts if c > 0) / max(len(worker_task_counts), 1)
@@ -135,6 +148,7 @@ def extract_metrics(stats: Dict[str, Any], workers) -> Dict[str, Any]:
         "Tasks":           total,
         "Completed":       completed,
         "TAR":             tar,
+        "Revenue ($)":     revenue,
         "JFI (tasks)":     jfi,
         "JFI (earnings)":  jfi_earn,
         "JFI rate":        jfi_rate,
@@ -152,6 +166,7 @@ def extract_metrics(stats: Dict[str, Any], workers) -> Dict[str, Any]:
 
 METRIC_KEYS = [
     "Workers", "Tasks", "TAR",
+    "Revenue ($)",
     "JFI (tasks)", "JFI (earnings)", "JFI rate",
     "Avg Wait (m)", "P95 Wait (m)",
     "Utilisation (%)", "Avg Pickup (km)",
@@ -165,6 +180,8 @@ def _fmt(v: Any, key: str) -> str:
     if isinstance(v, float):
         if key in ("TAR", "JFI (tasks)", "JFI (earnings)", "JFI rate"):
             return f"{v:.4f}"
+        if key == "Revenue ($)":
+            return f"{v:,.1f}"
         if "%" in key:
             return f"{v:.1f}"
         return f"{v:.3f}"
