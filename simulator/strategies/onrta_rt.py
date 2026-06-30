@@ -5,8 +5,28 @@ Draws a random utility threshold theta once per episode from {e^0, ..., e^(lambd
 where lambda = ceil(ln(U_max + 1)). Spatial scores are scaled by UTILITY_SCALE so
 fractional 1/(1+d_pick) utilities produce a meaningful logarithmic threshold set.
 
-Reference: ONRTA randomized threshold policy for spatial crowdsourcing.
-'Non-Rejection_Aware_Online_Task_Assignment_in_Spatial_Crowdsourcing.pdf'
+Reference: "Non-Rejection Aware Online Task Assignment in Spatial Crowdsourcing"
+(Algorithm 1 / ONRTA-RT, Sec. IV).
+
+Paper fidelity notes (for WISE methodology):
+
+- Threshold generation (Alg. 1 L1–2): lambda = ceil(ln(U_max + 1)); theta drawn
+  uniformly from {e^0, ..., e^(lambda-1)} once per episode. UTILITY_SCALE=100 sets
+  U_max for spatial utility 100/(1+d_pick); without scaling, U_max~1 degenerates
+  lambda to 1 and collapses the randomized policy (see _ensure_theta).
+- Candidate pool (Alg. 1 L4–6): uniform random choice among all feasible pairs
+  with scaled utility >= theta — exact match to paper Cand sampling.
+- Non-rejection fallback (Alg. 1 L8–10): if Cand empty, assign highest-utility
+  feasible pair containing the arriving entity (best_score_fallback loop).
+- Returned score vs threshold: threshold compares UTILITY_SCALE/(1+d_pick); returned
+  assignment score is unscaled 1/(1+d_pick) for cross-baseline metric comparability.
+- Expiration pruning (Alg. 1 L11): tasks removed from deferred pool via TASK_EXPIRE
+  events (simulation.py); infeasible pairs skipped via _is_feasible at current now.
+  Workers past deadline are not explicitly removed from available_workers but cannot
+  match (finish_eta > worker.deadline). Same pattern as other strategies.
+- Worker-side pool: FREE_WORKER scans state.deferred_tasks only; unmatched tasks
+  are deferred on arrival so this matches ONRTA-RT in practice (onrta_op also
+  includes active_tasks for safety).
 """
 
 from __future__ import annotations
@@ -19,6 +39,7 @@ from simulator.spatial_index import fast_manhattan_km
 from simulator.strategies import register
 
 AVG_SPEED_KMH = 30.0
+# U_max for Alg. 1 threshold set; spatial 1/(1+d) ~ 1 would collapse lambda to 1.
 UTILITY_SCALE = 100.0
 
 
@@ -59,6 +80,7 @@ def _get_rng(onrta_rt_state: Dict[str, Any], seed: int) -> random.Random:
 
 
 def _ensure_theta(onrta_rt_state: Dict[str, Any], seed: int) -> float:
+    """Alg. 1 L1–2: draw theta in {e^0, ..., e^(lambda-1)} once per episode."""
     if "theta" in onrta_rt_state:
         return onrta_rt_state["theta"]
 
@@ -108,10 +130,12 @@ def _process_entity(
     final_d_pick = None
 
     if candidates_above_theta:
+        # Alg. 1 L4–6: uniform random choice from Cand (utility >= theta).
         assigned_target, _, final_d_pick = _get_rng(onrta_rt_state, seed).choice(
             candidates_above_theta
         )
     elif best_target_fallback is not None:
+        # Alg. 1 L8–10: non-rejection greedy fallback when Cand is empty.
         assigned_target = best_target_fallback
         final_d_pick = best_dpick_fallback
 
@@ -121,6 +145,7 @@ def _process_entity(
         task = entity if is_task else assigned_target
         assigned_task = _commit_assignment(task, worker, now, final_d_pick)
         state.assign_task(assigned_task, worker)
+        # Unscaled utility for cross-baseline metrics (threshold uses scaled score).
         assignments.append((assigned_task, worker, 1.0 / (1.0 + final_d_pick)))
     elif is_task:
         if state.defer_task(entity, now):
