@@ -134,7 +134,11 @@ class EventSimulator:
         """Earliest time matching could matter: backlog now or next pool-changing event."""
         if self.state is None:
             return None
-        if self.state.deferred_tasks or self.state.active_tasks or self.state.available_workers:
+        # Deferred or active tasks need attention right now.
+        # Do NOT include available_workers here: idle workers with no tasks in the
+        # system don't need a review — keeping them would cause the batch-review
+        # chain to spin indefinitely after the last task has been processed.
+        if self.state.deferred_tasks or self.state.active_tasks:
             return self.current_time
 
         next_time = None

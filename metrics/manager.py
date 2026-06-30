@@ -158,6 +158,11 @@ class MetricsManager:
         self.step_tasks_released += 1
         self.fairness_tracker.record_task_release(task, available_workers, current_time)
 
+        # Opportunity revenue tracking: only run when diagnostics are enabled.
+        # The k-NN query on every task release is O(k) × n_tasks and adds
+        # measurable overhead for long runs — skip it during paper experiments.
+        if not self.enable_diagnostics:
+            return
         if not available_workers or spatial_index is None:
             return
 
@@ -201,13 +206,18 @@ class MetricsManager:
         
         for w in state.all_workers_map.values():
             if w.available:
-                if w.last_state_ts is not None and w.last_state_ts < current_time:
-                    time_delta = current_time - w.last_state_ts
+                # Cap at the worker's own shift deadline so idle time never
+                # exceeds shift length (prevents negative utilisation for
+                # deferral-heavy strategies whose simulation ends after some
+                # workers' shifts have already expired).
+                effective_time = min(current_time, w.deadline)
+                if w.last_state_ts is not None and w.last_state_ts < effective_time:
+                    time_delta = effective_time - w.last_state_ts
                     if time_delta > 0:
                         w.update_idle_time(time_delta)
-                        w.last_state_ts = current_time
+                        w.last_state_ts = effective_time
                 elif w.last_state_ts is None:
-                    w.last_state_ts = current_time
+                    w.last_state_ts = effective_time
         
         workers = list(state.all_workers_map.values())
         self.fairness_tracker.update_worker_stats(workers)
