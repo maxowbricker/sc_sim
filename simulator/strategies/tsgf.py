@@ -6,9 +6,50 @@ composite score (as in composite.py), each dispatch event samples one of three
 pure sub-heuristics — operator profit, max-min worker fairness, max-min task
 fairness — or explicitly defers to accumulate market thickness.
 
-Reference: TSGF framework for three-sided spatial matching (operator / offline /
-online). Full offline LP + dependent rounding is omitted; this module implements
-the paper's runtime sampling mechanism for the event-driven simulator.
+Reference: "Rawlsian Fairness in Online Bipartite Matching: Two-Sided, Group,
+and Individual" (TSGF / KIID / KAD). This module is a TSGF-*inspired* heuristic
+adaptation for the event-driven spatial crowdsourcing simulator — NOT a faithful
+reproduction of the paper algorithm. Declare these gaps in methodology.
+
+Paper fidelity notes (disparities vs. original TSGF):
+
+1. LP + PPDR vs. runtime heuristics
+   Paper: offline LPs (Eqs. 1–3) yield fractional matchings x*, y*, z* for
+   operator profit, offline fairness, and online fairness; online, Algorithm 1
+   rolls a random number and uses PPDR (Probe with Permuted Dependent Rounding)
+   to sample an edge from a pre-computed fractional distribution.
+   Here: alpha/beta/gamma sampling selects among myopic heuristics
+   (_execute_pure_greedy_match, _execute_worker_fairness_match,
+   _execute_task_fairness_match) with no LP solve and no PPDR. Theoretical
+   competitive-ratio guarantees do not apply.
+
+2. Group Rawlsian fairness vs. individual idle/wait proxies
+   Paper: LP objectives maximize the minimum *group* average expected utility
+   (e.g. advantaged vs. disadvantaged neighborhoods); individual fairness is
+   an extension on the same LP framework.
+   Here: "worker fairness" = single most idle worker; "task fairness" = single
+   longest-waiting deferred task. No group membership or group-level min-utility
+   objective — will underperform on group-disparity metrics relative to true TSGF.
+
+3. Immediate irrevocable rejection vs. deferral (market thickness)
+   Paper: in KIID/KAD online bipartite matching, an unmatched or un-sampled
+   vertex is rejected permanently upon arrival; no deferred pool.
+   Here: all arriving tasks are deferred; the (1 - alpha - beta - gamma) bucket
+   is an explicit deferral window to accumulate market thickness. This changes
+   arrival assumptions and dynamics underlying TSGF's competitive ratios.
+
+4. Utility functions (NYC taxi experiments, Sec. 6)
+   Paper: w_e^O = tripLength(v) (operator profit), w_e^V = -dist(u,v) (rider),
+   w_e^U = tripLength(v) - dist(u,v) (driver).
+   Here: _execute_pure_greedy_match minimizes pickup distance (operator proxy),
+   not trip length / drop distance (revenue). Worker/task fairness heuristics
+   use idle seconds and wait time, not the paper's utility weights.
+
+Recommended paper wording: refer to this baseline as "TSGF-inspired heuristic"
+(or TSGF-H) and state that weighted sampling was adapted to myopic online
+heuristics with deferral, omitting offline LP + PPDR, to fit the SAT event
+paradigm. For a rigorous TSGF baseline, implement offline LPs, PPDR sampling,
+group memberships, paper utilities, and disable deferral for that strategy only.
 """
 
 from __future__ import annotations
@@ -129,7 +170,11 @@ def _best_feasible_pair_for_worker(
 def _execute_pure_greedy_match(
     state, now: float, k: int
 ) -> List[Tuple[Any, Any, float]]:
-    """Heuristic A: minimize pickup distance across the deferred pool."""
+    """Heuristic A (operator-profit proxy): minimize pickup distance.
+
+    Paper Sec. 6 uses w_e^O = tripLength(v) (drop/revenue distance), not
+    pickup distance — see module docstring disparity #4.
+    """
     best: Optional[Tuple[Any, Any, float]] = None
 
     for task in state.deferred_tasks:
@@ -151,7 +196,11 @@ def _execute_pure_greedy_match(
 def _execute_worker_fairness_match(
     state, now: float, k: int
 ) -> List[Tuple[Any, Any, float]]:
-    """Heuristic B: max-min Rawlsian — serve the most idle (starved) worker."""
+    """Heuristic B: serve the most idle (starved) worker.
+
+    Paper: max-min *group* expected utility via offline LP (y*), not single-worker
+    idle time — see module docstring disparity #2.
+    """
     if not state.available_workers:
         return []
 
@@ -169,7 +218,11 @@ def _execute_worker_fairness_match(
 def _execute_task_fairness_match(
     state, now: float, k: int
 ) -> List[Tuple[Any, Any, float]]:
-    """Heuristic C: max-min Rawlsian — serve the longest-waiting deferred task."""
+    """Heuristic C: serve the longest-waiting deferred task.
+
+    Paper: max-min *group* expected utility via offline LP (z*), not single-task
+    wait time — see module docstring disparity #2.
+    """
     if not state.deferred_tasks:
         return []
 
@@ -201,6 +254,8 @@ def _sample_and_dispatch(
 
     roll = _next_roll(seed)
 
+    # Paper Alg. 1: roll selects among LP-derived fractional distributions + PPDR
+    # edge sampling — not myopic heuristics (disparity #1; see module docstring).
     if roll < alpha:
         return _execute_pure_greedy_match(state, now, k)
     if roll < alpha + beta:
@@ -208,7 +263,8 @@ def _sample_and_dispatch(
     if roll < alpha + beta + gamma:
         return _execute_task_fairness_match(state, now, k)
 
-    # Explicit deferral window (1 - alpha - beta - gamma) for market thickness.
+    # Paper: unmatched vertices are rejected permanently (disparity #3).
+    # Here: explicit deferral window for market thickness — tasks stay in pool.
     return []
 
 
@@ -226,6 +282,8 @@ def assign_new_tasks_tsgf(
     **_,
 ):
     for task in tasks_to_assign:
+        # Paper KIID/KAD: immediate accept/reject on arrival — no deferred pool
+        # (disparity #3). All tasks deferred here to fit SAT event paradigm.
         if state.defer_task(task, now):
             if expiry_scheduler:
                 expiry_scheduler(task)
