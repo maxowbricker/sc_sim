@@ -1,23 +1,6 @@
 """
 Event-driven Spatial Crowdsourcing simulator.
 """
-import numpy as np
-from heapq import heappush, heappop
-import copy
-
-from typing import Dict, Optional
-from config import get_simulation_config
-from simulator.state import StateManager
-from simulator.strategies import get_strategy
-from metrics.manager import MetricsManager
-from simulator.spatial_index import set_city_constants
-from simulator.behavior import seed_acceptance_rng
-
-"""
-Event-driven Spatial Crowdsourcing simulator.
-Highly optimized for Deep Reinforcement Learning (DRL) throughput.
-"""
-
 import copy
 from heapq import heappush, heappop
 from typing import Dict, Optional
@@ -33,7 +16,7 @@ from simulator.behavior import seed_acceptance_rng
 
 class EventSimulator:
     """
-    Event-driven simulator that supports step-based execution for RL control.
+    Event-driven simulator with step-based execution for fine-grained control.
     """
 
     @staticmethod
@@ -105,7 +88,7 @@ class EventSimulator:
         self.review_batch_handler = strategy_handlers.get("REVIEW_BATCH")
         self._always_invoke_new_task_handler = (
             self.review_batch_handler is not None
-            or self.strategy_name in ("onrta_op", "onrta_rt", "biranking")
+            or self.strategy_name in ("onrta_rt", "biranking")
         )
         
         # Inject standard simulator callbacks into strategy params
@@ -189,21 +172,6 @@ class EventSimulator:
         if acceptance_cfg.get("enabled", False):
             seed_acceptance_rng(acceptance_cfg.get("seed", 42))
         
-        # Specific tracker injection (e.g. FATP limits)
-        if self.strategy_name == "fatp_ann":
-            from simulator.strategies.fatp_ann import FairnessCapTracker
-            fairness_cap_tracker = FairnessCapTracker()
-            fairness_cap_tracker.initialize(current_workers)
-            self.strategy_params['fairness_cap_tracker'] = fairness_cap_tracker
-
-        if self.strategy_name == "onrta_op":
-            self.strategy_params["onrta_tracker"] = {"arrivals": 0}
-            if self.strategy_params.get("expected_a") is None:
-                self.strategy_params["expected_a"] = len(current_tasks)
-            if self.strategy_params.get("expected_b") is None:
-                # Paper b = sum(w.c); unit-capacity workers => len(workers)
-                self.strategy_params["expected_b"] = len(current_workers)
-
         if self.strategy_name == "onrta_rt":
             self.strategy_params["onrta_rt_state"] = {}
 
@@ -237,7 +205,7 @@ class EventSimulator:
         return self.get_state()
 
     def update_weights(self, fairness_weight, starvation_weight, utility_weight=None):
-        """Update composite strategy weights. Uses standard names for DRL compatibility."""
+        """Update composite strategy weights at runtime."""
         if self.strategy_name == "composite":
             params = {
                 'fairness_weight': float(fairness_weight),
@@ -416,68 +384,3 @@ def run_simulation(workers, tasks, start_time=None, end_time=None, sim_config: O
     sim.reset(start_time, end_time)
     sim.step(duration_seconds=None) # Run to completion
     return sim.get_final_results()
-
-class Simulation:
-    """Wrapper class for the event-driven simulation to match notebook expectations."""
-    
-    def __init__(self, config, workers_df, tasks_df):
-        self.config = config
-        self.workers_df = workers_df
-        self.tasks_df = tasks_df
-        self.metric_tracker = None 
-        
-    def run(self):
-        """Run the simulation and return standardized results."""
-        from models.worker import Worker
-        from models.task import Task
-        from simulator.spatial_index import set_city_constants
-        
-        print("🚀 Initializing Simulation Environment...")
-        
-        # --- FLAT EARTH SETUP ---
-        mean_lat = (self.workers_df['start_lat'].mean() + self.tasks_df['pickup_lat'].mean()) / 2
-        set_city_constants(mean_lat)
-        print(f"   🌍 Flat-Earth Projection Configured (Mean Lat: {mean_lat:.4f}°)")
-        
-        # --- FAST VECTORIZED INSTANTIATION ---
-        print(f"   📊 Instantiating {len(self.workers_df):,} Workers...")
-        workers = [Worker(row) for row in self.workers_df.to_dict('records')]
-        
-        print(f"   📊 Instantiating {len(self.tasks_df):,} Tasks...")
-        tasks = [Task(row) for row in self.tasks_df.to_dict('records')]
-        
-        print("🚀 Executing Event Loop...")
-        results = run_simulation(workers, tasks, sim_config=self.config)
-        
-        self.metric_tracker = results.get('metric_tracker')
-        
-        total_tasks = len(tasks)
-        completed_tasks = results.get('completed_tasks', 0)
-        assigned_tasks = results.get('total_task_assignments_tracked', 0)
-        total_travel_km = results.get('total_travel_km', 0)
-        
-        return {
-            'jfi': results.get('final_jains_fairness_index', 0.0),
-            'task_assignment_ratio': assigned_tasks / total_tasks if total_tasks > 0 else 0.0,
-            'task_completion_rate': completed_tasks / total_tasks if total_tasks > 0 else 0.0,
-            'avg_wait_time_minutes': results.get('total_wait_min', 0) / completed_tasks if completed_tasks > 0 else 0.0,
-            'avg_pickup_distance_km': results.get('empty_km', 0) / completed_tasks if completed_tasks > 0 else 0.0,
-            'total_travel_distance_km': total_travel_km,
-            'empty_km_ratio': results.get('empty_km', 0) / total_travel_km if total_travel_km > 0 else 0.0,
-            'ewma_cv': results.get('final_ewma_cv', 1.0),
-            'utility_difference': results.get('final_utility_difference_tasks', 0.0),
-            'fairness_loss': results.get('final_fairness_loss', 0.0),
-            'total_tasks': total_tasks,
-            'assigned_tasks': assigned_tasks,
-            'completed_tasks': completed_tasks,
-            'max_wait_time': max(results.get('wait_times', [0])) if results.get('wait_times') else 0.0,
-            'backlog_peak': results.get('backlog_peak', 0),
-            'eligibility_utility_difference': results.get('eligibility_utility_difference'),
-            'eligibility_fairness_loss': results.get('eligibility_fairness_loss'),
-            'mean_input_output_ratio': results.get('mean_input_output_ratio'),
-            'min_input_output_ratio': results.get('min_input_output_ratio'),
-            'max_input_output_ratio': results.get('max_input_output_ratio'),
-            'workers_with_eligibility_data': results.get('workers_with_eligibility_data', 0),
-            'total_task_assignments_tracked': results.get('total_task_assignments_tracked', 0),
-            'deferral_stats': results.get('deferral_stats'),
-        }

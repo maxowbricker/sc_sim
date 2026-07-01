@@ -9,7 +9,7 @@ Two-panel figure:
 TAR is omitted from the figure (range ±0.0002 across the full sweep) and
 reported instead as a single sentence in the prose.
 
-Input:  results/s54_ablation/fairness_weight_sweep_20161109_cluster.csv
+Input:  results/s54_ablation/fairness_weight_sweep_final.csv
 Output: results/figures/fairness_weight_sweep.pdf
         results/figures/fairness_weight_sweep.png
 
@@ -29,7 +29,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)
 )))
 INPUT   = os.path.join(PROJECT_ROOT, "results", "s54_ablation",
-                       "fairness_weight_sweep_20161109_v2.csv")
+                       "fairness_weight_sweep_final.csv")
 OUT_PDF = os.path.join(PROJECT_ROOT, "results", "figures", "fairness_weight_sweep.pdf")
 OUT_PNG = os.path.join(PROJECT_ROOT, "results", "figures", "fairness_weight_sweep.png")
 
@@ -57,11 +57,11 @@ COLOR_GREEDY = "#808080"   # neutral grey
 COLOR_KNLF   = "#4B0082"   # dark indigo
 COLOR_GUIDE  = "#aaaaaa"
 
-# Reference values from knlf_k_sweep_20161109_cluster.csv (k=15 rows)
+# Reference values from knlf_k_sweep_20161109_v2.csv (k=15 rows, global-scan Greedy anchor)
 GREEDY_JFI_RATE = 0.8634
-GREEDY_P95      = 10.12
-KNLF_JFI_RATE   = 0.8866
-KNLF_P95        = 14.17
+GREEDY_P95      = 10.04
+KNLF_JFI_RATE   = 0.8897
+KNLF_P95        = 14.08
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 df = pd.read_csv(INPUT).sort_values("fairness_weight")
@@ -71,9 +71,10 @@ jfi      = df["JFI (tasks)"].tolist()
 jfi_rate = df["JFI rate"].tolist()
 p95      = df["P95 Wait (m)"].tolist()
 
-# ── Figure: 2-panel with shared bottom legend ─────────────────────────────────
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(6.5, 3.0))
-fig.subplots_adjust(wspace=0.45, bottom=0.28)
+# ── Figure: two data panels + shared left legend ──────────────────────────────
+# Shift both panels right (left=0.26) to leave clear margin for the 4-entry legend.
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.0, 3.0))
+fig.subplots_adjust(left=0.26, right=0.97, wspace=0.45, bottom=0.15, top=0.88)
 
 def _add_guide(ax):
     ax.axvline(PAPER_LF, linestyle="--", linewidth=0.8, color=COLOR_GUIDE, zorder=1)
@@ -115,20 +116,20 @@ ax2.set_xlabel("Fairness weight $\\lambda_f$")
 ax2.set_ylabel("P95 task wait time (min)")
 ax2.set_title("(b) Task Tail Latency")
 
-# ── Shared legend at bottom ───────────────────────────────────────────────────
+# ── Shared left legend ────────────────────────────────────────────────────────
 fig.legend(
     handles=[h_greedy_a, h_knlf_a, h_comp_a, h_comp_b],
     labels=[
         "Greedy baseline",
-        "k-NLF ($k{=}15$)",
-        "Composite — JFI rate $\\uparrow$",
-        "Composite — P95 wait $\\downarrow$",
+        r"k-NLF ($k{=}15$)",
+        r"Composite (JFI $\uparrow$)",
+        r"Composite (P95 $\downarrow$)",
     ],
-    loc="lower center",
-    ncol=4,
+    loc="center left",
+    bbox_to_anchor=(0.01, 0.54),
+    bbox_transform=fig.transFigure,
     frameon=False,
-    fontsize=7.5,
-    bbox_to_anchor=(0.5, 0.01),
+    fontsize=8,
 )
 
 # ── Save ──────────────────────────────────────────────────────────────────────

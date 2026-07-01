@@ -4,21 +4,21 @@
 
 ```bash
 # Didi 20161109 — full strategy comparison
-caffeinate python scripts/experiments/s52_main_results/run_strategy_comparison.py \
+python3 scripts/experiments/s52_main_results/run_strategy_comparison.py \
     --day 20161109 \
-    --output results/s1_overall_performance/didi_20161109.csv
+    --output results/s52_main_results/didi_20161109.csv
 
 # Gowalla Austin compressed, 1:5 ratio — full strategy comparison
-caffeinate python scripts/experiments/s52_main_results/run_gowalla_comparison.py \
+python3 scripts/experiments/s52_main_results/run_gowalla_comparison.py \
     --compression compressed --ratio 0.2 \
-    --output results/s1_overall_performance/gowalla_austin_compressed.csv
+    --output results/s52_main_results/gowalla_austin_compressed.csv
 ```
 
 ## Output files
 | File | Contents |
 |------|----------|
-| `results/s1_overall_performance/didi_20161109.csv` | One row per strategy — TAR, JFI, wait, revenue, time |
-| `results/s1_overall_performance/gowalla_austin_compressed.csv` | Same columns, Gowalla dataset |
+| `results/s52_main_results/didi_20161109.csv` | One row per strategy — TAR, JFI, wait, revenue, time |
+| `results/s52_main_results/gowalla_austin_compressed.csv` | Same columns, Gowalla dataset |
 
 ---
 

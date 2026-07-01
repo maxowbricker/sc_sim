@@ -32,18 +32,10 @@ def get_strategy(name: str) -> Callable:
 def _auto_import_builtins() -> None:
     """Dynamically import packaged strategy modules so they self-register."""
     builtin_strategies = (
-        "greedy", 
-        "composite", 
-        "fatp", 
-        "laf", 
-        "ewma_only", 
-        "random_assign", 
-        "fatp_ann",
-        "mmd_batch",
-        "cb",
-        "tsgf",
+        "greedy",
+        "composite",
+        "laf",
         "aveklouris_lp",
-        "onrta_op",
         "onrta_rt",
         "biranking",
         "knlf",

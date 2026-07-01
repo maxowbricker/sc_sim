@@ -1,6 +1,6 @@
 """
-Lightweight Deferral Tracker for Task-Level Starvation Prevention Analysis.
-Maintains O(1) memory footprint to ensure high throughput during DRL training.
+Lightweight Deferral Tracker for task-level starvation analysis.
+Maintains O(1) memory footprint via aggregate counters; no per-event history stored.
 """
 
 class DeferralTracker:

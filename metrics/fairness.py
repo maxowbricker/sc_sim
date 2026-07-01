@@ -72,7 +72,7 @@ def calculate_ideal_fair_assignment(total_tasks: int, num_workers: int) -> List[
     return ideal
 
 
-# Heavy Evaluation Tracking (Disabled during DRL training)
+# Heavy evaluation metrics — disabled by default (enable_diagnostics=True to activate)
 
 def fairness_loss_ideal_share(worker_stats: Dict[str, Dict]) -> float:
     """Calculate Fairness Loss (FL) from IOR-weighted ideal shares."""
@@ -128,7 +128,7 @@ class FairnessMetricsTracker:
     def record_task_release(self, task, available_workers: List, current_time: float):
         """
         Record when a task is released and determine eligible workers.
-        Gated behind enable_diagnostics to avoid massive O(|W|) spatial scans during RL.
+        Gated behind enable_diagnostics to avoid O(|W|) spatial scans in the hot path.
         """
         if not self.enable_diagnostics:
             return

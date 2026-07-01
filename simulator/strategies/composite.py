@@ -1,3 +1,23 @@
+"""
+Composite Dispatcher strategy.
+
+Scores each candidate worker in the k-nearest pool using a weighted sum of
+three components:
+
+    Score = (fairness_weight * F) + (starvation_weight * S) + (utility_weight * U)
+
+    F — EWMA idle-time fairness: (1-γ)*(now - last_active) + γ*worker.fairness_ewma
+        Duration-aware signal capturing "silent labour" (uncompensated idle periods).
+    S — Task starvation penalty: log(1 + age_seconds). Prioritises long-waiting tasks.
+    U — Spatial utility: 1/(1+d_pick). Maintains pickup-distance efficiency.
+
+Paper defaults (fw=1.6, sw=0.0, γ=0.1, k=15) are locked in config.py after a
+Pareto sweep over (fw, sw) on DiDi 20161109.
+
+NEW_TASK  → k-NN query → score all feasible candidates → assign highest scorer
+FREE_WORKER → k-NN task query → nearest feasible deferred task (greedy)
+"""
+
 from simulator.strategies import register
 from math import log
 from typing import Optional, Tuple, List, Dict, Any
@@ -57,15 +77,14 @@ def _find_best_assignment_for_task(
     *,
     spatial_index,
 ) -> Tuple[Optional[object], float]:
-    """OPTIMIZED: Advanced Nearest Neighbor (ANN) single-pass evaluation."""
+    """Single-pass evaluation over k-nearest workers; returns (best_worker, best_score)."""
     nearest_workers = spatial_index.query_k_nearest(task.pickup_lat, task.pickup_lon, k)
     if not nearest_workers:
         return None, float("-inf")
 
-    # CONSTANTS
     drop_distance_const = fast_manhattan_km(task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon)
     starvation_raw = log(1 + (now - task.release_time))
-    starvation_score = starvation_weight * starvation_raw 
+    starvation_score = starvation_weight * starvation_raw
 
     candidate_data = []
     best_worker, best_score, best_fairness_val = None, float("-inf"), None
@@ -83,12 +102,10 @@ def _find_best_assignment_for_task(
         if normalize_scores:
             candidate_data.append((worker, fairness_raw, utility_raw))
         else:
-            # FAST PATH: Avoid list memory allocation
             s = (fairness_weight * fairness_raw) + (utility_weight * utility_raw)
             if s > best_score:
                 best_score, best_worker, best_fairness_val = s, worker, fairness_raw
 
-    # NORMALIZATION PATH
     if normalize_scores and candidate_data:
         f_norm = _normalize_components([c[1] for c in candidate_data])
         u_norm = _normalize_components([c[2] for c in candidate_data])
@@ -226,6 +243,11 @@ def assign_new_tasks_composite(
     worker_acceptance=None,
     **_,
 ):
+    """
+    NEW_TASK handler: score each task's k-nearest available workers by the
+    composite objective and assign to the highest scorer.  Tasks with no
+    feasible candidate are deferred for later FREE_WORKER matching.
+    """
     assignments = []
     acceptance_enabled = worker_acceptance and worker_acceptance.get("enabled", False)
 
@@ -360,6 +382,12 @@ def match_worker_composite(
     worker_acceptance=None,
     **_,
 ):
+    """
+    FREE_WORKER handler: on worker availability, find the nearest feasible
+    deferred task via the deferred task spatial index.  The fairness signal
+    is only applied at NEW_TASK events; here we optimise for spatial efficiency
+    to keep pickup distances low.
+    """
     acceptance_enabled = worker_acceptance and worker_acceptance.get("enabled", False)
 
     if acceptance_enabled:
@@ -422,15 +450,12 @@ def match_worker_composite(
         utility_raw = 1.0 / (1.0 + d_pick)
         
         if normalize_scores:
-            # Use lightweight tuples instead of heavy dicts
             candidate_data.append((task, starvation_raw, utility_raw))
         else:
-            # FAST PATH: Score immediately, avoiding list memory allocation entirely
             s = (starvation_weight * starvation_raw) + (utility_weight * utility_raw)
             if s > best_ranking_score:
                 best_ranking_score, best_task = s, task
-    
-    # NORMALIZATION PATH
+
     if normalize_scores and candidate_data:
         s_norm = _normalize_components([c[1] for c in candidate_data])
         u_norm = _normalize_components([c[2] for c in candidate_data])

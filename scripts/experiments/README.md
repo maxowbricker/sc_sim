@@ -8,7 +8,7 @@ Scripts produce output CSVs to the matching `results/s5X_*/` directory.
 
 ## §5.2 — Main Results & Effectiveness
 **Directory:** `scripts/experiments/s52_main_results/`
-**Results:** `results/s1_overall_performance/`
+**Results:** `results/s52_main_results/`
 
 | Script | Purpose | Est. time |
 |---|---|---|
@@ -65,7 +65,7 @@ Results are for reference only; re-running is not required for paper submission.
 
 ```
 results/
-  s1_overall_performance/        ← §5.2 main comparison outputs
+  s52_main_results/              ← §5.2 main comparison outputs
     didi_20161109.csv
     gowalla_austin_compressed.csv
   s53_scalability/               ← §5.3 scalability sweep outputs

@@ -1,6 +1,6 @@
 """
 Unified Metrics Manager for Spatial Crowdsourcing Simulation.
-Highly optimized to provide $O(1)$ step tracking for Deep Reinforcement Learning.
+Provides O(1) per-event tracking with optional heavy diagnostic modes.
 """
 
 from __future__ import annotations

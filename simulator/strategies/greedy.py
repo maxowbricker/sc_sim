@@ -1,3 +1,14 @@
+"""
+Greedy baseline strategy.
+
+Assigns each arriving task to the nearest feasible available worker via an
+O(|W|) linear scan of the full fleet.  No fairness signal — purely proximity-
+optimal.  Serves as the throughput and wait-time anchor for all comparisons.
+
+NEW_TASK  → O(|W|) scan → nearest feasible worker
+FREE_WORKER → nearest feasible pending task (deferred + active)
+"""
+
 from simulator.strategies import register
 from simulator.spatial_index import fast_manhattan_km
 from simulator.behavior import evaluate_worker_acceptance
@@ -12,13 +23,10 @@ def _commit_assignment(task, worker, now):
     task.pickup_km = pickup_distance
     task.drop_km = drop_distance
     
-    # Realistic timing - task starts after worker travels to pickup location  
     pickup_travel_hours = pickup_distance / AVG_SPEED_KMH
     service_travel_hours = drop_distance / AVG_SPEED_KMH
-    
-    # Pure float math (hours to seconds)
-    task.start_time = now + (pickup_travel_hours * 3600)  
-    task.finish_time = task.start_time + (service_travel_hours * 3600)  
+    task.start_time = now + (pickup_travel_hours * 3600)
+    task.finish_time = task.start_time + (service_travel_hours * 3600)
     
     task.assign_to_worker(worker)
     worker.assign_task(task)
@@ -52,21 +60,18 @@ def assign_new_tasks_greedy(
     state,
     now,
     tasks_to_assign,
-    k: int = 10,
     worker_acceptance: Optional[Dict[str, Any]] = None,
     **_,
 ):
     """
-    Greedy assignment for newly released tasks. Finds the nearest available worker.
+    Greedy assignment for newly released tasks.
 
-    Fix 1: drop_dist is task-only (pickup->dropoff), so it is now computed once per
-    task outside the worker loop rather than redundantly once per worker.
+    Performs an O(|W|) linear scan over all available workers to find the
+    globally nearest feasible worker for each task. This is the canonical
+    definition of greedy dispatch and the version used in the paper evaluation.
 
-    Fix 2: uses the spatial index to retrieve the k nearest worker candidates instead
-    of scanning all available_workers. Candidates are returned distance-sorted, so the
-    first feasible candidate is guaranteed to be the nearest feasible worker within k.
-    k=50 (default) covers virtually all realistic infeasibility fractions while keeping
-    the scan bounded well below O(|W|).
+    drop_dist is task-only (pickup->dropoff) so it is computed once per task
+    outside the worker loop rather than redundantly once per worker.
     """
     assignments = []
     acceptance_enabled = worker_acceptance and worker_acceptance.get("enabled", False)
@@ -76,16 +81,13 @@ def assign_new_tasks_greedy(
             _defer(state, task, now, _)
             continue
 
-        # Fix 1: compute once per task — independent of which worker we test
         drop_dist = fast_manhattan_km(
             task.pickup_lat, task.pickup_lon, task.dropoff_lat, task.dropoff_lon
         )
-        # Fix 2: k nearest workers via spatial index, sorted by distance ascending
-        candidates = state.spatial_index.query_k_nearest(task.pickup_lat, task.pickup_lon, k)
 
         if acceptance_enabled:
             ranked: List[tuple] = []
-            for worker in candidates:
+            for worker in state.available_workers:
                 pickup_dist = fast_manhattan_km(
                     worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon
                 )
@@ -109,17 +111,17 @@ def assign_new_tasks_greedy(
                 _defer(state, task, now, _)
             continue
 
-        # Candidates are distance-sorted: iterate and stop at the first feasible worker.
+        # O(|W|) scan: find the globally nearest feasible worker
         best_worker, best_dist = None, float("inf")
-        for worker in candidates:
+        for worker in state.available_workers:
             pickup_dist = fast_manhattan_km(
                 worker.start_lat, worker.start_lon, task.pickup_lat, task.pickup_lon
             )
             if not _is_feasible_greedy(worker, task, now, pickup_dist, drop_dist):
                 continue
-            best_worker = worker
-            best_dist = pickup_dist
-            break  # first feasible in a distance-sorted list is the nearest feasible
+            if pickup_dist < best_dist:
+                best_dist = pickup_dist
+                best_worker = worker
 
         if best_worker:
             assigned_task = _commit_assignment(task, best_worker, now)

@@ -105,7 +105,7 @@ caffeinate python3.11 scripts/run_gowalla_comparison.py \
     --date-start 2010-09-01 \
     --date-end 2010-09-30 \
     --compression compressed \
-    --output results/s1_overall_performance/gowalla_austin_compressed.csv
+    --output results/s52_main_results/gowalla_austin_compressed.csv
 ```
 
 Or using the section-organised output path shorthand:
@@ -114,7 +114,7 @@ Or using the section-organised output path shorthand:
 cd /Users/maxapple/Documents/GitHub/sc_sim
 caffeinate python3.11 scripts/run_gowalla_comparison.py \
     --compression compressed \
-    --output results/s1_overall_performance/gowalla_austin_compressed.csv
+    --output results/s52_main_results/gowalla_austin_compressed.csv
 ```
 
 (`--region austin` and `--date-start/end` default to the paper values in the script.)

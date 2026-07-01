@@ -1,6 +1,6 @@
 """
 Lightweight per-tick metrics collection utilities.
-Optimized for DRL throughput by disabling heavy historical tracking by default.
+Heavy historical tracking (diagnostic mode) is disabled by default for performance.
 """
 
 from __future__ import annotations

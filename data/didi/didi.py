@@ -82,7 +82,7 @@ class Adapter:
         }).copy()
 
         # 3. STRICT FLOAT BOUNDARY
-        # Ensure all timestamps are strict floats to power the DRL physics engine
+        # Ensure all timestamps are strict floats for the event-driven simulator
         for col in ['release_time', 'deadline']:
             if col in workers_df.columns:
                 workers_df[col] = workers_df[col].astype(float)

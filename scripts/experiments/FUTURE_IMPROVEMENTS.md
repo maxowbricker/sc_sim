@@ -85,7 +85,7 @@ whether the strategy rankings are stable across different demand patterns
 (day-of-week effects, density variation). This would allow the paper to say
 "results hold across demand conditions" rather than relying on a single day.
 
-**Effort:** `caffeinate python scripts/experiments/s52_main_results/run_strategy_comparison.py --day 20161128 --output results/s1_overall_performance/didi_20161128.csv`
+**Effort:** `caffeinate python scripts/experiments/s52_main_results/run_strategy_comparison.py --day 20161128 --output results/s52_main_results/didi_20161128.csv`
 
 ~4.5 hours on laptop, ~4.5 hours on cluster. Requires a second Didi day folder
 to exist under `data/didi/full_didi_gaia/`.

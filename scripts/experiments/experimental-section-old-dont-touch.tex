@@ -1,0 +1,308 @@
+\section{Experiments}
+\label{sec:experiments}
+
+
+\subsection{Experimental Setup}
+\label{sec:setup}
+
+\textbf{Datasets.}
+\label{sec:datasets}
+We evaluate our framework on the \textit{DiDi GAIA Open Dataset}, using 9 November 2016 (a representative weekday) as the primary evaluation instance, which includes 36,799 workers and 224,219 tasks in the core urban area around Chengdu. Each unique driver is modeled as a worker, with their first GPS ping used to determine the online time and initial location, and an 8-hour shift duration is applied. Each completed trip is converted into one task, where the dispatch timestamp is used as the release time and the billing-completion timestamp as the expiry deadline. Task revenue $m_j$ follows the distance-proportional pricing model of~\cite{CR-04} described in §\ref{sec:problem_statement}; total platform revenue is the aggregate $m_j$ of all completed tasks.
+
+To test whether the observed strategy behavior generalizes beyond dense ride-hailing scenarios, we also evaluate utilising the \textit{Gowalla} location-based social network dataset. We focus on the Austin, Texas region during September 2010, which provides the densest usable check-in cluster in the dataset. Since raw LBSN check-ins are much sparser than ride-hailing requests, we apply temporal compression by projecting all check-ins onto a single 24-hour reference window while preserving their wall-clock times and spatial distribution. Each unique user-day pair is treated as one worker, and each check-in is converted into one task with a 30-minute expiry window (drop-off locations and revenues are synthetic distance-proportional proxies, as Gowalla contains no recorded trip destinations or fares). After compression and worker downsampling, the Gowalla evaluation instance contains 8,758 workers and 43,788 tasks.
+
+\textbf{Implementation Details.}
+\label{sec:framework}
+We implement a dataset-agnostic discrete event simulator (DES) driven by a min-heap priority queue ordered by timestamps~\cite{tong2019survey}. The simulator supports worker release, task release, task completion, and task expiration events. Each assignment strategy is implemented through a pair of handlers, $(\textsc{NewTask}, \textsc{FreeWorker})$, which receive the current system state and return at most one assignment per event. Individual worker earnings are tracked as the sum of revenues $m_j$ from their completed tasks. Available workers are maintained in an incrementally updated $k$-d tree spatial index based on their current locations, enabling efficient $k$-nearest-neighbor queries without rebuilding the full index at every event. Distances are computed using Manhattan distance under a locally-scaled flat-earth projection, where longitude is rescaled by $\cos(\bar{\phi})$ at the city's mean latitude $\bar{\phi}$. Travel times assume a constant average urban speed of 30\,km/h. Candidates violating pickup-deadline or shift-deadline feasibility are rejected before scoring.
+
+
+\textbf{Baselines.}
+We compare our approach against five representative baselines spanning
+proximity-optimal, fairness-oriented, randomized, threshold-based, and
+batch-optimisation policies.
+\textbf{Greedy} assigns each arriving task to the nearest available feasible
+worker, providing a proximity-optimal efficiency anchor.
+\textbf{Least Allocated First (LAF)}~\cite{CR-04} assigns each task to the
+worker with the fewest completed tasks to date, serving as a pure task-count
+fairness upper bound at the cost of spatial efficiency.
+\textbf{BiRanking (BRK)}~\cite{LM-04} assigns a permanent uniform random rank
+to each worker and task at first appearance and selects the lowest-rank feasible
+candidate at each dispatch event; we omit the original stability-constraint
+loop~\cite{LM-04} as it is incompatible with the unit-capacity
+instantaneous-matching model used here.
+\textbf{ONRTA-RT}~\cite{LM-03} is the randomized-threshold variant of the
+Online Non-Rejection Task Assignment framework: a random utility threshold is
+drawn once per episode and assignments are made only when the pickup-proximity
+utility exceeds it, falling back to immediate greedy assignment otherwise.
+\textbf{Discrete Review LP}~\cite{aveklouris2023matchingimpatientheterogeneousdemand} buffers all arrivals to fixed review
+intervals and solves a maximum-weight bipartite assignment at each review epoch;
+we implement the zero-holding-cost variant of the Section~7 LP-based discrete
+review policy of~\cite{aveklouris2023matchingimpatientheterogeneousdemand}, with spatial utility $v_{jk} = 1/(1 + d_{jk})$.
+
+% include note here, if I have time that all baselines took the necessary parameter tuning recommended by their papers, and then provide an example of one of the baselines where I did this. 
+
+
+\textbf{Evaluation Metrics.}
+We report six metrics across all evaluations.
+\textit{Task Assignment Ratio} (\textbf{TAR} $= |M|/|\mathcal{T}|$) measures the fraction of tasks successfully matched, capturing throughput.
+\textit{Mean Wait Time} is the average interval from task release $r_j$ to worker pickup; under the constant travel speed assumption ($v{=}30$\,km/h), it is proportional to empty pickup distance and therefore serves as a unified proxy for both demand-side latency and the spatial utility $U(w_i, t_j)$ defined in §\ref{sec:problem_statement}.
+\textit{JFI (tasks)} is Jain's Fairness Index~\cite{JFI-Original} over the vector of cumulative per-worker task counts $\mathbf{x}$:
+$JFI(\mathbf{x}) = \left.{(\sum_{i=1}^{n} x_i)^2} \middle/ n{\sum_{i=1}^{n} x_i^2} \right.$,
+where $n$ is the number of workers; a value closer to 1.0 indicates a more equitable distribution. This directly measures Capacity Equity (Fairness Instrument~1, §\ref{sec:problem_statement}).
+\textit{JFI (earn.)} applies the same index to the vector of per-worker cumulative earnings $\mathbf{m}$, capturing economic equity independently of trip count.
+\textit{Revenue (k\$)} is the total platform revenue $\sum_{j \in M} m_j$, reflecting yield-side viability.
+\textit{Wall-clock Runtime} measures per-simulation elapsed time, validating the $\mathcal{O}(k \log |\mathcal{W}|)$ tractability constraint required by the SF-TOBM formulation (§\ref{sec:problem_statement}).
+
+\subsection{Effectiveness}
+\label{sec:overall_results}
+\begin{table}[t]
+\scriptsize
+\renewcommand\arraystretch{1}
+\setlength\tabcolsep{2pt}
+\caption{Strategy comparison on the DiDi Chengdu held-out test day
+  (9 Nov 2016; 36,799 workers, 224,219 tasks).
+  $^\dagger$ proposed method. Bold = column-best among strategies with TAR $\geq$~0.85.}
+\label{tab:didi_results}
+\begin{tabular}{@{}l cccc c c@{}}
+\toprule
+\textbf{Strategy}
+  & \textbf{TAR} $\uparrow$
+  & \textbf{Wait (m)} $\downarrow$
+  & \textbf{JFI (tasks)} $\uparrow$
+  & \textbf{JFI (earn.)} $\uparrow$
+  & \textbf{Rev.\ (k\$)} $\uparrow$
+  & \textbf{Time (s)} $\downarrow$ \\
+\midrule
+Greedy (baseline)
+  & \textbf{0.863} & 2.62 & 0.594 & 0.611 & 2{,}765.6 & 312 \\
+k-NLF ($k{=}15$)$^\dagger$
+  & \textbf{0.863} & 3.45 & \textbf{0.644} & \textbf{0.666} & 2{,}765.6 & 123 \\
+Composite (static)$^\dagger$
+  & \textbf{0.863} & 3.23 & 0.590 & 0.626 & \textbf{2{,}765.7} & \textbf{112} \\
+\midrule
+LAF
+  & 0.862 & 9.65 & \textbf{0.705} & 0.699 & 2{,}765.1 & 385 \\
+BiRanking (BRK)
+  & 0.857 & 12.34 & 0.592 & 0.636 & 2{,}750.9 & 557 \\
+ONRTA-RT
+  & 0.855 & 12.17 & 0.641 & 0.655 & 2{,}750.3 & 480 \\
+Disc.\ Review LP
+  & 0.862 & \textbf{1.63} & 0.516 & \textbf{0.700} & 2{,}765.4 & 1{,}936 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\scriptsize
+\renewcommand\arraystretch{1}
+\setlength\tabcolsep{2pt}
+\caption{Strategy comparison on the Gowalla Austin dataset
+  (Sep 2010, temporally compressed; 8,758 workers, 43,788 tasks, worker-to-task ratio~1:5).
+  $^\dagger$ proposed method. Bold = column-best among strategies with TAR $\geq$~0.99.
+  Revenue is a synthetic distance-proportional proxy, as Gowalla contains no recorded fares.}
+\label{tab:gowalla_results}
+\begin{tabular}{@{}l cccc c c@{}}
+\toprule
+\textbf{Strategy}
+  & \textbf{TAR} $\uparrow$
+  & \textbf{Wait (m)} $\downarrow$
+  & \textbf{JFI (tasks)} $\uparrow$
+  & \textbf{JFI (earn.)} $\uparrow$
+  & \textbf{Rev.\ (k\$)} $\uparrow$
+  & \textbf{Time (s)} $\downarrow$ \\
+\midrule
+Greedy (baseline)
+  & 0.998 & 2.87 & 0.573 & 0.608 & 297.6 & 98 \\
+k-NLF ($k{=}15$)$^\dagger$
+  & 0.998 & 5.16 & \textbf{0.672} & \textbf{0.693} & 297.5 & \textbf{27.3} \\
+Composite (static)$^\dagger$
+  & 0.998 & 5.11 & 0.612 & 0.654 & \textbf{297.6} & 28.1 \\
+\midrule
+LAF
+  & 0.998 & 11.82 & \textbf{0.894} & \textbf{0.877} & \textbf{297.6} & 91.0 \\
+BiRanking (BRK)
+  & 0.988 & 15.87 & 0.360 & 0.579 & 294.5 & 115.7 \\
+ONRTA-RT
+  & 0.987 & 15.97 & 0.671 & 0.708 & 294.3 & 108.6 \\
+Disc.\ Review LP
+  & \textbf{0.999} & \textbf{2.72} & 0.575 & 0.601 & \textbf{297.6} & 142.9 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Tables~\ref{tab:didi_results} and~\ref{tab:gowalla_results} report results on the
+DiDi and Gowalla datasets respectively. We discuss the proposed methods first,
+then compare against the full baseline set.
+
+\paragraph{Proposed Methods: Fairness Without Throughput Cost.}
+On DiDi, k-NLF and Composite both match the Greedy TAR exactly (0.863), confirming
+that the fairness intervention imposes no throughput penalty. k-NLF delivers the
+strongest worker equity gains: JFI (tasks) improves by $+8.4\%$ over Greedy
+(0.644 vs.\ 0.594) and JFI (earnings) by $+9.0\%$ (0.666 vs.\ 0.611), making
+it the fairest strategy among those with competitive throughput. Composite achieves
+a mean wait time of 3.23\,min (a $+0.61$\,min overhead above Greedy's 2.62\,min)
+and the lowest wall-clock runtime of all evaluated strategies (112\,s), making it
+the natural choice when deployment latency is the primary constraint. Revenue
+differences are negligible across TAR-competitive strategies (within 0.6k\$); as
+revenue is a distance-proportional synthetic proxy (§\ref{sec:datasets}), this
+confirms the fairness gains are throughput- and yield-neutral.
+
+\paragraph{Comparison to Baselines on DiDi.}
+The Discrete Review LP achieves the best mean wait time (1.63\,min) but at a
+severe cost: 1{,}936\,s runtime (15.7$\times$ slower than k-NLF) and
+JFI (tasks) of 0.516---\textit{below} Greedy's 0.594. Global optimisation for
+latency actively degrades fairness by consistently routing the closest available
+worker, amplifying spatial concentration. LAF achieves the highest absolute
+JFI (tasks) at 0.705 but imposes a mean wait of 9.65\,min---2.85$\times$
+Greedy---illustrating the efficiency cost of pure task-count balancing. BiRanking
+and ONRTA-RT both suffer TAR reductions (0.855--0.857), indicating that their
+randomisation and rejection policies occasionally fail to match feasible tasks
+under the DiDi workload intensity. None of the baselines simultaneously matches
+k-NLF's combination of Greedy-level TAR, sub-4-minute wait, and $+14\%$ fairness
+improvement.
+
+\paragraph{Generalisation to Gowalla.}
+The Gowalla dataset (1:5 worker-to-task ratio, sparse LBSN check-ins) produces a
+broadly consistent ranking. k-NLF improves JFI (tasks) by $+15.3\%$ over Greedy
+(0.672 vs.\ 0.583) and JFI (earnings) by $+12.3\%$ (0.693 vs.\ 0.617), at a
+wait time cost of $+1.83$\,min above Greedy (5.16 vs.\ 3.33\,min). The larger
+wait overhead compared to DiDi ($+0.45$\,min for k-NLF) reflects the sparser
+spatial distribution of LBSN check-ins: with fewer workers per unit area,
+restricting the candidate pool to $k{=}15$ (from $k{=}50$ for Greedy) carries a
+greater proximity penalty. BiRanking degrades most severely on Gowalla (JFI 0.360,
+below every other strategy including Greedy at 0.583), reflecting poor fit to
+sparse, irregular spatial distributions. The LP retains its best-wait profile
+(2.72\,min) but JFI (tasks) of 0.575 remains below Greedy. The consistency of
+k-NLF's $+13$--$15\%$ fairness improvement across two structurally different
+datasets provides evidence that the locality-constrained fairness signal
+generalises beyond dense ride-hailing scenarios.
+
+\subsection{Robustness to Supply--Demand Conditions}
+\label{sec:robustness}
+
+Figure~\ref{fig:market_conditions} examines how worker fairness (JFI) evolves
+under two controlled market-condition shifts: increasing supply with fixed demand
+(panel~a), and increasing demand pressure with a fixed fleet (panel~b).
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.85\textwidth]{figures/5.3/market_conditions.pdf}
+  \caption{JFI (tasks) under varying supply--demand conditions (DiDi dataset).
+    (a)~Fleet size sweep: $|\mathcal{T}|{=}50{,}000$ fixed, $|W|$ increasing---a
+    supply-rich regime where each worker receives fewer tasks.
+    (b)~Task volume sweep: $|W|{=}10{,}000$ fixed, $|\mathcal{T}|$ increasing---a
+    demand-pressure regime where per-worker load grows.
+    $^\dagger$ proposed method.}
+  \label{fig:market_conditions}
+\end{figure}
+
+\paragraph{Supply-Rich Markets: Fairness Gap Widens.}
+Fig.~\ref{fig:market_conditions}(a) fixes demand ($|\mathcal{T}|{=}50{,}000$) and
+scales the fleet from 10k to 36.8k workers, reducing the task-per-worker ratio
+from 5.0$\times$ to 1.4$\times$. As supply grows, every strategy's absolute JFI
+declines---with fewer tasks to distribute, achieving uniform allocation becomes
+structurally harder. However, the strategies do not decline equally. Greedy's JFI
+falls from 0.580 to 0.303 ($-$47.7\%), while k-NLF declines more gradually from
+0.774 to 0.444 ($-$42.7\%). Crucially, the \textit{relative} advantage of k-NLF
+over Greedy \textit{widens} with fleet size: from $+33\%$ at $|W|{=}10{,}000$ to
+$+46\%$ at $|W|{=}36{,}799$. This occurs because in supply-rich conditions Greedy
+consistently over-assigns to workers in high-demand spatial hotspots, while
+k-NLF's fairness signal redistributes work toward underserved workers regardless
+of their location. Notably, TAR remains constant across the fleet sweep at
+$\approx$0.970 for all strategies, confirming that the fairness gains are
+throughput-neutral.
+
+\paragraph{Demand-Pressure Regimes: Strategies Converge.}
+Fig.~\ref{fig:market_conditions}(b) fixes the fleet ($|W|{=}10{,}000$) and
+increases task volume from 50k to 224k tasks (a demand-to-supply ratio of
+5$\times$ to 22.4$\times$). The fairness advantage of k-NLF over Greedy
+collapses entirely as demand grows: from $\Delta\text{JFI}{=}0.192$ at
+$|\mathcal{T}|{=}50{,}000$ to $\Delta\text{JFI}{\approx}0$ at
+$|\mathcal{T}|{=}224{,}219$. At extreme overload, every worker's task queue
+fills regardless of assignment strategy, and the market self-equalizes. This
+convergence demonstrates that under overloaded conditions no additional
+intervention overhead is incurred. Fairness-aware dispatch delivers its greatest
+benefit precisely in the moderate-demand, supply-rich conditions that characterise
+typical urban ride-hailing deployments, and degrades gracefully to Greedy-level
+behavior under exceptional demand spikes.
+
+% TODO: insert scalability plots and prose once scalability\_tasks\_v2.csv arrives from cluster.
+
+\subsection{Ablation \& Sensitivity Analysis}
+\label{sec:ablation}
+
+\subsubsection{Impact of Candidate Pool Size ($k$).}
+
+\begin{figure}[t]
+  \includegraphics[width=\textwidth]{figures/5.4/k_sweep.pdf}
+  \caption{Impact of candidate pool size $k$ on (a) task-count fairness (JFI), (b) average task wait time, and (c) wall-clock runtime for k-NLF and Composite (DiDi, 9 Nov 2016). The dashed grey line indicates the Greedy baseline; the vertical guide marks the paper default $k{=}15$. Fairness returns diminish beyond $k{\approx}25$ while runtime remains stable, validating $k{=}15$ as a practical operating point.}
+  \label{fig:k_sweep}
+\end{figure}
+
+\paragraph{Fairness Returns.}
+As shown in Fig.~\ref{fig:k_sweep}(a), JFI increases monotonically with $k$ for both strategies. k-NLF rises from 0.593 ($k{=}3$) to 0.731 ($k{=}100$), while Composite exhibits more conservative growth, reflecting its focus on temporal participation equity rather than snapshot task counts.
+
+\paragraph{Wait Time and the Choice of $k{=}15$.}
+Fig.~\ref{fig:k_sweep}(b) reveals a U-shaped response in wait time: at $k{=}3$ the pool is too restrictive to find a nearby underserved worker (${\sim}4.6$\,min), while the minimum is reached at $k{=}25$ (3.32\,min for k-NLF; 3.16\,min for Composite). The paper default $k{=}15$ incurs only a marginal wait penalty of $+0.11$\,min relative to this minimum while providing robust fairness gains. Fig.~\ref{fig:k_sweep}(c) confirms that runtimes remain stable for $k \geq 25$, so the search radius can be widened without superlinear cost.
+
+\subsubsection{Fairness Signal Comparison.}
+\label{sec:signal_comparison}
+\begin{table}[h]
+\scriptsize
+\renewcommand\arraystretch{1}
+\setlength\tabcolsep{2pt}
+\caption{Comparison of $k$-NN fairness signals at $k{=}15$ (DiDi, 9 Nov 2016).
+  $^\dagger$ proposed method. Bold = column-best among fairness-signal strategies.
+  CV = coefficient of variation of the named quantity across workers (lower $\downarrow$ = more uniform distribution).
+  k-NTF-EPH directly optimises earnings equity (CV earn.); k-NTF-IR directly optimises idle-time equity (CV idle).
+  k-NLF achieves the best value in every fairness column, including those each alternative directly optimises.}
+\label{tab:signal_comparison}
+\begin{tabular}{@{}l cccc c c@{}}
+\toprule
+\textbf{Signal / Strategy}
+  & \textbf{JFI (tasks)} $\uparrow$
+  & \textbf{JFI (earn.)} $\uparrow$
+  & \textbf{CV (idle)} $\downarrow$
+  & \textbf{CV (earn.)} $\downarrow$
+  & \textbf{Wait (m)} $\downarrow$
+  & \textbf{Time (s)} $\downarrow$ \\
+\midrule
+Greedy (baseline)
+  & 0.562 & 0.619 & 1.418 & 0.949 & 3.40 & 31 \\
+\midrule
+k-NTF-EPH ($k{=}15$)
+  & 0.613 & 0.645 & 1.560 & 0.863 & 3.25 & \textbf{35} \\
+k-NTF-IR ($k{=}15$)
+  & 0.618 & 0.651 & 1.563 & 0.860 & 3.34 & \textbf{35} \\
+k-NLF ($k{=}15$)$^\dagger$
+  & \textbf{0.647} & \textbf{0.669} & \textbf{1.467} & \textbf{0.824} & 3.48 & 133 \\
+\midrule
+Composite (static)$^\dagger$
+  & 0.589 & 0.626 & 1.602 & 0.918 & \textbf{3.21} & 114 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:signal_comparison} compares k-NLF and Composite against two alternative $k$-NN signals: k-NTF-EPH (Earnings Per Hour) and k-NTF-IR (Idle Ratio).
+
+\paragraph{Task-Count Equity Dominates.}
+k-NLF achieves the highest distributive equity across all fairness columns, improving JFI (tasks) by 15\% and JFI (earnings) by 8\% over Greedy. Crucially, k-NLF outperforms the specialized NTF signals even on the metrics they directly optimise: lower CV (earnings) than k-NTF-EPH (0.824 vs.\ 0.863) and lower CV (idle) than k-NTF-IR (1.467 vs.\ 1.563). In a high-density environment with relatively homogeneous trip durations, raw task counts are a powerful proxy for economic equity.
+
+\paragraph{Composite as Efficiency Specialist.}
+Composite (EWMA idle time) achieves a more modest fairness gain ($+4.8\%$ JFI tasks) and achieves the lowest wait time among all fairness-aware strategies (3.21\,min), closely matching the Greedy anchor (3.40\,min in this comparison). By distributing assignments more uniformly in time, the EWMA signal minimises detour penalties without sacrificing throughput. Platform operators can therefore choose between k-NLF (maximum distributional parity) and Composite (minimum latency overhead) within the same $\mathcal{O}(k)$ framework.
+
+\subsubsection{Fairness Weight Sensitivity.}
+\label{sec:fw_sensitivity}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.85\textwidth]{figures/5.4/fairness_weight_sweep.pdf}
+  \caption{Sensitivity of the Composite dispatcher to the fairness weight $\lambda_f$ (all other parameters fixed: $\lambda_s{=}0$, $\lambda_u{=}1$, $\gamma{=}0.1$, $k{=}15$; DiDi, 9 Nov 2016). Panel~(a): JFI rate. Panel~(b): P95 task wait time. Dashed grey = Greedy; dash-dot purple = k-NLF. Vertical guide marks the paper default $\lambda_f{=}1.6$.}
+  \label{fig:fw_sweep}
+\end{figure}
+
+\paragraph{Necessity of the EWMA Signal.}
+At $\lambda_f{=}0$, Composite reduces to a proximity-only selector over $k{=}15$ candidates, producing JFI rate 0.852---\textit{below} the Greedy baseline (0.864). The spatial restriction degrades equity without a compensating fairness signal. A weight of just $\lambda_f{=}0.2$ suffices to cross the Greedy baseline (JFI rate 0.870).
+
+\paragraph{Plateau Robustness.}
+For $\lambda_f \geq 0.2$, JFI rate stabilises in $[0.866, 0.871]$, peaking at $\lambda_f{\approx}1.4$ (0.871); the paper default $\lambda_f{=}1.6$ lies within this plateau at 0.867. P95 wait falls from 14.1\,min at $\lambda_f{=}0$ to a sustained 12.9--13.1\,min for $\lambda_f \geq 0.6$, with TAR unchanged ($\Delta\text{TAR} < 0.0001$). The near-flat response across the full sweep confirms that grid-search precision is not required for deployment.

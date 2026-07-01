@@ -17,11 +17,11 @@ import heapq
 GRID_RESOLUTION = 0.01
 
 # --- FLAT EARTH OPTIMIZATION ---
-# To enable the hundreds of thousands of simulation steps required for DRL convergence,
-# we pre-calculate the longitudinal scaling factor. Because the DiDi dataset is bounded 
-# within the urban scale of Chengdu, assuming a constant cos(latitude) introduces a 
-# maximum spatial error of less than 0.15% at the geographic extremes. This negligible 
-# deviation is vastly outweighed by the O(1) speedup (avoiding trigonometric overhead).
+# We pre-calculate the longitudinal scaling factor once at simulation start.
+# Because the DiDi dataset is bounded within the urban scale of Chengdu, assuming a
+# constant cos(latitude) introduces a maximum spatial error of less than 0.15% at the
+# geographic extremes — negligible for city-scale distances, and avoids per-call
+# trigonometric overhead in the hot assignment loop.
 
 KM_PER_DEG_LAT = 111.32
 KM_PER_DEG_LON = None  # Must be initialized via set_city_constants() before use

@@ -6,7 +6,7 @@ Two-panel figure:
   Panel A — JFI (tasks) vs k, with Greedy and LAF reference lines
   Panel B — Avg Wait (m) vs k, with Greedy reference line
 
-Input:  results/s54_ablation/knlf_k_sweep_20161109_cluster.csv
+Input:  results/s54_ablation/knlf_k_sweep_final.csv
 Output: results/figures/k_sweep.pdf
         results/figures/k_sweep.png  (preview)
 
@@ -28,7 +28,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)
 )))
 INPUT  = os.path.join(PROJECT_ROOT, "results", "s54_ablation",
-                      "knlf_k_sweep_20161109_v2.csv")
+                      "knlf_k_sweep_final.csv")
 OUT_PDF = os.path.join(PROJECT_ROOT, "results", "figures", "k_sweep.pdf")
 OUT_PNG = os.path.join(PROJECT_ROOT, "results", "figures", "k_sweep.png")
 
@@ -52,11 +52,16 @@ plt.rcParams.update({
     "axes.spines.right": False,
 })
 
-PAPER_K     = 15
-COLOR_JFI   = "#2166ac"   # blue
-COLOR_WAIT  = "#d6604d"   # red-orange
-COLOR_GREEDY = "#888888"
-COLOR_LAF   = "#4dac26"
+PAPER_K       = 15
+COLOR_KNLF    = "#2166ac"   # blue  — consistent across all three panels
+COLOR_COMP    = "#e66101"   # orange
+COLOR_GREEDY  = "#888888"
+COLOR_LAF     = "#4dac26"
+
+# Aliases kept for readability; all three panels use COLOR_KNLF for k-NLF lines
+COLOR_JFI  = COLOR_KNLF
+COLOR_WAIT = COLOR_KNLF
+COLOR_TIME = COLOR_KNLF
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 df = pd.read_csv(INPUT)
@@ -92,21 +97,21 @@ greedy_wait = greedy_row["Avg Wait (m)"]
 laf_jfi     = laf_row["JFI (tasks)"] if has_laf else None
 
 # ── Figure ────────────────────────────────────────────────────────────────────
-fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(9.0, 2.6))
-fig.subplots_adjust(wspace=0.40)
+fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(9.0, 2.9))
+fig.subplots_adjust(wspace=0.40, bottom=0.30)
 
 # ── Panel A: JFI (tasks) vs k ─────────────────────────────────────────────────
-ax1.plot(k_vals, jfi, marker="o", markersize=4, linewidth=1.6,
-         color=COLOR_JFI, label="k-NLF")
+h_knlf, = ax1.plot(k_vals, jfi, marker="o", markersize=4, linewidth=1.6,
+                   color=COLOR_KNLF)
 if has_composite:
-    ax1.plot(k_vals_comp, jfi_comp, marker="D", markersize=4, linewidth=1.4,
-             linestyle="--", color="#e66101", label="Composite")
+    h_comp, = ax1.plot(k_vals_comp, jfi_comp, marker="D", markersize=4,
+                       linewidth=1.4, linestyle="--", color=COLOR_COMP)
 
-ax1.axhline(greedy_jfi, linestyle="--", linewidth=1.0,
-            color=COLOR_GREEDY, label=f"Greedy  ({greedy_jfi:.3f})")
+h_greedy, = ax1.plot([], [], linestyle="--", linewidth=1.0, color=COLOR_GREEDY)
+ax1.axhline(greedy_jfi, linestyle="--", linewidth=1.0, color=COLOR_GREEDY)
 if has_laf:
-    ax1.axhline(laf_jfi, linestyle=":",  linewidth=1.0,
-                color=COLOR_LAF,    label=f"LAF  ({laf_jfi:.3f})")
+    h_laf, = ax1.plot([], [], linestyle=":", linewidth=1.0, color=COLOR_LAF)
+    ax1.axhline(laf_jfi, linestyle=":", linewidth=1.0, color=COLOR_LAF)
 
 ax1.axvline(PAPER_K, linestyle="--", linewidth=0.8, color="#aaaaaa")
 ax1.text(PAPER_K + 1, min(jfi) - 0.005,
@@ -118,17 +123,14 @@ ax1.set_title("(a) Fairness vs $k$")
 ax1.set_xscale("log")
 ax1.set_xticks(k_vals)
 ax1.get_xaxis().set_major_formatter(ticker.ScalarFormatter())
-ax1.legend(loc="lower right", frameon=False)
 
 # ── Panel B: Avg Wait vs k ────────────────────────────────────────────────────
-ax2.plot(k_vals, wait, marker="s", markersize=4, linewidth=1.6,
-         color=COLOR_WAIT, label="k-NLF")
+ax2.plot(k_vals, wait, marker="s", markersize=4, linewidth=1.6, color=COLOR_KNLF)
 if has_composite:
     ax2.plot(k_vals_comp, wait_comp, marker="D", markersize=4, linewidth=1.4,
-             linestyle="--", color="#e66101", label="Composite")
+             linestyle="--", color=COLOR_COMP)
 
-ax2.axhline(greedy_wait, linestyle="--", linewidth=1.0,
-            color=COLOR_GREEDY, label=f"Greedy  ({greedy_wait:.2f}m)")
+ax2.axhline(greedy_wait, linestyle="--", linewidth=1.0, color=COLOR_GREEDY)
 
 ax2.axvline(PAPER_K, linestyle="--", linewidth=0.8, color="#aaaaaa")
 ax2.text(PAPER_K + 1, min(wait) - 0.05,
@@ -140,22 +142,16 @@ ax2.set_title("(b) Wait Time vs $k$")
 ax2.set_xscale("log")
 ax2.set_xticks(k_vals)
 ax2.get_xaxis().set_major_formatter(ticker.ScalarFormatter())
-ax2.legend(loc="upper right", frameon=False)
 
 # ── Panel C: Runtime vs k ─────────────────────────────────────────────────────
-COLOR_TIME = "#5e3c99"   # purple
-
-ax3.plot(k_vals, runtime, marker="^", markersize=4, linewidth=1.6,
-         color=COLOR_TIME, label="k-NLF")
+ax3.plot(k_vals, runtime, marker="^", markersize=4, linewidth=1.6, color=COLOR_KNLF)
 if has_composite:
     ax3.plot(k_vals_comp, runtime_comp, marker="D", markersize=4, linewidth=1.4,
-             linestyle="--", color="#e66101", label="Composite")
+             linestyle="--", color=COLOR_COMP)
 
-ax3.axhline(greedy_row["elapsed_s"], linestyle="--", linewidth=1.0,
-            color=COLOR_GREEDY, label=f"Greedy  ({greedy_row['elapsed_s']:.0f}s)")
+# Greedy is not k-parameterised (O(|W|) global scan) so no reference line here.
 if has_laf:
-    ax3.axhline(laf_row["elapsed_s"], linestyle=":", linewidth=1.0,
-                color=COLOR_LAF,    label=f"LAF  ({laf_row['elapsed_s']:.0f}s)")
+    ax3.axhline(laf_row["elapsed_s"], linestyle=":", linewidth=1.0, color=COLOR_LAF)
 
 ax3.axvline(PAPER_K, linestyle="--", linewidth=0.8, color="#aaaaaa")
 ax3.text(PAPER_K + 1, min(runtime) - 1.5,
@@ -167,7 +163,27 @@ ax3.set_title("(c) Runtime vs $k$")
 ax3.set_xscale("log")
 ax3.set_xticks(k_vals)
 ax3.get_xaxis().set_major_formatter(ticker.ScalarFormatter())
-ax3.legend(loc="upper left", frameon=False)
+
+# ── Shared bottom legend ───────────────────────────────────────────────────────
+_leg_handles = [h_knlf]
+_leg_labels  = [r"k-NLF ($k{=}15$)$^\dagger$"]
+if has_composite:
+    _leg_handles.append(h_comp)
+    _leg_labels.append(r"Composite$^\dagger$")
+_leg_handles.append(h_greedy)
+_leg_labels.append("Greedy (baseline)")
+if has_laf:
+    _leg_handles.append(h_laf)
+    _leg_labels.append("LAF")
+
+fig.legend(
+    _leg_handles, _leg_labels,
+    loc="lower center",
+    ncol=len(_leg_handles),
+    frameon=False,
+    fontsize=7.5,
+    bbox_to_anchor=(0.5, 0.01),
+)
 
 # ── Save ──────────────────────────────────────────────────────────────────────
 fig.savefig(OUT_PDF, bbox_inches="tight")

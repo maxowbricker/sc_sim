@@ -5,8 +5,8 @@ Assigns a permanent uniform rank y in [0, 1) to each worker and task at first
 appearance. Feasible matches select the neighbor with the lowest rank rather
 than the closest spatial distance, spreading assignments across the map.
 
-Reference: Bipartite Ranking (BRK) for two-sided online spatial crowdsourcing.
-'Two-sided_Online_Stable_Task_Assignment_with_Incomplete_Lists_and_Ties_in_Spatial_Crowdsourcing.pdf'
+Reference: "Two-sided Online Stable Task Assignment with Incomplete Lists and
+Ties in Spatial Crowdsourcing" (Algorithm 3, BRK variant).
 
 ADAPTATION NOTE (mention in paper):
 This implementation preserves the core mechanism of the original algorithm —
@@ -17,9 +17,9 @@ instantaneous-matching model:
   1. Stability constraints (Definition 4 / Algorithm 3, Lines 11 & 20):
      The paper requires that a matched pair (u, v) satisfies a stability
      condition (no unmatched neighbour offers both shorter distance AND lower
-     total travel weight). Implementing this correctly requires simultaneous
-     knowledge of all available neighbours at the same timestamp, which
-     conflicts with the DES's sequential, irrevocable event processing.
+     total travel weight).      Implementing this correctly requires simultaneous knowledge of all
+     available neighbours at the same timestamp, which conflicts with this
+     simulator's sequential, irrevocable event processing model.
 
   2. Multi-capacity exhaustion loop (Algorithm 3, Line 3):
      The paper wraps matching in a `while i.cap > 0` loop, allowing a single

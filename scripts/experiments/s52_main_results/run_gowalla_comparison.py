@@ -365,7 +365,21 @@ def main() -> None:
         "--timeout", type=float, default=1800.0,
         help="Per-run timeout in seconds (default: 1800 = 30 min)",
     )
+    parser.add_argument(
+        "--only", type=str, default=None,
+        help="Comma-separated strategy keys to run, e.g. greedy,composite,knlf",
+    )
     args = parser.parse_args()
+
+    # Filter strategies if --only is specified
+    active_strategies = STRATEGIES
+    if args.only:
+        keys = {k.strip() for k in args.only.split(",")}
+        active_strategies = [s for s in STRATEGIES if s[1] in keys]
+        if not active_strategies:
+            print(f"ERROR: No strategies matched keys: {keys}")
+            print(f"  Available keys: {[s[1] for s in STRATEGIES]}")
+            sys.exit(1)
 
     # Resolve which compression modes to run
     if args.compression == "both":
@@ -387,7 +401,7 @@ def main() -> None:
         PROJECT_ROOT, f"gowalla_{args.region}_{date_tag}.csv"
     )
 
-    n_runs = len(compress_modes) * len(ratio_configs) * len(STRATEGIES)
+    n_runs = len(compress_modes) * len(ratio_configs) * len(active_strategies)
 
     print("=" * 80)
     print("  Gowalla LBSN — Strategy Comparison")
@@ -395,7 +409,7 @@ def main() -> None:
     print(f"  Date range:  {args.date_start} → {args.date_end}")
     print(f"  Compression: {args.compression}")
     print(f"  Ratios:      {', '.join(r[0] for r in ratio_configs)}")
-    print(f"  Strategies:  {', '.join(s[0] for s in STRATEGIES)}")
+    print(f"  Strategies:  {', '.join(s[0] for s in active_strategies)}")
     print(f"  Total runs:  {n_runs}")
     print(f"  Output:      {output_path}")
     print("=" * 80)
@@ -470,7 +484,7 @@ def main() -> None:
                 workers_template = workers_raw
                 tasks_template   = tasks_raw
 
-            for strat_display, strat_key, strat_params in STRATEGIES:
+            for strat_display, strat_key, strat_params in active_strategies:
                 run_label = f"{compress_label[:11]} | {ratio_label[:9]} | {strat_display}"
                 m = run_combination(
                     workers_template, tasks_template,
